@@ -1,0 +1,350 @@
+% Links
+% https://stackoverflow.com/questions/16084788/generic-trie-haskell-implementation
+% Hinze paper: http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.8.4069
+
+%% For double-blind review submission, w/o CCS and ACM Reference (max submission space)
+% \documentclass[acmsmall,review]{acmart}\settopmatter{printfolios=true,printccs=false,printacmref=false}
+%% For double-blind review submission, w/ CCS and ACM Reference
+%\documentclass[acmsmall,review,anonymous]{acmart}\settopmatter{printfolios=true}
+%% For single-blind review submission, w/o CCS and ACM Reference (max submission space)
+% \documentclass[acmsmall,review]{acmart}\settopmatter{printfolios=true,printccs=false,printacmref=false}
+%% For single-blind review submission, w/ CCS and ACM Reference
+%\documentclass[acmsmall,review]{acmart}\settopmatter{printfolios=true}
+%% For final camera-ready submission, w/ required CCS and ACM Reference
+\documentclass[format=sigplan]{acmart}
+
+%% Journal information
+%% Supplied to authors by publisher for camera-ready submission;
+%% use defaults for review submission.
+% \acmJournal{PACMPL}
+% \acmVolume{1}
+% \acmNumber{ICFP} % CONF = POPL or ICFP or OOPSLA
+% \acmArticle{1}
+% \acmYear{2020}
+% \acmMonth{8}
+% \acmDOI{} % \acmDOI{10.1145/nnnnnnn.nnnnnnn}
+% \startPage{1}
+
+%% Copyright information
+%% Supplied to authors (based on authors' rights management selection;
+%% see authors.acm.org) by publisher for camera-ready submission;
+%% use 'none' for review submission.
+% \setcopyright{none}
+%\setcopyright{acmcopyright}
+%\setcopyright{acmlicensed}
+%\setcopyright{rightsretained}
+%\copyrightyear{2018}           %% If different from \acmYear
+
+%%% The following is specific to ICFP '20 and the paper
+%%% 'Kinds Are Calling Conventions'
+%%% by Paul Downen, Zena M. Ariola, Simon Peyton Jones, and Richard A. Eisenberg.
+%%%
+\setcopyright{rightsretained}
+\acmPrice{}
+\acmDOI{10.1145/3408986}
+\acmYear{2020}
+\copyrightyear{2020}
+\acmSubmissionID{icfp20main-p93-p}
+\acmJournal{PACMPL}
+\acmVolume{4}
+\acmNumber{ICFP}
+\acmArticle{104}
+\acmMonth{8}
+
+%% Bibliography style
+\bibliographystyle{ACM-Reference-Format}
+%% Citation style
+%% Note: author/year citations are required for papers published as an
+%% issue of PACMPL.
+\citestyle{acmauthoryear}   %% For author/year citations
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Note: Authors migrating a paper from PACMPL format to traditional
+%% SIGPLAN proceedings format must update the '\documentclass' and
+%% topmatter commands above; see 'acmart-sigplanproc-template.tex'.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+%% Some recommended packages.
+\usepackage{booktabs}   %% For formal tables:
+                        %% http://ctan.org/pkg/booktabs
+\usepackage{subcaption} %% For complex figures with subfigures/subcaptions
+                        %% http://ctan.org/pkg/subcaption
+\usepackage[utf8]{inputenc}
+\usepackage{microtype}
+\usepackage{amsmath}
+\usepackage{amsthm}
+% \usepackage{amssymb}
+% \usepackage{stmaryrd}
+\usepackage{framed}
+\usepackage{proof}
+\usepackage{braket}
+\usepackage{fancyvrb}
+\usepackage{listings}
+\usepackage[inline,shortlabels]{enumitem}
+\usepackage[capitalize]{cleveref}
+\usepackage{xcolor}
+\usepackage{pgffor}
+\usepackage{ragged2e}
+
+% \RequirePackage{xargs}
+
+\VerbatimFootnotes
+
+\lstset{language=Haskell}
+
+\let\restriction\relax
+
+\theoremstyle{theorem}
+\newtheorem{proposition}{Proposition}
+\newtheorem{lemma}{Lemma}
+\newtheorem{theorem}{Theorem}
+\newtheorem{corollary}{Corollary}
+\newtheorem{property}{Property}
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}
+\newtheorem{restriction}{Restriction}
+\newtheorem{intuition}{Intuition}
+\theoremstyle{remark}
+\newtheorem{remark}{Remark}
+\newtheorem{notation}{Notation}
+
+%% Style guide forbids boxes around figures
+% \newenvironment{figurebox}{\begin{figure}\begin{framed}}{\end{framed}\end{figure}}
+% \newenvironment{figurebox*}{\begin{figure*}\begin{framed}}{\end{framed}\end{figure*}}
+\newenvironment{figurebox}{\begin{figure}}{\end{figure}}
+\newenvironment{figurebox*}{\begin{figure*}}{\end{figure*}}
+
+\crefname{figure}{Fig.}{Figs.}
+\Crefname{figure}{Fig.}{Figs.}
+\crefname{restriction}{Restriction}{Restrictions}
+
+% Some colors:
+\definecolor{dkcyan}{rgb}{0.1, 0.3, 0.3}
+\definecolor{dkgreen}{rgb}{0,0.3,0}
+\definecolor{olive}{rgb}{0.5, 0.5, 0.0}
+\definecolor{dkblue}{rgb}{0,0.1,0.5}
+
+\definecolor{col:ln}{rgb}  {0.1, 0.1, 0.7}
+\definecolor{col:str}{rgb} {0.8, 0.0, 0.0}
+\definecolor{col:db}{rgb}  {0.9, 0.5, 0.0}
+\definecolor{col:ours}{rgb}{0.0, 0.7, 0.0}
+
+\definecolor{lightgreen}{RGB}{170, 255, 220}
+\definecolor{darkbrown}{RGB}{121,37,0}
+
+% Customized syntax highlighting for Haskell code snippets:
+\colorlet{listing-comment}{gray}
+\colorlet{operator-color}{darkbrown}
+
+\lstdefinestyle{default}{
+    basicstyle=\ttfamily\fontsize{8.7}{9.5}\selectfont,
+    columns=fullflexible,
+    commentstyle=\sffamily\color{black!50!white},
+    escapechar=\#,
+    framexleftmargin=1em,
+    framexrightmargin=1ex,
+    keepspaces=true,
+    keywordstyle=\color{dkblue},
+    mathescape,
+    numbers=none,
+    numberblanklines=false,
+    numbersep=1.25em,
+    numberstyle=\relscale{0.8}\color{gray}\ttfamily,
+    showstringspaces=true,
+    stepnumber=1,
+    xleftmargin=1em
+}
+
+\lstdefinelanguage{custom-haskell}{
+    language=Haskell,
+    deletekeywords={lookup, delete, map, mapMaybe, Ord, Maybe, String, Just, Nothing, Int, Bool},
+    keywordstyle=[2]\color{dkgreen},
+    morekeywords=[2]{String, Map, Ord, Maybe, Int, Bool},
+    morekeywords=[2]{Name, Expression, ESummary, PosTree, Structure, HashCode, VarMap},
+    keywordstyle=[3]\color{dkcyan},
+    literate=%
+        {=}{{{\color{operator-color}=}}}1
+        {|}{{{\color{operator-color}|}}}1
+        {\\}{{{\color{operator-color}\textbackslash$\,\!$}}}1
+        {.}{{{\color{operator-color}.}}}1
+        {=>}{{{\color{operator-color}=>}}}1
+        {->}{{{\color{operator-color}->}}}1
+        {<-}{{{\color{operator-color}<-}}}1
+        {::}{{{\color{operator-color}::}}}1
+}
+
+\lstset{style=default}
+% Environment for code snippets
+\lstnewenvironment{code}[1][]
+  {\small\lstset{language=custom-haskell,#1}}
+  {}
+
+% Environment for example expressions
+\lstnewenvironment{expression}[1][]
+  {\small\lstset{#1}}
+  {}
+
+\begin{document}
+
+\newcommand{\simon}[1]{{\bf SLPJ}: #1 {\bf End SLPJ}}
+
+
+%% Title information
+\title%[Short Title]
+{Triemaps that match}         %% [Short Title] is optional;
+                                        %% when present, will be used in
+                                        %% header instead of Full Title.
+% \titlenote{with title note}             %% \titlenote is optional;
+%                                         %% can be repeated if necessary;
+%                                         %% contents suppressed with 'anonymous'
+% \subtitle{Subtitle}                     %% \subtitle is optional
+% \subtitlenote{with subtitle note}       %% \subtitlenote is optional;
+%                                         %% can be repeated if necessary;
+%                                         %% contents suppressed with 'anonymous'
+
+
+%% Author information
+%% Contents and number of authors suppressed with 'anonymous'.
+%% Each author should be introduced by \author, followed by
+%% \authornote (optional), \orcid (optional), \affiliation, and
+%% \email.
+%% An author may have multiple affiliations and/or emails; repeat the
+%% appropriate command.
+%% Many elements are not rendered, but should be provided for metadata
+%% extraction tools.
+
+%% Author with single affiliation.
+\author{Simon Peyton Jones}
+\affiliation{
+  \institution{Microsoft Research}
+  % \streetaddress{21 Station Rd.}
+  \city{Cambridge}
+  % \postcode{CB1 2FB}
+  \country{UK}
+}
+\email{simonpj@microsoft.com}
+
+\author{Richard A.~Eisenberg}
+\affiliation{
+  \institution{Tweag I/O}
+  \city{Cambridge}
+  \country{UK}
+}
+\email{rae@richarde.dev}
+
+\author{Josef Sveningsson}
+
+%% Abstract
+%% Note: \begin{abstract}...\end{abstract} environment must come
+%% before \maketitle command
+\begin{abstract}
+TrieMaps are great.
+\end{abstract}
+
+%% \maketitle
+%% Note: \maketitle command must come after title commands, author
+%% commands, abstract environment, Computing Classification System
+%% environment and commands, and keywords command.
+\maketitle
+
+
+\section{Introduction} \label{sec:intro}
+
+The designs of many programming languages include a feature where some concrete use of a construct is matched against a set of possible interpretations, where the possible interpretations might be defined in terms of variables to be instantiated at concrete usages. For example:
+\begin{itemize}
+\item Haskell's class instances work this way: the user defines instances (which may contain variables), and then concrete usage sites of class methods require finding an instance that applies.
+\item Agda, Coq, and Idris all have implicit-argument features directly inspired by Haskell's class mechanism.
+\item An extension to Haskell allows overloaded instances, where we select the most specific instance (that is, one that is a specialization of any other possible matching instance).
+\item C++ and Java both support function overloading, where a usage site of a function must be matched against a choice of implementation. C++'s templates and Java's generics allow for variables to be used in the implementations. There are sometimes multiple implementations that match; both languages choose the most specific match (for an appropriate definition of "most specific").
+\item C++ separately allows template specialization, where a templated definition can have concrete specializations. Once again, selection of these specializations depends on a "most-specific" relation appropriate to the case.
+\item Scala? C\#?
+\end{itemize}
+Beyond features specified in a language's design, optimizations may require such a structure. For example, GHC's rewrite rules~\cite{rewrite-rules} requires a similar lookup to find a mapping from expressions to rules that may apply.
+
+Our concern here is the efficient implementation of this matching
+operation. That is, we wish to define a structure mapping keys to
+arbitrary values. The keys are chosen from a type described by a
+context-free grammar and thus comprise small trees. We assume a total
+ordering on such trees. The challenge lies in the fact that we want
+our structure to support wildcard variables, which represent any tree
+at all. We will write such variables with Greek letters. Accordingly,
+we can view a mapping \lstinline{alpha |-> v} as an infinite mapping, connecting
+all possible trees to v, or we can have \lstinline{Maybe alpha |-> v2} map all
+trees whose root is Maybe to the value v2. Combining these to `alpha
+|-> v, Maybe alpha |-> v2` would map all trees to v, except those
+trees that have Maybe at the root, which map to v2. Accordingly,
+looking up in our structure find the most specific
+match.\footnote{This aspect of our design is unforced. We could also
+return all possible matches, instead of selecting the most
+specific. See \cref{sec:most-specific}.}
+
+Our contributions are as follows:
+
+\begin{itemize}
+\item We describe the language-agnostic Variable Trie-Map (VTM) data structure, with the semantics as described above (and made more precise in \cref{sec:vtm}). The keys in a VTM support local bound variables via on-the-fly conversion to de Bruijn levels, necessary to support polymorphic types or $\lambda$-expressions. Looking up in a VTM is linear in the size of the key, regardless of the size of the VTM itself. The operations on a VTM are proved to uphold the sensible properties described in \cref{sec:vtm-properties}.
+\item Some languages require not only the matching behavior above, but also a \emph{unification} operation, where we find not only keys that match, but keys that would match if variables in the looked-up tree were further instantiated. \Cref{sec:unification} describes how we extend VTMs to support unification as well as matching.
+\item While VTMs are time-efficient, they can be space-inefficient. \Cref{sec:path-compression} describes an easy optimization which drastically reduces the memory footprint of VTMs whose keys share little structure in common. This optimization shows a 30% geometric mean savings in the size of the structure GHC uses to look up rewrite rules.
+\item Our work was motivated by quadratic behavior in GHC, observed when checking for instance consistency among imports. This became a problem in practice in Haskell's use at Facebook. We report on our implementation within GHC, showing that it achieves a 98% speedup against the previous (admittedly naive) implementation of instance tables.
+\end{itemize}
+
+\section{Job description}
+
+Our general task is as follows: \emph{implement a finite mapping from keys to values,
+in which the key type is some kind of tree}.
+For example, a \lstinline|TypeMap a| might map a \lstinline{Type} to a value of type \lstinline{a}, providing operations
+such as\footnote{The function \lstinline{alterTM} is a standard generalisation of \lstinline{insert},
+  in which the element to be inserted is generalised to a function \lstinline{Maybe a -> Maybe a}.
+  This function transforms the existing value associated with key, if any (hence the \lstinline{Maybe}), to
+  a new value, with \lstinline{Nothing} indicating deletion.}
+\begin{code}
+  emptyTM  :: TypeMap a
+  lookupTM :: Type -> TypeMap a -> Maybe a
+  insertTM :: Type -> a -> TypeMap a -> TypeMap a
+  alterTM  :: Type -> (Maybe a -> Maybe a)
+              -> TypeMap a -> TypeMap a
+\end{code}
+Here a \lstinline{Type} might be defined like this:
+\begin{code}
+  data Type = TyConTy TyCon
+            | FunTy Type Type
+            | ForAllTy TyVar Type
+            | TyVarTy TyVar
+\end{code}
+This data type is capable of representing types like $Int \rightarrow
+Int$ or $\forall a. a \rightarrow Int \rightarrow a$.  Notice that we
+would expect insertion and lookup to be insensitive to
+$\alpha$-renaming. For example suppose we insert a value with key
+$((\forall a. a \rightarrow a) \rightarrow Int)$, and then look up the
+key $((\forall b. b \rightarrow b) \rightarrow Int)$: we should
+certainly expect to find the value we inserted, even though the name
+of the $\forall$-bound variable has changed.
+
+In GHC we want more: we want to a lookup that does \emph{matching}.
+\simon{Say more}.
+
+\section{Non-solutions}
+
+At first sight the job can be done easily: define a total order on
+\lstinline{Type}, make it an instance of the class \lstinline{Ord},
+and use a standard finite map library such as \lstinline{Data.Map}.
+And indeed that works, but it is terribly slow.  A finite map is
+implemented as a binary search tree; at every node of this tree, we compare the key (a \lstinline{Type}, remember) with
+a key stored at the node; if it is smaller, go left; if larger, go right. So each lookup
+a (logarithmic) number of potentially-full-depth comparisons of two types.
+
+Another possibility might be to hash the \lstinline{Type} and use the
+hash-code as the lookup key.  That would make lookup much faster, but
+it requires at least two full traversals of the key for every lookup:
+one to compute its hash code for every lookup, and a full equality
+comparison on a ``hit'' because hash-codes can collide.  Moreover
+hashing algorithms that respect $\alpha$-conversion are not trivial
+\cite{alpha-hashing}.
+
+\section{Tries}
+
+A rather standard approach to a finite map in which the key has internal structure
+is to use a \emph{trie}.
+
+\end{document}
