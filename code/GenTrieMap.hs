@@ -115,6 +115,8 @@ eqDeBT (D env1 (ForAllTy tv1 t1)) (D env2 (ForAllTy tv2 t2))
   = eqDeBT (D (extendCME tv1 env1) t1)
            (D (extendCME tv2 env2) t2)
 
+eqDeBT _ _ = False
+
 {- *********************************************************************
 *                                                                      *
                   TypeMap
@@ -188,7 +190,7 @@ mkEmptyGTypeMap
 
 lkT :: DeBruijn Type -> (TmplSubst, GTypeMap a) -> [(TmplSubst, a)]
 -- lk = lookup
-lkT (D bv_env ty) (tsubst, EmptyTM)
+lkT _ (_, EmptyTM)
   = []
 lkT (D bv_env ty) (tsubst, TM { .. })
   = tmpl_var_bndr ++ rest
