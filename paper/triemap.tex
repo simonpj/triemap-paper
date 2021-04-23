@@ -293,48 +293,79 @@ Our contributions are as follows:
 
 Our general task is as follows: \emph{implement a finite mapping from keys to values,
 in which the key type is some kind of tree}.
-For example, a \lstinline|TypeMap a| might map a \lstinline{Type} to a value of type \lstinline{a}, providing operations
+For example, a \lstinline|ExprMap a| might map a \lstinline{Expr} to a value of type \lstinline{a}, providing operations
 such as\footnote{The function \lstinline{alterTM} is a standard generalisation of \lstinline{insert},
-  in which the element to be inserted is generalised to a function \lstinline{Maybe a -> Maybe a}.
+  in which the element to be inserted is generalised to a function \lstinline{XT a}, an abbreviation for
+  \lstinline{Maybe a -> Maybe a}.
   This function transforms the existing value associated with key, if any (hence the \lstinline{Maybe}), to
   a new value, with \lstinline{Nothing} indicating deletion.}
 \begin{code}
-  emptyTM  :: TypeMap a
-  lookupTM :: Type -> TypeMap a -> Maybe a
-  insertTM :: Type -> a -> TypeMap a -> TypeMap a
-  alterTM  :: Type -> (Maybe a -> Maybe a)
-              -> TypeMap a -> TypeMap a
+  type XT a = Maybe a -> Maybe a
+  emptyEM  :: ExprMap a
+  lookupEM :: Expr -> ExprMap a -> Maybe a
+  insertEM :: Expr -> a -> ExprMap a -> ExprMap a
+  alterEM  :: Expr -> XT a -> ExprMap a -> ExprMap a
 \end{code}
-Here a \lstinline{Type} might be defined like this:
+Here a \lstinline{Expr} might be defined like this:
 \begin{code}
-  data Type = TyConTy TyCon
-            | FunTy Type Type
-            | ForAllTy TyVar Type
-            | TyVarTy TyVar
+  data Expr = Lit Lit
+            | App Expr Expr
+            | Lam  Var Expr
+            | Var Var
 \end{code}
-This data type is capable of representing types like $Int \rightarrow
-Int$ or $\forall a. a \rightarrow Int \rightarrow a$.  Notice that we
-would expect insertion and lookup to be insensitive to
-$\alpha$-renaming. For example suppose we insert a value with key
-$((\forall a. a \rightarrow a) \rightarrow Int)$, and then look up the
-key $((\forall b. b \rightarrow b) \rightarrow Int)$: we should
-certainly expect to find the value we inserted, even though the name
-of the $\forall$-bound variable has changed.
+Here \lstinline{Var} is the type of variables; which can be compared for
+equality and used as the key of a finite map.  Literals, of type \lstinline{Lit},
+include functions such as \lstinline{add}, and constants such as \lstinline{23}.
+Neithe type is important for this paper, but for the sake of concretemess
+you could imagine them both being simply a string:
+\begin{code}
+  type Var = String
+  type Lit = String
+\end{code}
+The data type \lstinline{Expr} is capable of representing expressions like $add 2 3$
+$\lambda x. add x 3$.  We will use this data type throughout the paper, because it
+has all the features that occur in real expression data types: literals, variables,
+binders, and nodes with multiple children.  A real-world compiler like GHC would have
+many more constructors in the data type.
 
+A finite map keyed by such expressions is extremely useful.
+GHC uses \lstinline{ExprMap} during its common sub-expression
+elimination pass, where the \lstinline{ExprMap} associates an
+expression with the identifier bound to that exrpession; if the same
+expression occurs again, we can look it up in the map, and replace the
+exrpession with the variable.
+
+GHC also does many lookups based on \emph{types} rather than \emph{expressions},
+when implementing type-class instance lookup, or doing type-family reduction.
+A map whose key is a \emph{Type} woudl be perfect for this task.
+
+\subsection{Alpha-renaming}
+
+Remember that the type \lstinline{Expr} is the \emph{key} of our \lstinline{ExprMap} type.
+So we would expect insertion and lookup to be insensitive to
+$\alpha$-renaming. For example suppose we insert a value with key
+$(\lambda x. add x 3)$, and then look up the
+key $(\lambda y. add y 3)$: we should
+certainly expect to find the value we inserted, even though the name
+of the $\lambda$-bound variable has changed.
+
+We will use the \
+
+\subsection{Matching}
 In GHC we want more: we want to a lookup that does \emph{matching}.
 \simon{Say more}.
 
-\section{Non-solutions}
+\section{Non-solutions} \label{sec:ord}
 
 At first sight the job can be done easily: define a total order on
-\lstinline{Type}, make it an instance of the class \lstinline{Ord},
+\lstinline{Expr}, make it an instance of the class \lstinline{Ord},
 and use a standard finite map library such as \lstinline{Data.Map}.
 And indeed that works, but it is terribly slow.  A finite map is
-implemented as a binary search tree; at every node of this tree, we compare the key (a \lstinline{Type}, remember) with
+implemented as a binary search tree; at every node of this tree, we compare the key (a \lstinline{Expr}, remember) with
 a key stored at the node; if it is smaller, go left; if larger, go right. So each lookup
 a (logarithmic) number of potentially-full-depth comparisons of two types.
 
-Another possibility might be to hash the \lstinline{Type} and use the
+Another possibility might be to hash the \lstinline{Expr} and use the
 hash-code as the lookup key.  That would make lookup much faster, but
 it requires at least two full traversals of the key for every lookup:
 one to compute its hash code for every lookup, and a full equality
@@ -345,6 +376,43 @@ hashing algorithms that respect $\alpha$-conversion are not trivial
 \section{Tries}
 
 A rather standard approach to a finite map in which the key has internal structure
-is to use a \emph{trie}.
+is to use a \emph{trie} \cite{trie}.  Let us consider a simplified
+form of expression:
+\begin{code}
+  data ExprS = LitS Lit | AppS ExprS ExprS
+\end{code}
+We have dropped variables and lambdas for now, to concentrate on the initial idea.
+Here is a trie-based implemenation for \lstinline{ExprS}:
+\begin{code}
+  data ExprSMap a = ESM { esm_lit :: Map Lit a
+                        , esm_app :: ExprSMap (ExprSMap a) }
+\end{code}
+Here `Map Lit a` is any standard, existing finite map keyed by `Lit`.
+There are many such finite maps available for an ordered type like `Lit`;
+the `containers` package will do as well as any.
+
+One way to understand this slightly odd data type is to study its lookup function:
+\begin{code}
+lkExprS :: ExprS -> ExprSMap a -> Maybe a
+lkExprS (LitS lit)   m = Map.lookup lit (esm_lit m)
+lkExprS (AppS e1 e2) m = case lkExprS e1 (esm_app m) of
+                           Nothing -> Nothing
+                           Just m1 -> lkExprS e2 m1
+\end{code}
+The expression \lstinline{esm_lit m} selects the \lstinline{esm_lit} field from the record \lstinline{m}.  So the first
+equation says that to look up a literal, just look that literal up in the \lstinline{esm_lit} field.
+But if the expression is an \lstinline{(AppS e1 e2)} node, we first look up \lstinline{e1}
+in the \lstinline{esm_app} field, \emph{which returns a finite map}.  We then look up \lstinline{e2}
+in that map.  Each distinct \lstinline{e1} yields a different map in which to look up \lstinline{e2}.
+
+Notice that in contrast to the approach of \Cref{sec:ord}, we never compare two expressions
+for equality or ordering.  We simply walk down the \lstinline{ExprMap} structure, guided
+at each step by the next node in the target.  (We typically use the term ``target'' for the
+key we are looking up in the finite map.)
+
+Here is the code for altering a binding in the map:
+\begin{code}
+  xtExprS  :: Expr -> XT a -> ExprMap a -> ExprMap a
+\end{code}
 
 \end{document}
