@@ -270,7 +270,7 @@ liftXT insert tkeys (Just m) = Just (insert tkeys m)
 
 type TmplVar = TyVar
 type TmplVarSet = Set.Set TyVar
-type TmplKey = Int
+type TmplKey = CmKey
 type TmplKeys = CmEnv  -- Maps TmplVar :-> TmplKey
 
 type TmplOccs a = [(TmplKey,a)]
@@ -312,7 +312,7 @@ extendTmplSubst ty (TS { ts_subst = subst, ts_next = n })
 *                                                                      *
 ********************************************************************* -}
 
-type BoundVar = Int  -- Bound variables are deBruijn numbered
+type BoundVar = CmKey  -- Bound variables are deBruijn numbered
 type BoundVarMap a = IntMap.IntMap a
 
 emptyBoundVarMap :: BoundVarMap a
@@ -340,8 +340,9 @@ xtBoundVarOcc tv f tm = IntMap.alter f tv tm
 *                                                                      *
 ********************************************************************* -}
 
-data CmEnv = CME { cme_next :: !BoundVar
-                 , cme_env  :: Map.Map TyVar BoundVar }
+type CmKey = Int
+data CmEnv = CME { cme_next :: !CmKey
+                 , cme_env  :: Map.Map TyVar CmKey }
 
 emptyCME :: CmEnv
 emptyCME = CME { cme_next = 0, cme_env = Map.empty }
