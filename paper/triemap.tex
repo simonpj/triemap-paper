@@ -345,21 +345,27 @@ What API might such a map have. We follow the design pattern of
 the \lstinline{containers} library, whose key functions are given in \Cref{fig:containers},
 and seek these basic operations:
 \begin{code}
-  type XT a = Maybe a -> Maybe a
+  type XT v = Maybe v -> Maybe v
 
-  emptyEM  :: ExprMap a
-  lookupEM :: Expr -> ExprMap a -> Maybe a
-  alterEM  :: Expr -> XT a -> ExprMap a -> ExprMap a
+  emptyEM  :: ExprMap v
+  lookupEM :: Expr -> ExprMap v -> Maybe v
+  alterEM  :: Expr -> XT v -> ExprMap v -> ExprMap v
 \end{code}
 The functions \lstinline{emptyEM} and \lstinline{lookupEM} should be
 self-explanatory.  The function \lstinline{alterTM} is a standard
 generalisation of \lstinline{insert}, in which the element to be
-inserted is generalised to a function \lstinline{XT a}, an
-abbreviation for \lstinline{Maybe a -> Maybe a}.  This function
+inserted is generalised to a function \lstinline{XT v}, an
+abbreviation for \lstinline{Maybe v -> Maybe v}.  This function
 transforms the existing value associated with key, if any (hence the
 \lstinline{Maybe}), to a new value, with \lstinline{Nothing}
-indicating deletion.
+indicating deletion.  Given \lstinline{alterEM} we can easily define \lstinline{insertEM} adn \lstinline{deleteEM}:
+\begin{code}
+  insertEM :: Expr -> v -> ExprMap v -> ExprMap v
+  insertEM e v = alterEM e (\_ -> Just v)
 
+  deleteEM :: Expr -> ExprMap v -> ExprMap v
+  deleteEM e = alterEM e (\_ -> Nothing)
+\end{code}
 We will add more functions later, as we go.
 
 \subsection{Alpha-renaming}
@@ -405,6 +411,9 @@ form of expression:
   data ExprS = LitS Lit | AppS ExprS ExprS
 \end{code}
 We have dropped variables and lambdas for now, to concentrate on the initial idea.
+
+\subsection{The basic idea} \label{sec:alter}
+
 Here is a trie-based implemenation for \lstinline{ExprS}:
 \begin{code}
   data ExprSMap v = ESM { esm_lit :: Map Lit v
@@ -416,13 +425,13 @@ the `containers` package will do as well as any.
 
 One way to understand this slightly odd data type is to study its lookup function:
 \begin{code}
-lkExprS :: ExprS -> ExprSMap v -> Maybe v
-lkExprS e (ESM { esm_lit = m_lit, esm_app = m_app }
-  = case e of
-     LitS lit   -> Map.lookup lit m_lit
-     AppS e1 e2 -> case lkExprS e1 m_app of
-                     Nothing -> Nothing
-                     Just m1 -> lkExprS e2 m1
+  lkExprS :: ExprS -> ExprSMap v -> Maybe v
+  lkExprS e (ESM { esm_lit = m_lit, esm_app = m_app }
+    = case e of
+       LitS lit   -> Map.lookup lit m_lit
+       AppS e1 e2 -> case lkExprS e1 m_app of
+                       Nothing -> Nothing
+                       Just m1 -> lkExprS e2 m1
 \end{code}
 The expression \lstinline{esm_lit m} selects the \lstinline{esm_lit} field from the record \lstinline{m}.  So the first
 equation says that to look up a literal, just look that literal up in the \lstinline{esm_lit} field.
@@ -437,15 +446,15 @@ key we are looking up in the finite map.)
 
 Here is the code for \lstinline{alter}:
 \begin{code}
-xtExprS  :: ExprS -> XT v -> ExprSMap v -> ExprSMap v
-xtExprS e xt m@(ESM { esm_lit = m_lit, esm_app = m_app }
-  = case of
-      LitS lit   -> Map.alter lit xt m_lit
-      AppS e1 e2 -> xtExprS e1 (liftXT (xtExprS e2 xt)) m_app
+  xtExprS  :: ExprS -> XT v -> ExprSMap v -> ExprSMap v
+  xtExprS e xt m@(ESM { esm_lit = m_lit, esm_app = m_app }
+    = case of
+        LitS lit   -> Map.alter lit xt m_lit
+        AppS e1 e2 -> xtExprS e1 (liftXT (xtExprS e2 xt)) m_app
 
-liftXT :: (ExprSMap v -> ExprSMap v) -> XT (ExprSMap)
-liftXT f Nothing  = Just (f empExprS)
-liftXT f (Just m) = Just (f m)
+  liftXT :: (ExprSMap v -> ExprSMap v) -> XT (ExprSMap)
+  liftXT f Nothing  = Just (f empExprS)
+  liftXT f (Just m) = Just (f m)
 \end{code}
 In the \lstinline{AppS} case we look up \lstinline{e1} in \lstinline{m_app};
 we should find a \lstinline{TypeMap} there, which we want to alter with \lstinline{xt}.
@@ -454,9 +463,9 @@ for impedence-matching.
 
 Finally, we need an empty map:
 \begin{code}
-empExprS :: ExprSMap v
-empExprS = ESM { esm_lit = Map.empty
-               , esm_app = empExprS }
+  empExprS :: ExprSMap v
+  empExprS = ESM { esm_lit = Map.empty
+                 , esm_app = empExprS }
 \end{code}
 It is interesting to note that \lstinline{empExprS} is an infinite, recursive structure:
 the \lstinline{esm_app} field refers back to \lstinline{empExprS}.
@@ -467,24 +476,24 @@ instantiates \lstinline{v} to a differnet type than the parent function definiti
 Haskell supports polymorphic recurision readily, provided you give type signature to
 \lstinline{lkExprS}, but not all languages do.
 
-\subsection{Folds and the empty map}
+\subsection{Folds and the empty map} \label{sec:fold}
 
 Suppose we wanted to count the number of elements in the finite map; in \lstinline{containers}
 this is the function \lstinline{Map.size} (\Cref{fig:containers}).  We might try
 \begin{code}
-szExprS :: ExprSMap v -> Int
-szExprS (ESM { esm_lit = m_lit, esm_app = m_app })
-  = Map.size m_lit + ???
+  sizeExprS :: ExprSMap v -> Int
+  sizeExprS (ESM { esm_lit = m_lit, esm_app = m_app })
+    = Map.size m_lit + ???
 \end{code}
 We seem stuck because the size of the \lstinline{m_app} map is not what we want: rather,
 we want to add up the sizes of its elements.   The right thing to do is to generalise to a fold:
 \begin{code}
-foldrExprS :: (v -> r -> r) -> r -> ExprSMap v -> r
-foldrExprS k z (ESM { esm_lit = m_lit, esm_app = m_app })
-  = Map.foldr k z1 m_lit
-  where
-    z1 = foldrExprS kapp z m_app
-    kapp m1 r = foldrExprS k r m1
+  foldrExprS :: (v -> r -> r) -> r -> ExprSMap v -> r
+  foldrExprS k z (ESM { esm_lit = m_lit, esm_app = m_app })
+    = Map.foldr k z1 m_lit
+    where
+      z1 = foldrExprS kapp z m_app
+      kapp m1 r = foldrExprS k r m1
 \end{code}
 Here, in the binding for \lstinline{z1} we fold over \lstinline{m_app :: ExprSMap (ExprSMap v)}.
 The function \lstinline{kapp} is combines the map we find with the accumulator, by again
@@ -497,15 +506,114 @@ But, alas, \lstinline{foldrExprS} will never terminate!  It always invokes itsel
 The solution is simple: we just need an explicit representation of the empty map.
 Here is one way to do it (we will see another in \Cref{sec:higher-order}:
 \begin{code}
-data ExprSMap v = EmptyESM
-                | ESM { esm_lit :: Map Lit v
-                      , esm_app :: ExprSMap (ExprSMap v) }
+  data ExprSMap v = EmptyESM
+                  | ESM { esm_lit :: Map Lit v
+                        , esm_app :: ExprSMap (ExprSMap v) }
 
-empExprS :: ExprSMap v
-empExprS = EmptyESM
+  empExprS :: ExprSMap v
+  empExprS = EmptyESM
+
+  foldrExprS :: (v -> r -> r) -> r -> ExprSMap v -> r
+  foldrExprS k z EmptyESM
+    = z
+  foldrExprS k z (ESM { esm_lit = m_lit, esm_app = m_app })
+    = Map.foldr k z1 m_lit
+    where
+      z1 = foldrExprS kapp z m_app
+      kapp m1 r = foldrExprS k r m1
+\end{code}
+Thus equipped with a fold, we can easily define the size function, and another
+that returns the range of the map:
+\begin{code}
+  sizeExprS :: ExprSMap v -> Int
+  sizeExprS = foldrExprS (\_ n -> n+1) 0
+
+  elemsExprS :: ExprSMap v -> [v]
+  elemsExprS = foldrExprS (:) []
 \end{code}
 
-\subsection{Singleton maps}
+\subsection{Singleton maps} \label{sec:singleton}
+
+Suppose we start with an empty map, and insert a value
+with a key (an \lstinline{Expr}) that is large, say
+\begin{code}
+  App (App (Lit "f") (Lit "2")) (Lit "3"))
+\end{code}
+Looking at the code
+for \lstinline{xtExprS} in \Cref{sec:alter}, you can see that
+because there is an \lstinline{App} at the root, we will build an
+\lstinline{ESM} record with an empty \lstinline{esm_lit} and an
+\lstinline{esm_app} field that is... another \lstinline{ESM}
+record.  Again the \lstinline{esm_lit} field will contain an
+empty map, while the \lstinline{esm_app} field is a further \lstinline{ESM} record.
+
+In effect, the key is linearised into a chain of \lstinline{ESM} records.
+This is great when there are a lot of keys with shared structure, but
+once we are into a sub-tree that represents a single key-value pair it is
+a rather inefficient way to represent the key.  So a simple idea is this:
+when a \lstinline{ExprMap} represents a single key-value pair, represent it
+as directly a key-value pair!  Like this:
+\begin{code}
+  data ExprSMap v = EmptyESM
+                  | SingleESM ExprS v
+                  | ESM { esm_lit :: Map Lit v
+                        , esm_app :: ExprSMap (ExprSMap v) }
+\end{code}
+The code for lookup practically writes itself:
+\begin{code}
+  lkExprS :: ExprS -> ExprSMap v -> Maybe v
+  lkExprS e EmptyESM
+    = Nothing
+  lkExprS e1 (SingleESM e2 v2)
+  = if e1 == e2 then Just e2
+                else Nothing
+  lkExprS e (ESM { esm_lit = m_lit, esm_app = m_app }
+    = case e of
+       LitS lit   -> Map.lookup lit m_lit
+       AppS e1 e2 -> case lkExprS e1 m_app of
+                       Nothing -> Nothing
+                       Just m1 -> lkExprS e2 m1
+\end{code}
+Notice that in the \lstinline{SingleESM} case we need equality on \lstinline{Expr},
+to tell if the key being looked up, \lstinline{k1} is the same as the key in
+the \lstinline{SingleESM}, namely \lstinline{k2}.
+
+The code for alter is more interesting, becuase it governs the shift from
+\lstinline{EmptyESM} to \lstinline{SingleESM} and thence for \lstinline{ESM}:
+\begin{code}
+  xtExprS  :: ExprS -> XT v -> ExprSMap v -> ExprSMap v
+  xtExprS e xt EmptyESM
+    = case xt Nothing of
+        Nothing -> EmptyESM
+        Just v  -> SingleESM e v
+
+  xtExprS e xt m@(SingleESM key v1)
+    | e == key
+    = case xt (Just v1) of
+        Nothing -> EmptyESM
+        Just v2  -> SingleESM e v2
+    | otherwise
+    = case xt Nothing of
+        Nothing -> m
+        Just v2 -> xtExprS key (\_ -> Just v1) $
+                   xtExprS e   (\_ -> Just v2) $
+                   ESM { esm_lit = Map.empty, esm_app = emptyESM }
+
+  xtExprS e xt m@(ESM { esm_lit = m_lit, esm_app = m_app }
+    = case of
+        LitS lit   -> Map.alter lit xt m_lit
+        AppS e1 e2 -> xtExprS e1 (liftXT (xtExprS e2 xt)) m_app
+
+  liftXT :: (ExprSMap v -> ExprSMap v) -> XT (ExprSMap)
+  liftXT f Nothing  = Just (f empExprS)
+  liftXT f (Just m) = Just (f m)
+\end{code}
+Although we began by speaking of a map containing only one key-value pair,
+this representation uses \lstinline{ESM} while there are keys that share structure,
+but as soon as we get into a sub-treee where there is no overlap, we revert
+to \lstinline{SingleESM}.
+
+This optimisation makes a big difference in practice: see \Cref{sec:results}.
 
 \subsection{Maps of higher kinds}
 
