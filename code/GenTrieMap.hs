@@ -1,7 +1,13 @@
 {-# LANGUAGE TypeFamilies, RankNTypes, FlexibleInstances, FlexibleContexts,
-             RecordWildCards, ScopedTypeVariables #-}
+             RecordWildCards, ScopedTypeVariables, StandaloneKindSignatures,
+             DataKinds, GADTs, TypeApplications, QuantifiedConstraints,
+             StandaloneDeriving, DeriveFoldable, TypeOperators, PolyKinds,
+             DeriveFunctor #-}
 
 module GenTrieMap where
+
+import qualified Data.Kind as Kind
+import Data.Kind ( Constraint )
 
 import Data.List( foldl' )
 import qualified Data.Map as Map
@@ -11,6 +17,96 @@ import Control.Monad
 import Data.Maybe( isJust )
 import Text.PrettyPrint as PP
 import Debug.Trace
+import Data.Functor.Const
+import Data.Coerce
+import Data.Type.Equality
+import Unsafe.Coerce
+
+{- *********************************************************************
+*                                                                      *
+                   Preliminaries
+*                                                                      *
+********************************************************************* -}
+
+type Ty = Kind.Type
+
+{- *********************************************************************
+*                                                                      *
+                   Natural numbers
+*                                                                      *
+********************************************************************* -}
+
+data Nat = Zero | Succ Nat    -- used only at compile time
+
+type SNat :: Nat -> Ty
+newtype SNat n where
+  UnsafeMkSNat :: { snatToInt :: Int } -> SNat n
+
+type SNatI :: Nat -> Constraint
+class SNatI n where
+  snat :: SNat n
+instance SNatI Zero where
+  {-# INLINE snat #-}
+  snat = UnsafeMkSNat 0
+instance SNatI n => SNatI (Succ n) where
+  {-# INLINE snat #-}
+  snat = UnsafeMkSNat (1 + snatToInt (snat @n))
+
+unsafeNatEqualityProof :: m :~: n
+unsafeNatEqualityProof = unsafeCoerce (Refl @())
+
+eqSNat :: SNat m -> SNat n -> Maybe (m :~: n)
+eqSNat (UnsafeMkSNat m) (UnsafeMkSNat n)
+  | m == n    = Just unsafeNatEqualityProof
+  | otherwise = Nothing
+
+type Fin :: Nat -> Ty     -- numbers in the range [0, n)
+newtype Fin n where
+  UnsafeMkFin :: { finToInt :: Int } -> Fin n
+  deriving (Show, Eq)
+
+maxFin :: forall n. SNatI n => Fin (Succ n)
+maxFin = UnsafeMkFin (snatToInt (snat @n))
+
+bumpFinIndex :: Fin n -> Fin (Succ n)
+bumpFinIndex = coerce
+
+{- *********************************************************************
+*                                                                      *
+                   Maps
+*                                                                      *
+********************************************************************* -}
+
+type FinMap :: Nat -> Ty -> Ty
+newtype FinMap n a where
+  UnsafeMkFinMap :: IntMap.IntMap a -> FinMap n a
+
+emptyFinMap :: FinMap n a
+emptyFinMap = UnsafeMkFinMap IntMap.empty
+
+lookupFinMap :: Fin n -> FinMap n a -> Maybe a
+lookupFinMap (UnsafeMkFin k) (UnsafeMkFinMap m) = IntMap.lookup k m
+
+insertFinMap :: Fin n -> a -> FinMap n a -> FinMap n a
+insertFinMap (UnsafeMkFin k) val (UnsafeMkFinMap m) = UnsafeMkFinMap (IntMap.insert k val m)
+
+bumpFinMapIndex :: FinMap n a -> FinMap (Succ n) a
+bumpFinMapIndex = coerce
+
+{- *********************************************************************
+*                                                                      *
+                   Vectors
+*                                                                      *
+********************************************************************* -}
+
+type Vec :: Nat -> Ty -> Ty
+data Vec n a where
+  Nil  :: Vec Zero a
+  (:>) :: a -> Vec n a -> Vec (Succ n) a
+infixr 5 :>
+
+deriving instance Functor (Vec n)
+deriving instance Foldable (Vec n)
 
 {- *********************************************************************
 *                                                                      *
@@ -29,8 +125,8 @@ ty1 = FunTy (TyConTy "Int") (TyConTy "Int")
 ty2 = FunTy (TyConTy "Char") (TyConTy "Char")
 ty3 = FunTy (TyConTy "Char") (TyConTy "Int")
 
-ins :: TypeMap String -> (String, [TyVar], Type) -> TypeMap String
-ins m (s,tvs,ty) = insertTypeMap tvs ty s m
+ins :: TypeMap (Const String) -> (String, Vec n TyVar, Type) -> TypeMap (Const String)
+ins m (s,tvs,ty) = insertTypeMap tvs ty (Const s) m
 
 {- *********************************************************************
 *                                                                      *
@@ -123,35 +219,44 @@ eqDeBT _ _ = False
 *                                                                      *
 ********************************************************************* -}
 
-type Match a = ([(TmplVar, TmplKey)], a)
-type TypeMap a = GTypeMap (Match a)
+type Match :: (Nat -> Ty) -> Nat -> Ty
+data Match a n = MkMatch (Vec n (TmplVar, TmplKey n)) (a n)
+
+type TypeMap :: (Nat -> Ty) -> Ty
+type TypeMap a = GTypeMap (Match a) Zero
 
 emptyTypeMap :: TypeMap a
 emptyTypeMap = emptyGTypeMap
 
-insertTypeMap :: forall a. [TyVar]   -- Template type variables
-                        -> Type      -- Template
-                        -> a -> TypeMap a -> TypeMap a
+insertTypeMap :: forall a n. Vec n TyVar   -- Template type variables
+                          -> Type          -- Template
+                          -> a n -> TypeMap a -> TypeMap a
 insertTypeMap tmpl_tvs ty x tm
-  = xtT tmpl_set (deBruijnize ty) f emptyCME tm
+  = xtT tmpl_set (deBruijnize ty) f emptyTmplKeys tm
   where
-    tmpl_set = Set.fromList tmpl_tvs
+    tmpl_set = foldMap Set.singleton tmpl_tvs  -- is there a better way to do this?
 
-    f :: TmplKeys -> XT (Match a)
-    f tkeys _ = Just (map inst_key tmpl_tvs, x)
+    f :: forall m. TmplKeys m -> XT (Match a m)
+    f tkeys _ = case unsafeNatEqualityProof @n @m of   -- if this assumption is wrong, an inst_key will fail
      -- The "_" means just overwrite previous value
+                  Refl -> Just (MkMatch (fmap inst_key tmpl_tvs) x)
+
      where
-        inst_key :: TyVar -> (TmplVar, TmplKey)
-        inst_key tv = case lookupCME tv tkeys of
+        inst_key :: forall. TyVar -> (TmplVar, TmplKey m)  -- `m` is from outer scope
+        inst_key tv = case Map.lookup tv tkeys of
                          Nothing  -> error ("Unbound tmpl var " ++ tv)
                          Just key -> (tv, key)
 
-lookupTypeMap :: Type -> TypeMap a -> [ ([(TmplVar,Type)], a) ]
+type LookupTypeMapResult :: (Nat -> Ty) -> Ty
+data LookupTypeMapResult a where
+  LTMR :: forall n a. Vec n (TmplVar, Type) -> a n -> LookupTypeMapResult a
+
+lookupTypeMap :: Type -> TypeMap a -> [LookupTypeMapResult a]
 lookupTypeMap ty tm
-  = [ (map (lookup tsubst) prs, x)
-    | (tsubst, (prs, x)) <- lkT (deBruijnize ty) (emptyTmplSubst, tm) ]
+  = [ LTMR (fmap (lookup tsubst) prs) x
+    | LkTR tsubst (MkMatch prs x) <- lkT (deBruijnize ty) (LkTR emptyTmplSubst tm) ]
   where
-    lookup :: TmplSubst -> (TmplVar, TmplKey) -> (TmplVar, Type)
+    lookup :: TmplSubst n -> (TmplVar, TmplKey n) -> (TmplVar, Type)
     lookup tsubst (tv, key) = (tv, lookupTmplSubst key tsubst)
 
 
@@ -161,24 +266,25 @@ lookupTypeMap ty tm
 *                                                                      *
 ********************************************************************* -}
 
-data GTypeMap a
+type GTypeMap :: (Nat -> Ty) -> Nat -> Ty
+data GTypeMap a n
   = EmptyTM
-  | TM { tm_tvar   :: Maybe a          -- First occurrence of a template tyvar
-       , tm_xvar   :: TmplOccs a       -- Subsequent occurrence of a template tyvar
+  | TM { tm_tvar   :: Maybe (a (Succ n))  -- First occurrence of a template tyvar
+       , tm_xvar   :: TmplOccs a n        -- Subsequent occurrence of a template tyvar
 
-       , tm_bvar   :: BoundVarMap a    -- Occurrence of a forall-bound tyvar
-       , tm_fvar   :: FreeVarMap a     -- Occurrence of a completely free tyvar
+       , tm_bvar   :: BoundVarMap (a n)   -- Occurrence of a forall-bound tyvar
+       , tm_fvar   :: FreeVarMap (a n)    -- Occurrence of a completely free tyvar
 
-       , tm_fun    :: GTypeMap (GTypeMap a)
-       , tm_tycon  :: Map.Map TyCon a
-       , tm_forall :: GTypeMap a
+       , tm_fun    :: GTypeMap (GTypeMap a) n
+       , tm_tycon  :: Map.Map TyCon (a n)
+       , tm_forall :: GTypeMap a n
        }
-  deriving( Show )
+deriving instance (forall m. Show (a m)) => Show (GTypeMap a n)
 
-emptyGTypeMap :: GTypeMap a
+emptyGTypeMap :: GTypeMap a n
 emptyGTypeMap = EmptyTM
 
-mkEmptyGTypeMap :: GTypeMap a
+mkEmptyGTypeMap :: GTypeMap a n
 mkEmptyGTypeMap
   = TM { tm_tvar   = Nothing
        , tm_fvar   = emptyFreeVarMap
@@ -188,45 +294,51 @@ mkEmptyGTypeMap
        , tm_tycon  = Map.empty
        , tm_forall = emptyGTypeMap }
 
-lkT :: DeBruijn Type -> (TmplSubst, GTypeMap a) -> [(TmplSubst, a)]
+type LkTResult :: (Nat -> Ty) -> Ty
+data LkTResult a where
+  LkTR :: forall n a. SNatI n => TmplSubst n -> a n -> LkTResult a
+
+lkT :: forall a. DeBruijn Type -> LkTResult (GTypeMap a) -> [LkTResult a]
 -- lk = lookup
-lkT _ (_, EmptyTM)
+lkT _ (LkTR _ EmptyTM)
   = []
-lkT (D bv_env ty) (tsubst, TM { .. })
+lkT (D bv_env ty) (LkTR tsubst (TM { .. }))
   = tmpl_var_bndr ++ rest
   where
      rest = tmpl_var_occs ++ go ty
 
+     go :: Type -> [LkTResult a]
      go (TyVarTy tv)
        | Just bv <- lookupCME tv bv_env = lkBoundVarOcc bv (tsubst, tm_bvar)
        | otherwise                      = lkFreeVarOcc  tv (tsubst, tm_fvar)
      go (FunTy t1 t2)    = concatMap (lkT (D bv_env t2)) $
-                           lkT (D bv_env t1) (tsubst, tm_fun)
+                           lkT (D bv_env t1) (LkTR tsubst tm_fun)
      go (TyConTy tc)     = lkTC tc (tsubst, tm_tycon)
 
-     go (ForAllTy tv ty) = lkT (D (extendCME tv bv_env) ty) (tsubst, tm_forall)
+     go (ForAllTy tv ty) = lkT (D (extendCME tv bv_env) ty) (LkTR tsubst tm_forall)
 
      tmpl_var_bndr | Just x <- tm_tvar
 --                   , null rest    -- This one line does overlap!
                    , noCaptured bv_env ty
-                   = [(extendTmplSubst ty tsubst, x)]
+                   = [LkTR (extendTmplSubst ty tsubst) x]
                    | otherwise
                    = []
 
-     tmpl_var_occs = [ (tsubst, x)
+     tmpl_var_occs = [ LkTR tsubst x
                      | (tmpl_var, x) <- tm_xvar
                      , deBruijnize (lookupTmplSubst tmpl_var tsubst)
                        `eqDeBT` (D bv_env ty)
                      ]
 
-lkTC :: TyCon -> (TmplSubst, Map.Map TyCon a) -> [(TmplSubst, a)]
+lkTC :: SNatI n => TyCon -> (TmplSubst n, Map.Map TyCon (a n)) -> [LkTResult a]
 lkTC tc (tsubst, tc_map) = case Map.lookup tc tc_map of
                              Nothing -> []
-                             Just x  -> [(tsubst,x)]
+                             Just x  -> [LkTR tsubst x]
 
-xtT :: TmplVarSet -> DeBruijn Type
-    -> (TmplKeys -> XT a)
-    -> TmplKeys -> GTypeMap a -> GTypeMap a
+xtT :: SNatI n
+    => TmplVarSet -> DeBruijn Type
+    -> (forall m. SNatI m => TmplKeys m -> XT (a m))
+    -> TmplKeys n -> GTypeMap a n -> GTypeMap a n
 -- xt = alter
 xtT tmpls ty f tkeys EmptyTM
  = xtT tmpls ty f tkeys mkEmptyGTypeMap
@@ -236,10 +348,10 @@ xtT tmpls (D bv_env ty) f tkeys m@(TM {..})
   where
    go (TyVarTy tv)
       -- Second or subsequent occurrence of a template tyvar
-      | Just xv <- lookupCME tv tkeys  = m { tm_xvar = xtTmplVarOcc xv (f tkeys) tm_xvar }
+      | Just xv <- Map.lookup tv tkeys  = m { tm_xvar = xtTmplVarOcc xv (f tkeys) tm_xvar }
 
       -- First occurrence of a template tyvar
-      | tv `Set.member` tmpls = m { tm_tvar = f (extendCME tv tkeys) tm_tvar  }
+      | tv `Set.member` tmpls = m { tm_tvar = f (extendTmplKeys tv tkeys) tm_tvar  }
 
       -- Occurrence of a forall-bound var
       | Just bv <- lookupCME tv bv_env = m { tm_bvar = xtBoundVarOcc bv (f tkeys) tm_bvar }
@@ -258,8 +370,9 @@ xtT tmpls (D bv_env ty) f tkeys m@(TM {..})
 xtTC :: TyCon -> XT a -> Map.Map TyCon a ->  Map.Map TyCon a
 xtTC tc f m = Map.alter f tc m
 
-liftXT :: (TmplKeys -> GTypeMap a -> GTypeMap a)
-        -> TmplKeys -> Maybe (GTypeMap a) -> Maybe (GTypeMap a)
+liftXT :: SNatI n
+       => (forall m. SNatI m => TmplKeys m -> GTypeMap a m -> GTypeMap a m)
+       -> TmplKeys n -> Maybe (GTypeMap a n) -> Maybe (GTypeMap a n)
 liftXT insert tkeys Nothing  = Just (insert tkeys emptyGTypeMap)
 liftXT insert tkeys (Just m) = Just (insert tkeys m)
 
@@ -272,41 +385,47 @@ liftXT insert tkeys (Just m) = Just (insert tkeys m)
 
 type TmplVar = TyVar
 type TmplVarSet = Set.Set TyVar
-type TmplKey = Int
-type TmplKeys = CmEnv  -- Maps TmplVar :-> TmplKey
+type TmplKey n = Fin n
+type TmplKeys n = Map.Map TmplVar (TmplKey n)  -- Maps TmplVar :-> TmplKey
 
-type TmplOccs a = [(TmplKey,a)]
+emptyTmplKeys :: TmplKeys n
+emptyTmplKeys = Map.empty
 
-xtTmplVarOcc :: TmplKey -> XT a -> TmplOccs a -> TmplOccs a
+extendTmplKeys :: forall n. SNatI n => TyVar -> TmplKeys n -> TmplKeys (Succ n)
+extendTmplKeys tv tkeys = Map.insert tv (maxFin :: Fin (Succ n)) (bumpTmplKeysRange tkeys)
+
+bumpTmplKeysRange :: TmplKeys n -> TmplKeys (Succ n)
+bumpTmplKeysRange = fmap bumpFinIndex   -- should rewrite to a simple call to `coerce`
+
+type TmplOccs :: (Nat -> Ty) -> Nat -> Ty
+type TmplOccs a n = [(TmplKey n, a n)]
+
+xtTmplVarOcc :: TmplKey n -> XT (a n) -> TmplOccs a n -> TmplOccs a n
 xtTmplVarOcc key f []
   = xtCons key (f Nothing) []
 xtTmplVarOcc key f ((key1,x):prs)
   | key == key1 = xtCons key (f (Just x)) prs
   | otherwise   = (key1,x) : xtTmplVarOcc key f prs
 
-xtCons :: TmplKey -> Maybe a -> TmplOccs a -> TmplOccs a
+xtCons :: TmplKey n -> Maybe (a n) -> TmplOccs a n -> TmplOccs a n
 xtCons _   Nothing  tmpl_occs = tmpl_occs
 xtCons key (Just x) tmpl_occs = (key,x) : tmpl_occs
 
 ---------------
-data TmplSubst = TS { ts_subst :: IntMap.IntMap Type     -- Maps TmplKey -> Type
-                    , ts_next  :: TmplKey }
+type TmplSubst n = FinMap n Type     -- Maps TmplKey -> Type
 
-emptyTmplSubst :: TmplSubst
-emptyTmplSubst = TS { ts_subst = IntMap.empty
-                    , ts_next  = 0 }
+emptyTmplSubst :: TmplSubst n
+emptyTmplSubst = emptyFinMap
 
-lookupTmplSubst :: TmplKey -> TmplSubst -> Type
-lookupTmplSubst key (TS { ts_subst = subst })
-  = case IntMap.lookup key subst of
+lookupTmplSubst :: TmplKey n -> TmplSubst n -> Type
+lookupTmplSubst key subst
+  = case lookupFinMap key subst of
       Just ty -> ty
       Nothing -> error ("lookupTmplSubst " ++ show key)
 
-extendTmplSubst :: Type -> TmplSubst -> TmplSubst
-extendTmplSubst ty (TS { ts_subst = subst, ts_next = n })
-  = TS { ts_subst = IntMap.insert n ty subst
-       , ts_next  = n+1 }
-
+extendTmplSubst :: forall n. SNatI n => Type -> TmplSubst n -> TmplSubst (Succ n)
+extendTmplSubst ty subst
+  = insertFinMap (maxFin :: Fin (Succ n)) ty (bumpFinMapIndex subst)
 
 {- *********************************************************************
 *                                                                      *
@@ -326,9 +445,9 @@ lookupBoundVarMap = IntMap.lookup
 extendBoundVarMap :: BoundVar -> a -> BoundVarMap a -> BoundVarMap a
 extendBoundVarMap = IntMap.insert
 
-lkBoundVarOcc :: BoundVar -> (TmplSubst, BoundVarMap a) -> [(TmplSubst, a)]
+lkBoundVarOcc :: SNatI n => BoundVar -> (TmplSubst n, BoundVarMap (a n)) -> [LkTResult a]
 lkBoundVarOcc var (tsubst, env) = case lookupBoundVarMap var env of
-                                     Just x  -> [(tsubst,x)]
+                                     Just x  -> [LkTR tsubst x]
                                      Nothing -> []
 
 xtBoundVarOcc :: BoundVar -> XT a -> BoundVarMap a -> BoundVarMap a
@@ -376,9 +495,9 @@ extendFreeVarMap env tv val = Map.insert tv val env
 xtFreeVarOcc :: TyVar -> XT a -> FreeVarMap a -> FreeVarMap a
 xtFreeVarOcc tv f tm = Map.alter f tv tm
 
-lkFreeVarOcc :: TyVar -> (TmplSubst, FreeVarMap a) -> [(TmplSubst, a)]
+lkFreeVarOcc :: SNatI n => TyVar -> (TmplSubst n, FreeVarMap (a n)) -> [LkTResult a]
 lkFreeVarOcc var (tsubst, env) = case Map.lookup var env of
-                                    Just x  -> [(tsubst,x)]
+                                    Just x  -> [LkTR tsubst x]
                                     Nothing -> []
 
 
@@ -480,6 +599,9 @@ instance Pretty Char where
 instance {-# OVERLAPPING #-} Pretty String where
    ppr s = doubleQuotes (text s)
 
+instance Pretty (Fin n) where
+  ppr f = ppr (finToInt f)
+
 instance (Pretty a, Pretty b) => Pretty (a,b) where
   ppr (x,y) = parens (ppr x PP.<> comma <+> ppr y)
 
@@ -501,7 +623,7 @@ instance Pretty a => Pretty (Maybe a) where
 instance Pretty Type where
    ppr ty = text (show ty)
 
-instance Pretty a => Pretty (GTypeMap a) where
+instance (forall n. Pretty (a n)) => Pretty (GTypeMap a n) where
   ppr EmptyTM = text "EmptyTM"
   ppr (TM {..}) = text "TM" <+> braces (vcat
                     [ text "tm_tvar =" <+> ppr tm_tvar
@@ -511,7 +633,3 @@ instance Pretty a => Pretty (GTypeMap a) where
                     , text "tm_fun =" <+> ppr tm_fun
                     , text "tm_tycon =" <+> ppr tm_tycon
                     , text "tm_forall =" <+> ppr tm_forall ])
-
-instance Pretty TmplSubst where
-   ppr (TS { ts_subst = subst, ts_next = next })
-     = text "TS" PP.<> parens (int next) <+> ppr subst
