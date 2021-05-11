@@ -11,7 +11,7 @@
 %% For single-blind review submission, w/ CCS and ACM Reference
 %\documentclass[acmsmall,review]{acmart}\settopmatter{printfolios=true}
 %% For final camera-ready submission, w/ required CCS and ACM Reference
-\documentclass[format=sigplan]{acmart}
+\documentclass[]{acmart}
 
 %% Journal information
 %% Supplied to authors by publisher for camera-ready submission;
@@ -298,21 +298,29 @@ Map.empty  :: Map k v
 Map.insert :: Ord k => k -> v -> Map k v
 Map.lookup :: Ord k => k -> Map k v -> Maybe v
 Map.alter  :: Ord k => k -> XT v -> Map k v -> Maybe v
+Map.union  :: Ord k => Map k a -> Map k a -> Map k a
 Map.size   :: Map k v -> Int
 Map.foldr  :: (v -> r -> r) -> r -> Map k v -> r
+
+
+infixr 1 (>=>)  -- Kleisli composition
+(>=>) :: Monad m => (a -> m b) -> (b -> m c) -> a -> m c
+
+infixr 1 (>.>)   -- Forward composition
+(>.>)  :: (a -> b) -> (b -> c) -> a -> c
+
+infixr 0 (|>)   -- Reverse function application
+(|>)  :: a -> (a -> b) -> b
 \end{code}
-\caption{API for the containers library}
-\label{fig:containers}
+\caption{API for library functions}
+\label{fig:containers} \label{fig:library}
 \end{figurebox}
 
 Our general task is as follows: \emph{implement a finite mapping from keys to values,
 in which the key type is some kind of tree}.
 For example, an \lstinline{Expr} data type might be defined like this:
 \begin{code}
-  data Expr = Lit Lit
-            | App Expr Expr
-            | Lam  Var Expr
-            | Var Var
+data Expr = Lit Lit | App Expr Expr | Lam  Var Expr | Var Var
 \end{code}
 Here \lstinline{Var} is the type of variables; which can be compared for
 equality and used as the key of a finite map.  Literals, of type \lstinline{Lit},
@@ -335,13 +343,12 @@ elimination pass, where the map associates an
 expression with the identifier bound to that expression; if the same
 expression occurs again, we can look it up in the map, and replace the
 expression with the variable.
-
 GHC also does many lookups based on \emph{types} rather than
 \emph{expressions}.  For example, when implementing type-class
 instance lookup, or doing type-family reduction, GHC needs a map whose
 key is a type.
 
-What API might such a map have. We follow the design pattern of
+What API might such a map have? We follow the design pattern of
 the \lstinline{containers} library, whose key functions are given in \Cref{fig:containers},
 and seek these basic operations:
 \begin{code}
@@ -373,16 +380,44 @@ We will add more functions later, as we go.
 Remember that the type \lstinline{Expr} is the \emph{key} of our \lstinline{ExprMap} type.
 So we would expect insertion and lookup to be insensitive to
 $\alpha$-renaming. For example suppose we insert a value with key
-$(\lambda x. add x 3)$, and then look up the
-key $(\lambda y. add y 3)$: we should
+$(\lambda x.\, add~ x~ 3)$, and then look up the
+key $(\lambda y.\, add~ y~ 3)$: we should
 certainly expect to find the value we inserted, even though the name
 of the $\lambda$-bound variable has changed.
 
 
-\subsection{Matching}
-In GHC we want more: we want to a lookup that does \emph{matching}.
+\subsection{Matching} \label{sec:matching-intro}
 
-\simon{Say more}.
+In GHC we want more: we want to a lookup that does \emph{matching}.  GHC supports
+so-called \emph{rewrite rules} \cite{rewrite-rule-paper}, which the user can specify like this:
+\begin{code}
+{-# RULES "map/map" forall f g xs. map f (map g xs) = map (f . g) xs #-}
+\end{code}
+This rule asks the compiler to rewrite any call that matches the shape
+of the left-hand side (LHS) of the rule into the right-hand side
+(RHS).  We often use the term \emph{template} to describe the LHS.
+The template is explicitly quantified over the \emph{template variables}
+(here \lstinline{f}, \lstinline{g}, and \lstinline{xs}) that
+that can be bound during the matching process.  In other words, \emph{we seek a substitution
+for the template variables that makes the template equal to the target expression}.
+
+Now imagine that we have thousands of such rules.  Given a target
+expression, we want to look up in the rule database, to see if any
+rule matches.  One approach would be to look at the rules one at a
+time, checking for a match, but that would be slow if there are many rules.
+How could we do this more efficiently?
+
+Of course, the template might itself have bound variables, and we would
+like to be insensitive to alpha-conversion for those. For example:
+\begin{code}
+{-# RULES "map/id"  map (\\x -> x) = \\x -> x
+\end{code}
+We want to find a successful match if we see a call \lstinline{(map (\\y -> y))},
+even though the bound variable has a different name.
+
+Lookup-modulo-matching is a valuable ability.  For example, GHC's lookup for
+type-class instances, and for type-family instances, can again have thousands
+of candidate, and depends crucially on matching.
 
 \section{Non-solutions} \label{sec:ord}
 
@@ -392,7 +427,7 @@ and use a standard finite map library such as \lstinline{Data.Map}.
 And indeed that works, but it is terribly slow.  A finite map is
 implemented as a binary search tree; at every node of this tree, we compare the key (a \lstinline{Expr}, remember) with
 a key stored at the node; if it is smaller, go left; if larger, go right. So each lookup
-a (logarithmic) number of potentially-full-depth comparisons of two types.
+performs a (logarithmic) number of potentially-full-depth comparisons of two expressions.
 
 Another possibility might be to hash the \lstinline{Expr} and use the
 hash-code as the lookup key.  That would make lookup much faster, but
@@ -408,77 +443,124 @@ A rather standard approach to a finite map in which the key has internal structu
 is to use a \emph{trie} \cite{trie}.  Let us consider a simplified
 form of expression:
 \begin{code}
-  data ExprS = LitS Lit | AppS ExprS ExprS
+data ExprS = LitS Lit | AppS ExprS ExprS
 \end{code}
 We have dropped variables and lambdas for now, to concentrate on the initial idea.
 
-\subsection{The basic idea} \label{sec:alter}
+\subsection{The basic idea} \label{sec:basic} \label{sec:alter}
 
 Here is a trie-based implemenation for \lstinline{ExprS}:
 \begin{code}
-  data ExprSMap v = ESM { esm_lit :: Map Lit v
-                        , esm_app :: ExprSMap (ExprSMap v) }
+data ExprSMap v = ESM { esm_lit :: Map Lit v
+                      , esm_app :: ExprSMap (ExprSMap v) }
 \end{code}
-Here `Map Lit v` is any standard, existing finite map keyed by `Lit`.
-There are many such finite maps available for an ordered type like `Lit`;
-the `containers` package will do as well as any.
+Here \lstinline{Map Lit v} is any standard, existing finite map keyed by \lstinline{Lit}.
+There are many such finite maps available for an ordered type like \lstinline{Lit};
+the \lstinline{containers} package will do as well as any.
 
 One way to understand this slightly odd data type is to study its lookup function:
 \begin{code}
-  lkExprS :: ExprS -> ExprSMap v -> Maybe v
-  lkExprS e (ESM { esm_lit = m_lit, esm_app = m_app }
-    = case e of
-       LitS lit   -> Map.lookup lit m_lit
-       AppS e1 e2 -> case lkExprS e1 m_app of
-                       Nothing -> Nothing
-                       Just m1 -> lkExprS e2 m1
+lkExprS :: ExprS -> ExprSMap v -> Maybe v
+lkExprS e (ESM { esm_lit = m_lit, esm_app = m_app }
+  = case e of
+     LitS lit   -> Map.lookup lit m_lit
+     AppS e1 e2 -> case lkExprS e1 m_app of
+                     Nothing -> Nothing
+                     Just m1 -> lkExprS e2 m1
 \end{code}
-The expression \lstinline{esm_lit m} selects the \lstinline{esm_lit} field from the record \lstinline{m}.  So the first
-equation says that to look up a literal, just look that literal up in the \lstinline{esm_lit} field.
+This function pattern-matches on the target \lstinline{e}.  The \lstinline{LitS} alternative
+says that to look up a literal, just look that literal up in the \lstinline{esm_lit} field.
 But if the expression is an \lstinline{(AppS e1 e2)} node, we first look up \lstinline{e1}
 in the \lstinline{esm_app} field, \emph{which returns a finite map}.  We then look up \lstinline{e2}
 in that map.  Each distinct \lstinline{e1} yields a different map in which to look up \lstinline{e2}.
+
+We can substantially abbreviate this code, at the expense of making it more cryptic, thus:
+\begin{code}
+lkExprS (LitS lit)   = esm_lit >.> Map.Lookup lit
+lkExprS (AppS e1 e2) = esm_app >.> lkExprS e1 >=> lkExprS e2
+\end{code}
+We use some simple composition combinators, whose types are given in \Cref{fig:library}
+to chain together the component pieces.  The function \lstinline{esm_lit :: ExprSMap v -> Map Lit v}
+is the auto-generated selector that picks \lstinline{esm_lit} field from an \lstinline{ESM} record.
+The functions \lstinline{>.>} and \lstinline{>=>} are forward composition
+operators, respectively monadic and non-monadic, that chain the individual operations together.
+Finally, we have eta-reduced the definition, by omitting the \lstinline{m} parameter.
+These abbreviations become quite worthwhile when we add more constructors to the key data type.
 
 Notice that in contrast to the approach of \Cref{sec:ord}, \emph{we never compare two expressions
 for equality or ordering}.  We simply walk down the \lstinline{ExprMap} structure, guided
 at each step by the next node in the target.  (We typically use the term ``target'' for the
 key we are looking up in the finite map.)
 
-Here is the code for \lstinline{alter}:
-\begin{code}
-  xtExprS  :: ExprS -> XT v -> ExprSMap v -> ExprSMap v
-  xtExprS e xt m@(ESM { esm_lit = m_lit, esm_app = m_app }
-    = case of
-        LitS lit   -> Map.alter lit xt m_lit
-        AppS e1 e2 -> xtExprS e1 (liftXT (xtExprS e2 xt)) m_app
-
-  liftXT :: (ExprSMap v -> ExprSMap v) -> XT (ExprSMap)
-  liftXT f Nothing  = Just (f empExprS)
-  liftXT f (Just m) = Just (f m)
-\end{code}
-In the \lstinline{AppS} case we look up \lstinline{e1} in \lstinline{m_app};
-we should find a \lstinline{TypeMap} there, which we want to alter with \lstinline{xt}.
-We can do that with a recursive call to \lstinline{xtExprS}, using \lstinline{liftXT}
-for impedence-matching.
-
-Finally, we need an empty map:
-\begin{code}
-  empExprS :: ExprSMap v
-  empExprS = ESM { esm_lit = Map.empty
-                 , esm_app = empExprS }
-\end{code}
-It is interesting to note that \lstinline{empExprS} is an infinite, recursive structure:
-the \lstinline{esm_app} field refers back to \lstinline{empExprS}.
-
-These definitions are all extremely short and natural. But they conceal a hidden
-complexity: they require polymorphic recursion. The recursive call to \lstinline{lkExprS e1}
+This definition is extremely short and natural. But it conceals a hidden
+complexity: \emph{they require polymorphic recursion}. The recursive call to \lstinline{lkExprS e1}
 instantiates \lstinline{v} to a differnet type than the parent function definition.
 Haskell supports polymorphic recurision readily, provided you give type signature to
 \lstinline{lkExprS}, but not all languages do.
 
+\subsection{Modifying tries}
+
+It is not enough to look up in a trie -- we need to \emph{build} them too!
+Here is the code for \lstinline{alter}:
+\begin{code}
+xtExprS  :: ExprS -> XT v -> ExprSMap v -> ExprSMap v
+xtExprS e xt m@(ESM { esm_lit = m_lit, esm_app = m_app }
+  = case of
+      LitS lit   -> m { esm_lit = Map.alter lit xt m_lit }
+      AppS e1 e2 -> m { esm_app = xtExprS e1 (liftXT (xtExprS e2 xt)) m_app }
+
+liftXT :: (ExprSMap v -> ExprSMap v) -> XT (ExprSMap)
+liftXT f Nothing  = Just (f empExprS)
+liftXT f (Just m) = Just (f m)
+\end{code}
+In the \lstinline{LitS} case, we must just update the map stored in the \lstinline{esm_lit} field,
+using the \lstinline{Map.alter} function from \Cref{fig:containers};
+in Haskell the notation ``\lstinline|m { fld = e }|'' means the result
+of updating the \lstinline{fld} field of record \lstinline{m} with new value \lstinline{e}.
+In the \lstinline{AppS} case we look up \lstinline{e1} in \lstinline{m_app};
+we should find a \lstinline{ExprSMap} there, which we want to alter with \lstinline{xt}.
+We can do that with a recursive call to \lstinline{xtExprS}, using \lstinline{liftXT}
+for impedence-matching.
+
+We can abbreviate this code with combinators, as we did in the case of
+lookup, and doing so pays dividends when the key is a data type with
+many constructors, each with many fields.  However, the details are
+fiddly and not illuminating, so we omit them here.  Indeed, for the
+same reason, in the rest of this paper we will typically omit the code
+for \lstinline{alter}, though the full code is available in the
+Appendix.
+
+\subsection{Unions of maps}
+
+A common operation on finite maps is to take their union:
+\begin{code}
+unionExprS :: ExprSMap v -> ExprSMap v -> ExprSMap v
+\end{code}
+In tree-based implementations of finite maps, such union operations can be tricky.
+The two trees, which have been built independently, might not have the same
+left-subtree/right-subtree structure, so some careful re-alignment may be requried.
+But for tries there are no such worries --
+their structure is identical, and we can simply zip them together:
+\begin{code}
+unionExprS (ESM { esm_lit = m1_lit, esm_app = m1_app })
+           (ESM { esm_lit = m2_lit, esm_app = m2_app })
+   = ESM { esm_lit = Map.union m1_lit m2_lt, esm_app = unionExprS m1_app m2_app }
+\end{code}
+It could hardly be simpler.
+
 \subsection{Folds and the empty map} \label{sec:fold}
 
-Suppose we wanted to count the number of elements in the finite map; in \lstinline{containers}
+Of course, we need an empty trie. Here is one way to define such a thing:
+\begin{code}
+empExprS :: ExprSMap v
+empExprS = ESM { esm_lit = Map.empty, esm_app = empExprS }
+\end{code}
+It is interesting to note that \lstinline{empExprS} is an infinite, recursive structure:
+the \lstinline{esm_app} field refers back to \lstinline{empExprS}.
+This slightly strange definition works fine for lookup and alteration, but it fails
+fundamentally when we want to iterate over the elements of the trie.
+
+For example, suppose we wanted to count the number of elements in the finite map; in \lstinline{containers}
 this is the function \lstinline{Map.size} (\Cref{fig:containers}).  We might try
 \begin{code}
   sizeExprS :: ExprSMap v -> Int
@@ -486,7 +568,8 @@ this is the function \lstinline{Map.size} (\Cref{fig:containers}).  We might try
     = Map.size m_lit + ???
 \end{code}
 We seem stuck because the size of the \lstinline{m_app} map is not what we want: rather,
-we want to add up the sizes of its elements.   The right thing to do is to generalise to a fold:
+we want to add up the sizes of its elements, and we don't have a way to do that yet.
+The right thing to do is to generalise to a fold:
 \begin{code}
   foldrExprS :: (v -> r -> r) -> r -> ExprSMap v -> r
   foldrExprS k z (ESM { esm_lit = m_lit, esm_app = m_app })
@@ -497,32 +580,28 @@ we want to add up the sizes of its elements.   The right thing to do is to gener
 \end{code}
 Here, in the binding for \lstinline{z1} we fold over \lstinline{m_app :: ExprSMap (ExprSMap v)}.
 The function \lstinline{kapp} is combines the map we find with the accumulator, by again
-folding over the map with \lstinline{foldrExprS}
+folding over the map with \lstinline{foldrExprS}.
 
-But, alas, \lstinline{foldrExprS} will never terminate!  It always invokes itself immediately
+But alas, \lstinline{foldrExprS} will never terminate!  It always invokes itself immediately
 (in \lstinline{z1}) on \lstinline{m_app}; but that invocation will again recursively invoke
 \lstinline{foldrExprS}; and so on for ever.
-
 The solution is simple: we just need an explicit representation of the empty map.
-Here is one way to do it (we will see another in \Cref{sec:higher-order}:
+Here is one way to do it (we will see another in \Cref{sec:generalised}):
 \begin{code}
-  data ExprSMap v = EmptyESM
-                  | ESM { esm_lit :: Map Lit v
-                        , esm_app :: ExprSMap (ExprSMap v) }
+data ExprSMap v = EmptyESM
+                | ESM { esm_lit :: Map Lit v, esm_app :: ExprSMap (ExprSMap v) }
 
-  empExprS :: ExprSMap v
-  empExprS = EmptyESM
+empExprS :: ExprSMap v
+empExprS = EmptyESM
 
-  foldrExprS :: (v -> r -> r) -> r -> ExprSMap v -> r
-  foldrExprS k z EmptyESM
-    = z
-  foldrExprS k z (ESM { esm_lit = m_lit, esm_app = m_app })
-    = Map.foldr k z1 m_lit
-    where
-      z1 = foldrExprS kapp z m_app
-      kapp m1 r = foldrExprS k r m1
+foldrExprS :: (v -> r -> r) -> r -> ExprSMap v -> r
+foldrExprS k z EmptyESM                                   = z
+foldrExprS k z (ESM { esm_lit = m_lit, esm_app = m_app }) = Map.foldr k z1 m_lit
+  where
+    z1 = foldrExprS kapp z m_app
+    kapp m1 r = foldrExprS k r m1
 \end{code}
-Thus equipped with a fold, we can easily define the size function, and another
+Equipped with a fold, we can easily define the size function, and another
 that returns the range of the map:
 \begin{code}
   sizeExprS :: ExprSMap v -> Int
@@ -542,37 +621,34 @@ with a key (an \lstinline{Expr}) that is large, say
 Looking at the code
 for \lstinline{xtExprS} in \Cref{sec:alter}, you can see that
 because there is an \lstinline{App} at the root, we will build an
-\lstinline{ESM} record with an empty \lstinline{esm_lit} and an
+\lstinline{ESM} record with an empty \lstinline{esm_lit}, and an
 \lstinline{esm_app} field that is... another \lstinline{ESM}
 record.  Again the \lstinline{esm_lit} field will contain an
 empty map, while the \lstinline{esm_app} field is a further \lstinline{ESM} record.
 
 In effect, the key is linearised into a chain of \lstinline{ESM} records.
 This is great when there are a lot of keys with shared structure, but
-once we are into a sub-tree that represents a single key-value pair it is
+once we are in a sub-tree that represents a single key-value pair it is
 a rather inefficient way to represent the key.  So a simple idea is this:
 when a \lstinline{ExprMap} represents a single key-value pair, represent it
 as directly a key-value pair!  Like this:
 \begin{code}
-  data ExprSMap v = EmptyESM
-                  | SingleESM ExprS v
-                  | ESM { esm_lit :: Map Lit v
-                        , esm_app :: ExprSMap (ExprSMap v) }
+data ExprSMap v = EmptyESM
+                | SingleESM ExprS v
+                | ESM { esm_lit :: Map Lit v, esm_app :: ExprSMap (ExprSMap v) }
 \end{code}
 The code for lookup practically writes itself:
 \begin{code}
-  lkExprS :: ExprS -> ExprSMap v -> Maybe v
-  lkExprS e EmptyESM
-    = Nothing
-  lkExprS e1 (SingleESM e2 v2)
-  = if e1 == e2 then Just e2
-                else Nothing
-  lkExprS e (ESM { esm_lit = m_lit, esm_app = m_app }
-    = case e of
-       LitS lit   -> Map.lookup lit m_lit
-       AppS e1 e2 -> case lkExprS e1 m_app of
-                       Nothing -> Nothing
-                       Just m1 -> lkExprS e2 m1
+lkExprS :: ExprS -> ExprSMap v -> Maybe v
+lkExprS e EmptyESM
+  = Nothing
+lkExprS e1 (SingleESM e2 v2)
+= if e1 == e2 then Just e2
+              else Nothing
+lkExprS e (ESM { esm_lit = m_lit, esm_app = m_app }
+  = case e of
+     LitS lit   -> Map.lookup lit m_lit
+     AppS e1 e2 -> m_app |> lkExprS e1 >=> lkExprS e2 m1
 \end{code}
 Notice that in the \lstinline{SingleESM} case we need equality on \lstinline{Expr},
 to tell if the key being looked up, \lstinline{k1} is the same as the key in
@@ -581,32 +657,32 @@ the \lstinline{SingleESM}, namely \lstinline{k2}.
 The code for alter is more interesting, becuase it governs the shift from
 \lstinline{EmptyESM} to \lstinline{SingleESM} and thence for \lstinline{ESM}:
 \begin{code}
-  xtExprS  :: ExprS -> XT v -> ExprSMap v -> ExprSMap v
-  xtExprS e xt EmptyESM
-    = case xt Nothing of
-        Nothing -> EmptyESM
-        Just v  -> SingleESM e v
+xtExprS  :: ExprS -> XT v -> ExprSMap v -> ExprSMap v
+xtExprS e xt EmptyESM
+  = case xt Nothing of
+      Nothing -> EmptyESM
+      Just v  -> SingleESM e v
 
-  xtExprS e xt m@(SingleESM key v1)
-    | e == key
-    = case xt (Just v1) of
-        Nothing -> EmptyESM
-        Just v2  -> SingleESM e v2
-    | otherwise
-    = case xt Nothing of
-        Nothing -> m
-        Just v2 -> xtExprS key (\_ -> Just v1) $
-                   xtExprS e   (\_ -> Just v2) $
-                   ESM { esm_lit = Map.empty, esm_app = emptyESM }
+xtExprS e xt m@(SingleESM key v1)
+  | e == key
+  = case xt (Just v1) of
+      Nothing -> EmptyESM
+      Just v2  -> SingleESM e v2
+  | otherwise
+  = case xt Nothing of
+      Nothing -> m
+      Just v2 -> xtExprS key (\_ -> Just v1) $
+                 xtExprS e   (\_ -> Just v2) $
+                 ESM { esm_lit = Map.empty, esm_app = emptyESM }
 
-  xtExprS e xt m@(ESM { esm_lit = m_lit, esm_app = m_app }
-    = case of
-        LitS lit   -> Map.alter lit xt m_lit
-        AppS e1 e2 -> xtExprS e1 (liftXT (xtExprS e2 xt)) m_app
+xtExprS e xt m@(ESM { esm_lit = m_lit, esm_app = m_app }
+  = case of
+      LitS lit   -> Map.alter lit xt m_lit
+      AppS e1 e2 -> xtExprS e1 (liftXT (xtExprS e2 xt)) m_app
 
-  liftXT :: (ExprSMap v -> ExprSMap v) -> XT (ExprSMap)
-  liftXT f Nothing  = Just (f empExprS)
-  liftXT f (Just m) = Just (f m)
+liftXT :: (ExprSMap v -> ExprSMap v) -> XT (ExprSMap)
+liftXT f Nothing  = Just (f empExprS)
+liftXT f (Just m) = Just (f m)
 \end{code}
 Although we began by speaking of a map containing only one key-value pair,
 this representation uses \lstinline{ESM} while there are keys that share structure,
@@ -615,54 +691,208 @@ to \lstinline{SingleESM}.
 
 This optimisation makes a big difference in practice: see \Cref{sec:results}.
 
+\subsection{Generalised singleton and empty maps} \label{sec:generalised}
+
+Rather than implement the code for singleton maps and empty maps in every trie,
+we can do it once and for all, like this:
+\begin{code}
+data SEMap m k v  -- Wrapper for singleton and empty map
+  = EmptyTM | SingleTM k v | MultiTM (m v)
+
+emptySEMap : SEMap m k v
+emptySEMap = EmptyTM
+
+lkSEMap :: Eq k => (k -> m v -> Maybe v) -> k -> SEMap m k v -> Maybe v
+lkSEMap _  _  EmptyTM                    = Nothing
+lkSEMap _  tk (SingleTM k v) | tk == k   = Just v
+                             | otherwise = Nothing
+lkSEMap lk tk (MultiTM m)                = lk tk m
+\end{code}
+Here \lstinline{lkSEMap} is responsible for the empty and singleton
+cases, and delegates to the arugment function \lstinline{lk} in all other cases.
+Now we can return to the simpler code in \Cref{sec:basic}, and define
+\begin{code}
+type GExprSMap v = SEMap ExprSMap ExprS v
+
+lookupExprSMap :: ExprS -> GExprSMap v -> Maybe v
+lookupExprSMap = lkSEMap lkExprS
+\end{code}
+The code for \lstinline{xtSEMap}, and \lstinline{alterExprSMap}, follows straightforwardly.
+
 \subsection{Maps of higher kinds}
 
 Suppose our expresions had multi-argument apply nodes, thus
 \begin{code}
-  data Expr = ...
-            | AppV Expr [Expr]
+data Expr = ...
+          | AppV Expr [Expr]
 \end{code}
-Then we would need to built a triemap keyed by a \emph{list} of \lstinline{Expr}.
+Then we would need to built a trie keyed by a \emph{list} of \lstinline{Expr}.
 Since a list is just another algebraic data type, build with nil and cons,
 we can use exactly the same approach, thus
 \begin{code}
-  lkListExpr ::: [Expr] -> ListExprMap v -> Maybe v
+lkListExpr ::: [Expr] -> ListExprMap v -> Maybe v
 \end{code}
 But rather than build an implementation
 for \lstinline{[Expr]}, and then another for \lstinline{[Decl]}, etc, we obviously
-want to build a triemap for lists of \emph{anything}, something like this:
+want to build a trie for lists of \emph{anything}, something like this \cite{hinze}:
 \begin{code}
-  lkList ::: [k] -> ListMap k v -> Maybe v
+lkList ::: [k] -> ListMap k v -> Maybe v
 \end{code}
 But this obviously cannot work: we need some type-class constraint on the key \lstinline{k},
-saying that it can be used as the key of a triemap.   That suggests
+saying that it can be used as the key of a trie.   That suggests
 \begin{code}
-  lkList :: TrieMapKey k => [k] -> TrieMap k v -> Maybe v
+lkList :: TrieKey k => [k] -> TrieMap k v -> Maybe v
+
+class Eq k => TrieKey k where
+  type TrieMap k :: Type -> Type
+  emptyTM  :: TrieMap k v
+  lookupTM :: k -> TrieMap k v -> Maybe v
+  alterTM  :: k -> XT v -> TrieMap k v -> TrieMap k v
+  foldTM   :: (v -> r -> r) -> r -> TrieMap k v -> r
 \end{code}
-The class constraint \lstinline{TrieMapKey k} says that the type \lstinline{k}
-can be used as the key of a triemap.  The class
-is declared as follows:
-\begin{code}
-  class TrieMapKey k where
-    type TrieMap k :: Type -> Type
-    emptyTM  :: TrieMap k v
-    lookupTM :: k -> TrieMap k v -> Maybe v
-    alterTM  :: k -> XT v -> TrieMap k v -> TrieMap k v
-\end{code}
-Here \lstinline{TrieMap k v} is an \emph{associated type} of the class;
-\lstinline{TrieMap} is a type-level function that transforms the type of the key into
-the type of the triemap.  Now we can witness the fact that \lstinline{ExprS} can be
+The class constraint \lstinline{TrieKey k} says that the type \lstinline{k}
+can be used as the key of a triemap.
+The class has an \emph{associated type}, \lstinline{TrieMap k},
+a type-level function that transforms the type of the key into
+the type of a trie for that key.  Now we can witness the fact that \lstinline{ExprS} can be
 used as the key of a triemap, like this:
 \begin{code}
-  instance TrieMapKey ExprS where
-    type TrieMap ExprS = ExprSMap
-    emptyTM  = emptyExprS
-    lookupTM = lkExprS
-    alterTM  = xtExprS
+instance TrieKey ExprS where
+  type TrieMap ExprS = SEMap ExprSMap ExprS
+  emptyTM  = emptySEMap
+  lookupTM = lkSEMap lkExprS
+  ...
 \end{code}
-All tihs puts us in a position to write the instance for lists:
+All this puts us in a position to write the instance for lists:
 \begin{code}
-  instance TrieMapKey k => TrieMapKey [k] where
-    type TrieMap [k] = ListMap (TrieMap k)
-    e
+instance TrieKey k => TrieKey [k] where
+  type TrieMap [k] = SEMap (ListMap (TrieMap k)) [k]
+  emptyTM  = emptySEMap
+  lookupTM = lkSEMap lkList
+  ...
+
+data ListMap elt_m v = LM { lm_nil  :: Maybe v, lm_cons :: elt_m (ListMap elt_m  v) }
+
+lkList :: TrieKey k => [k] -> TrieMap [k] v -> Maybe v
+lkList []     = lm_nil
+lkList (x:xs) = lm_app |> lookupTM y >=> lkList ys
+\end{code}
+The code for \lstinline{alter} and \lstinline{fold} is routine.
+
+\section{Keys with binders}
+
+Thus far nothing is very new.  Tries are well known, and there are a number of papers about
+tries in Haskell \cite{hinze etc}.  However, none of these works deal with keys that contain
+binders, and that should be insensitive to alpha-conversion.  That is the challenge we
+address next.  Here is our data type
+\begin{code}
+data Expr = Lit Lit | App Expr Expr | Lam Var Expr | Var Var
+\end{code}
+The key idea is simple: we perform de-Bruijn numbering on the fly,
+renamign each binder to a natural number, from outside in.
+So, when inserting or looking up a key $(\lambda x.\, foo~ (\lambda y.\, x+y))$ we
+behave as if the key was $(\lambda.\, foo ~(\lambda. \#1 + \#2))$, where
+each $\#i$ stands for an occurrence of the variable bound by the $i$'th lambda.
+In effect, then, we behave as if the data type was like this:
+\begin{code}
+data Expr' = Lit Lit | App Expr Expr | Lam Expr | FreeVar Var | BoundVar Int
+\end{code}
+Notice (a) the \lstinline{Lam} node no longer has a binder and (b) there are
+two sorts of \lstinline{Var} nodes, one for free variables and one for bound
+variables. We will not actually build a value of type \lstinline{Expr'} and look
+that up in a trie keyed by \lstinline{Expr'}; rather,
+we are going to \emph{behave as if we did}. Here is the code
+\begin{code}
+type DeBKey = Int
+
+data ExprMap v = EM { em_Lit :: Map Lit v
+                    , em_app :: ExprMap (ExprMap v)
+                    , em_lam :: ExprMap v
+                    , em_fv  :: Map Var v      -- Free variables
+                    , em_vb  :: Map DeBKey v } -- Lambda-bound variables
+
+lookupExpr :: Expr -> ExprMap v -> Maybe v
+lookupExpr e = lkExpr (DB emptyBVM e)
+
+data DeBExpr = DB { edb_bvm :: BoundVarMap, edb_expr = Expr }
+
+lkExpr :: DeBExpr -> ExprMap v -> Maybe v
+lkExpr (DB _   (Lit lit))   = em_lit >.> Map.lookup lit
+lkExpr (DB bvm (App e1 e2)) = em_app >.> lkExpr (DB bvm e1) >=> lkExpr (DB bvm e2)
+lkExpr (DB bvm (Lam v e))   = em_lam >.> lkExpr (DB (extendBVM v bvm) e)
+lkExpr (DB bvm (Var v))     = case lookupBVM v bvm of
+                                Nothing -> em_fv  >.> Map.lookup v  -- Free
+                                Just bv -> em_bv  >.> Map.lookup v  -- Lambda-bound
+
+data BoundVarMap = BVM { bvm_next :: DeBKey, bvm_map = Map Var DeBKey }
+
+emptyBVM :: BoundVarMap
+emptyBVM = BVM { bvm_next = 1, bvm_map = Map.empty }
+
+extendBVM :: Var -> BoundVarMap -> BoundVarMap
+extendBVM v (BVM { bvm_next = n, bvm_map = bvm })
+  = BVM { bvm_next = n+1, bvm_map = Map.insert v n bvm }
+
+lookupBVM :: Var -> BoundVarMap -> Maybe DeBKey
+lookupBVM v (BVM {bvm_map = bvm }) = Map.lookup v bvm
+\end{code}
+We maintain a \lstinline{BoundVarMap}
+that maps each lambda-bound variable to its de-Bruijn index, of type \lstinline{DeBKey}.  The key
+we look up --- the first argument of \lstinline{lkExpr} --- becomes a \lstinline{DeBExpr},
+which is a pair of a \lstinline{BoundVarMap} and an \lstinline{Expr}.
+At a \lstinline{Lam}
+node we extend the \lstinline{BoundVarMap}. At a \lstinline{Var} node we
+look up the variable in the \lstinline{BoundVarMap} to decide whether it is
+lambda-bound (within the key) or free, and behave appropriately.
+The code for \lstinline{alter} and \lstinline{fold} holds no new surprises.
+The construction of \Cref{sec:generalised}, to handle empty and singleton maps,
+applies without difficulty to this generalised map.
+
+And that is really all there is to it.  We regard this as a non-obvious merit
+of the entire trie approach: it is quite remarkably easy to extend the basic
+trie idea to be insensitive to alpha-conversion.
+
+\section{Matching}
+
+Next, we extend our tries to accomodate \emph{matching}, as we sketched in
+\Cref{sec:matching-intro}.  First, we have to ask what the API should be.
+
+\subsection{The API of a matching trie}
+
+Here are the signatures of the lookup and insertion\footnote{We begin with \lstinline{insert}
+  because it is simpler than \lstinline{alter}} functions:
+\begin{code}
+type TmplVar = Var
+data Match v = ([(TmplVar, Expr)], v)
+
+insert :: ([TmplVar], Expr) -> v -> MExprMap v -> MExprMap v
+lookup :: Expr -> MExprMap v -> Bag (Match v)
+\end{code}
+A \lstinline{MExprMap} is a trie, keyed by \lstinline{Expr} \emph{templates}.
+A template variable, of type \lstinline{TmplVar} is just a \lstinline{Var}; we
+use the type synonym just for documentation purposes. When inserting into a
+\lstinline{MExprMap} we supply a template expression paired with the \lstinline{[TmplVar]}
+over whic the template is quantified.  When looking up in the map we return a \emph{bag}
+of results (because more than one template might match); each item in this bag is
+a \lstinline{Match} that includes the \lstinline{(TmplVar, Expr)} pairs obtained by
+matching the template, plus the value in the map (which presumably mentions those
+template variables.
+
+We allow the same variable to occur multiple times in the pattern.
+For example, suppose we wanted to encode the rewrite rule
+\begin{code}
+{#- RULE "foo" forall x. f x x = f2 x #-}
+\end{code}
+Here the template, \lstinline{(f x x)} has a repeated variable \lstinline{x},
+and should match targets like \lstinline{(f 1 1)} or \lstinline{(f (g v) (g v))},
+but not \lstinline{(f 1 (g v))}.  This ability important if we are to use matching tries
+to implement class or type-family look in GHC.
+
+\subsection{Towards an implementation}
+
+Like any 
+
+
 \end{document}
+
+
