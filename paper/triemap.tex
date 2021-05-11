@@ -617,4 +617,52 @@ This optimisation makes a big difference in practice: see \Cref{sec:results}.
 
 \subsection{Maps of higher kinds}
 
+Suppose our expresions had multi-argument apply nodes, thus
+\begin{code}
+  data Expr = ...
+            | AppV Expr [Expr]
+\end{code}
+Then we would need to built a triemap keyed by a \emph{list} of \lstinline{Expr}.
+Since a list is just another algebraic data type, build with nil and cons,
+we can use exactly the same approach, thus
+\begin{code}
+  lkListExpr ::: [Expr] -> ListExprMap v -> Maybe v
+\end{code}
+But rather than build an implementation
+for \lstinline{[Expr]}, and then another for \lstinline{[Decl]}, etc, we obviously
+want to build a triemap for lists of \emph{anything}, something like this:
+\begin{code}
+  lkList ::: [k] -> ListMap k v -> Maybe v
+\end{code}
+But this obviously cannot work: we need some type-class constraint on the key \lstinline{k},
+saying that it can be used as the key of a triemap.   That suggests
+\begin{code}
+  lkList :: TrieMapKey k => [k] -> TrieMap k v -> Maybe v
+\end{code}
+The class constraint \lstinline{TrieMapKey k} says that the type \lstinline{k}
+can be used as the key of a triemap.  The class
+is declared as follows:
+\begin{code}
+  class TrieMapKey k where
+    type TrieMap k :: Type -> Type
+    emptyTM  :: TrieMap k v
+    lookupTM :: k -> TrieMap k v -> Maybe v
+    alterTM  :: k -> XT v -> TrieMap k v -> TrieMap k v
+\end{code}
+Here \lstinline{TrieMap k v} is an \emph{associated type} of the class;
+\lstinline{TrieMap} is a type-level function that transforms the type of the key into
+the type of the triemap.  Now we can witness the fact that \lstinline{ExprS} can be
+used as the key of a triemap, like this:
+\begin{code}
+  instance TrieMapKey ExprS where
+    type TrieMap ExprS = ExprSMap
+    emptyTM  = emptyExprS
+    lookupTM = lkExprS
+    alterTM  = xtExprS
+\end{code}
+All tihs puts us in a position to write the instance for lists:
+\begin{code}
+  instance TrieMapKey k => TrieMapKey [k] where
+    type TrieMap [k] = ListMap (TrieMap k)
+    e
 \end{document}
