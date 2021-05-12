@@ -11,7 +11,7 @@
 %% For single-blind review submission, w/ CCS and ACM Reference
 %\documentclass[acmsmall,review]{acmart}\settopmatter{printfolios=true}
 %% For final camera-ready submission, w/ required CCS and ACM Reference
-\documentclass[]{acmart}
+\documentclass[acmsmall]{acmart}
 
 %% Journal information
 %% Supplied to authors by publisher for camera-ready submission;
@@ -395,11 +395,11 @@ so-called \emph{rewrite rules} \cite{rewrite-rule-paper}, which the user can spe
 \end{code}
 This rule asks the compiler to rewrite any call that matches the shape
 of the left-hand side (LHS) of the rule into the right-hand side
-(RHS).  We often use the term \emph{template} to describe the LHS.
-The template is explicitly quantified over the \emph{template variables}
+(RHS).  We often use the term \emph{pattern} to describe the LHS.
+The pattern is explicitly quantified over the \emph{pattern variables}
 (here \lstinline{f}, \lstinline{g}, and \lstinline{xs}) that
 that can be bound during the matching process.  In other words, \emph{we seek a substitution
-for the template variables that makes the template equal to the target expression}.
+for the pattern variables that makes the pattern equal to the target expression}.
 
 Now imagine that we have thousands of such rules.  Given a target
 expression, we want to look up in the rule database, to see if any
@@ -407,7 +407,7 @@ rule matches.  One approach would be to look at the rules one at a
 time, checking for a match, but that would be slow if there are many rules.
 How could we do this more efficiently?
 
-Of course, the template might itself have bound variables, and we would
+Of course, the pattern might itself have bound variables, and we would
 like to be insensitive to alpha-conversion for those. For example:
 \begin{code}
 {-# RULES "map/id"  map (\\x -> x) = \\x -> x
@@ -437,7 +437,7 @@ comparison on a ``hit'' because hash-codes can collide.  Moreover
 hashing algorithms that respect $\alpha$-conversion are not trivial
 \cite{alpha-hashing}.
 
-\section{Tries}
+\section{Tries} \label{sec:ExprS}
 
 A rather standard approach to a finite map in which the key has internal structure
 is to use a \emph{trie} \cite{trie}.  Let us consider a simplified
@@ -779,9 +779,10 @@ lkList (x:xs) = lm_app |> lookupTM y >=> lkList ys
 \end{code}
 The code for \lstinline{alter} and \lstinline{fold} is routine.
 
-\section{Keys with binders}
+\section{Keys with binders} \label{sec:binders}
 
-Thus far nothing is very new.  Tries are well known, and there are a number of papers about
+Thus far we have usefully consolidated the state of the art, but have not really done
+anything new.  Tries are well known, and there are a number of papers about
 tries in Haskell \cite{hinze etc}.  However, none of these works deal with keys that contain
 binders, and that should be insensitive to alpha-conversion.  That is the challenge we
 address next.  Here is our data type
@@ -803,20 +804,20 @@ variables. We will not actually build a value of type \lstinline{Expr'} and look
 that up in a trie keyed by \lstinline{Expr'}; rather,
 we are going to \emph{behave as if we did}. Here is the code
 \begin{code}
-type DeBKey = Int
+type DBKey = Int
 
 data ExprMap v = EM { em_Lit :: Map Lit v
                     , em_app :: ExprMap (ExprMap v)
                     , em_lam :: ExprMap v
                     , em_fv  :: Map Var v      -- Free variables
-                    , em_vb  :: Map DeBKey v } -- Lambda-bound variables
+                    , em_vb  :: Map DBKey v } -- Lambda-bound variables
 
 lookupExpr :: Expr -> ExprMap v -> Maybe v
 lookupExpr e = lkExpr (DB emptyBVM e)
 
-data DeBExpr = DB { edb_bvm :: BoundVarMap, edb_expr = Expr }
+data DBExpr = DB { edb_bvm :: BoundVarMap, edb_expr = Expr }
 
-lkExpr :: DeBExpr -> ExprMap v -> Maybe v
+lkExpr :: DBExpr -> ExprMap v -> Maybe v
 lkExpr (DB _   (Lit lit))   = em_lit >.> Map.lookup lit
 lkExpr (DB bvm (App e1 e2)) = em_app >.> lkExpr (DB bvm e1) >=> lkExpr (DB bvm e2)
 lkExpr (DB bvm (Lam v e))   = em_lam >.> lkExpr (DB (extendBVM v bvm) e)
@@ -824,7 +825,7 @@ lkExpr (DB bvm (Var v))     = case lookupBVM v bvm of
                                 Nothing -> em_fv  >.> Map.lookup v  -- Free
                                 Just bv -> em_bv  >.> Map.lookup v  -- Lambda-bound
 
-data BoundVarMap = BVM { bvm_next :: DeBKey, bvm_map = Map Var DeBKey }
+data BoundVarMap = BVM { bvm_next :: DBKey, bvm_map = Map Var DBKey }
 
 emptyBVM :: BoundVarMap
 emptyBVM = BVM { bvm_next = 1, bvm_map = Map.empty }
@@ -833,12 +834,12 @@ extendBVM :: Var -> BoundVarMap -> BoundVarMap
 extendBVM v (BVM { bvm_next = n, bvm_map = bvm })
   = BVM { bvm_next = n+1, bvm_map = Map.insert v n bvm }
 
-lookupBVM :: Var -> BoundVarMap -> Maybe DeBKey
+lookupBVM :: Var -> BoundVarMap -> Maybe DBKey
 lookupBVM v (BVM {bvm_map = bvm }) = Map.lookup v bvm
 \end{code}
 We maintain a \lstinline{BoundVarMap}
-that maps each lambda-bound variable to its de-Bruijn index, of type \lstinline{DeBKey}.  The key
-we look up --- the first argument of \lstinline{lkExpr} --- becomes a \lstinline{DeBExpr},
+that maps each lambda-bound variable to its de-Bruijn index, of type \lstinline{DBKey}.  The key
+we look up --- the first argument of \lstinline{lkExpr} --- becomes a \lstinline{DBExpr},
 which is a pair of a \lstinline{BoundVarMap} and an \lstinline{Expr}.
 At a \lstinline{Lam}
 node we extend the \lstinline{BoundVarMap}. At a \lstinline{Var} node we
@@ -857,40 +858,129 @@ trie idea to be insensitive to alpha-conversion.
 Next, we extend our tries to accomodate \emph{matching}, as we sketched in
 \Cref{sec:matching-intro}.  First, we have to ask what the API should be.
 
+\subsection{What ``matching'' means}
+
+Our overall goal is to build a \emph{matching trie} into which we can:
+\begin{itemize}
+\item \emph{Insert} (pattern, value) pairs
+\item \emph{Look up} a target expression, and return all the values whose pattern \emph{matches} that expression.
+\end{itemize}
+Semantically, then, a matching trie can be thought of as a set of (pattern, value) pairs.
+What is a pattern? It is a pair $(vs,p)$ where
+\begin{itemize}
+\item $vs$ is a set of \emph{pattern variables}, such as $[a,b,c]$.
+\item $p$ is a \emph{pattern expression}, such as $f\, a\, (g\, b\, c)$.
+\end{itemize}
+A pattern may of course contain free variables (not bound by the pattern), such as $f$ and $g$
+in the above example.
+A pattern $(vs, p)$ \emph{matches} a target expression $e$ iff there is a unique substitution
+$S$ whose domain is $vs$, such that $S(p) = e$.
+
+We allow the same variable to occur more than once in the pattern.
+For example, suppose we wanted to encode the rewrite rule
+\begin{code}
+{#- RULE "foo" forall x. f x x = f2 x #-}
+\end{code}
+Here the pattern $([x], f~ x~ x)$ has a repeated variable $x$,
+and should match targets like $(f~ 1~ 1)$ or $(f ~(g~ v)~ (g ~v))$,
+but not $(f~ 1~ (g~ v))$.  This ability important if we are to use matching tries
+to implement class or type-family look in GHC.
+
+It is sometimes desirable to be able to look up the \emph{most specific match} in the matching trie.  For example, suppose the matching trie contains
+$$
+\{ ([a],\, f\, a), ([p,q],\, f\,(p+q)) \}
+$$
+and suppose we look up $(f\,(2+x))$ in the trie.  The first entry matches, but the second also matches (with $S = [p \mapsto 2, q \mapsto x]$), and \emph{the second pattern is a substitution instance of the first}.  So we may want to return just the second match.  We call this \emph{most-specific matching}.
+
 \subsection{The API of a matching trie}
 
 Here are the signatures of the lookup and insertion\footnote{We begin with \lstinline{insert}
   because it is simpler than \lstinline{alter}} functions:
 \begin{code}
-type TmplVar = Var
-data Match v = ([(TmplVar, Expr)], v)
+type ExprPat = ([PatVar], Expr)
+type PatVar  = Var
+data Match v = ([(PatVar, Expr)], v)
 
-insert :: ([TmplVar], Expr) -> v -> MExprMap v -> MExprMap v
+insert :: ExprPat -> v -> MExprMap v -> MExprMap v
 lookup :: Expr -> MExprMap v -> Bag (Match v)
 \end{code}
-A \lstinline{MExprMap} is a trie, keyed by \lstinline{Expr} \emph{templates}.
-A template variable, of type \lstinline{TmplVar} is just a \lstinline{Var}; we
+A \lstinline{MExprMap} is a trie, keyed by \lstinline{Expr} \emph{patterns}.
+A pattern variable, of type \lstinline{PatVar} is just a \lstinline{Var}; we
 use the type synonym just for documentation purposes. When inserting into a
-\lstinline{MExprMap} we supply a template expression paired with the \lstinline{[TmplVar]}
-over whic the template is quantified.  When looking up in the map we return a \emph{bag}
-of results (because more than one template might match); each item in this bag is
-a \lstinline{Match} that includes the \lstinline{(TmplVar, Expr)} pairs obtained by
-matching the template, plus the value in the map (which presumably mentions those
-template variables.
+\lstinline{MExprMap} we supply a pattern expression paired with the \lstinline{[PatVar]}
+over which the pattern is quantified.  When looking up in the map we return a \emph{bag}
+of results (because more than one pattern might match).  Each item in this bag is
+a \lstinline{Match} that includes the \lstinline{(PatVar, Expr)} pairs obtained by
+matching the pattern, plus the value in the map (which presumably mentions those
+pattern variables).
 
-We allow the same variable to occur multiple times in the pattern.
-For example, suppose we wanted to encode the rewrite rule
+\subsection{Canonical patterns and pattern keys}
+
+In \Cref{sec:binders} we saw how we could use de-Bruijn numbers to
+make two lambda expressions that differ only superficially (in the
+name of their bound variable) look the same.  Clearly, we want to do
+the same for pattern variables.  After all, consider these two patterns:
+$$
+([a,b], f~a~b~True) \qquad and \qquad ([p,q], f~q~p~False)
+$$
+The two pattern expressions share a common prefix, but differ both in the
+\emph{names} of the pattern variable and in their \emph{order}. We might hope
+to suppress the accidental difference of names by using numbers instead -- we will
+use the term \emph{pattern keys} for these numbers.
+But from the set of pattern variables alone, we
+cannot know \emph{a priori} which key to assign to which variable.
+
+Our solution is to number the pattern variables \emph{in order of their
+first occurrence in a left-to-right scan of the expression}\footnote{As we shall
+  see, this is very convenient in implementation terms.}.
+As in \Cref{sec:binders} we will imagine that we cannicalise the pattern, although
+in reality we will do so on-the-fly, without ever constructing the cannonicalised pattern.
+Be that as it may, the canonicalised patterns become:
+$$
+   f~\#1~\#2~True      \qquad and \qquad  f~\#1~\#2~False
+$$
+By numbering the variables left-to-right, we ensure that they ``line up''.
+
+What if the variable occurs more than once? Suppose we are matching
+the pattern $([x],\, f\, x\,x\,x)$ against the target expression
+$(f\,e_1\,e_2\,e_3)$.  At the first occurrence of the pattern variable $x$
+we succeed in matching, binding $x$ to $e_1$; but at the second
+occurrence we must note that $x$ has already been bound, and instead
+check that $e_1$ is equal to $e_2$; and similarly at the third occurrence.
+These are very different actions,
+so it is helpful to distinguish the first occurrence from subsequent
+ones when canonicalising.  So our pattern $([x],\, f\, x\,x\,x)$ might
+be canonicalised to $(f\,\#1\,\$1\,\$1)$, where the first (or binding) occurrence
+is denoted $\#i$ and subsequent (bound) occurrences are denoted $\$i$.
+
+\subsection{Implementation}
+
+We begin by ignoring lambdas and variables, and returning to
+\lstinline{ExprS} (defined in \Cref{sec:ExprS}).  The ideas of
+\Cref{sec:binders} will apply with no difficulty, but it reduces
+clutter to ignore the issue of lambda binders and alpha-conversion for
+now.
+
+With these thoughts in mind, our matching trie has this definition:
 \begin{code}
-{#- RULE "foo" forall x. f x x = f2 x #-}
+data MExprSMap v
+    = MM { mm_lit  :: Map Lit v
+         , mm_app  :: MExprSMap (MExprSMap v)
+         , mm_tvar :: Maybe v     -- First occurrence of a pattern var
+         , mm_xvar :: PatOccs v   -- Subsequent occurrence of a pattern var
+       }
+type PatOccs v = [(PatKey,v)]
 \end{code}
-Here the template, \lstinline{(f x x)} has a repeated variable \lstinline{x},
-and should match targets like \lstinline{(f 1 1)} or \lstinline{(f (g v) (g v))},
-but not \lstinline{(f 1 (g v))}.  This ability important if we are to use matching tries
-to implement class or type-family look in GHC.
+The first two fields are familiar. The third deals with the binding occurrence
+of a pattern variable $\#i$, and the fourth with a bound occurrence of
+a pattern variable $\$i$.  Quite 
 
-\subsection{Towards an implementation}
+\begin{code}
+lkT :: ExprS -> (PatSubst, MExprSMap v) -> Bag (PatSubst, v)
 
-Like any 
+type PatKey = Int
+data PatSubst = PS { ps_next  :: PatKey, ps_subst :: Map PatKey ExprS }
+\end{code}
 
 
 \end{document}
