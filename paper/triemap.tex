@@ -190,6 +190,10 @@
 
 \newcommand{\simon}[1]{{\bf SLPJ}: #1 {\bf End SLPJ}}
 
+\newcommand{\bv}[1]{\#_{#1}}    -- Lambda-bound variable occurrence
+\newcommand{\pv}[1]{\$_{#1}}    -- Pattern variable binder
+\newcommand{\pvo}[1]{\%_{#1}}   -- Pattern variable occurrence
+
 
 %% Title information
 \title%[Short Title]
@@ -792,8 +796,8 @@ data Expr = Lit Lit | App Expr Expr | Lam Var Expr | Var Var
 The key idea is simple: we perform de-Bruijn numbering on the fly,
 renamign each binder to a natural number, from outside in.
 So, when inserting or looking up a key $(\lambda x.\, foo~ (\lambda y.\, x+y))$ we
-behave as if the key was $(\lambda.\, foo ~(\lambda. \#1 + \#2))$, where
-each $\#i$ stands for an occurrence of the variable bound by the $i$'th lambda.
+behave as if the key was $(\lambda.\, foo ~(\lambda. \bv{1} + \bv{2}))$, where
+each $\bv{i}$ stands for an occurrence of the variable bound by the $i$'th lambda.
 In effect, then, we behave as if the data type was like this:
 \begin{code}
 data Expr' = Lit Lit | App Expr Expr | Lam Expr | FreeVar Var | BoundVar Int
@@ -853,7 +857,7 @@ And that is really all there is to it.  We regard this as a non-obvious merit
 of the entire trie approach: it is quite remarkably easy to extend the basic
 trie idea to be insensitive to alpha-conversion.
 
-\section{Matching}
+\section{Tries that match}
 
 Next, we extend our tries to accomodate \emph{matching}, as we sketched in
 \Cref{sec:matching-intro}.  First, we have to ask what the API should be.
@@ -937,11 +941,18 @@ As in \Cref{sec:binders} we will imagine that we cannicalise the pattern, althou
 in reality we will do so on-the-fly, without ever constructing the cannonicalised pattern.
 Be that as it may, the canonicalised patterns become:
 $$
-   f~\#1~\#2~True      \qquad and \qquad  f~\#1~\#2~False
+   f~\pv{1}~\pv{2}~True      \qquad and \qquad  f~\pv{1}~\pv{2}~False
 $$
 By numbering the variables left-to-right, we ensure that they ``line up''.
+In fact, since the pattern variables are numbered left-to-right we don't even
+need the subscripts (just as we don't need a subscript on the lambda in
+de-Bruijn notation), so the canonicalised patterns become
+$$
+   f~\pv{}~\pv{}~True      \qquad and \qquad  f~\pv{}~\pv{}~False
+$$
 
-What if the variable occurs more than once? Suppose we are matching
+
+What if the variable occurs more than once? For example, suppose we are matching
 the pattern $([x],\, f\, x\,x\,x)$ against the target expression
 $(f\,e_1\,e_2\,e_3)$.  At the first occurrence of the pattern variable $x$
 we succeed in matching, binding $x$ to $e_1$; but at the second
@@ -950,8 +961,13 @@ check that $e_1$ is equal to $e_2$; and similarly at the third occurrence.
 These are very different actions,
 so it is helpful to distinguish the first occurrence from subsequent
 ones when canonicalising.  So our pattern $([x],\, f\, x\,x\,x)$ might
-be canonicalised to $(f\,\#1\,\$1\,\$1)$, where the first (or binding) occurrence
-is denoted $\#i$ and subsequent (bound) occurrences are denoted $\$i$.
+be canonicalised to $(f\,\pv{}\,\pvo{1}\,\pvo{1})$, where the first (or binding) occurrence
+is denoted $\pv{}$ and subsequent (bound) occurrences of pattern variable $i$ are denoted $\pvo{i}$.
+
+For pattern-variable occurrences we really do need the subcript! Consider the
+patterns $([x,y], f\,x\,y\,y\,x)$ and $([x,y], f\,x\,y\,x\,y)$. They canonicalise to
+$(f \,\pv{}\, \pv{}\, \pvo{2}\, \pvo{1})$ and $(f \,\pv{}\, \pv{}\, \pvo{1}\, \pvo{2})$
+respectively.
 
 \subsection{Implementation}
 
@@ -972,16 +988,41 @@ data MExprSMap v
 type PatOccs v = [(PatKey,v)]
 \end{code}
 The first two fields are familiar. The third deals with the binding occurrence
-of a pattern variable $\#i$, and the fourth with a bound occurrence of
-a pattern variable $\$i$.  Quite 
-
+of a pattern variable $\pv{}$, and the fourth with a bound occurrence of
+a pattern variable $\pvo{i}$.  The lookup function looks like this:
 \begin{code}
-lkT :: ExprS -> (PatSubst, MExprSMap v) -> Bag (PatSubst, v)
+lkT :: forall v. ExprS -> (PatSubst, MExprSMap v) -> Bag (PatSubst, v)
 
 type PatKey = Int
 data PatSubst = PS { ps_next  :: PatKey, ps_subst :: Map PatKey ExprS }
 \end{code}
+As well as the target expression \lstinline{ExprS} and the trie, the lookup function also takes
+a \lstinline{PatSubst} that gives the bindings for pattern variable bound so far.
+It returns a bag of results, since more than one entry in the trie may match,
+each paired with the \lstinline{PatSubst} that binds the pattern variables.
 
+Once we have the type signature, the code writes itself.
+\begin{code}
+lkT e (psubst, mt)
+  = pat_var_bndr `Bag.union` pat_var_occs `Bag.union` look_at_e
+  where
+     pat_var_bndr :: Bag (PatSubst, v)
+     pat_var_bndr = case mm_tvar of
+                      Just x  -> Bag.single (extendPatSubst ty tsubst, x)
+                      Nothing -> Bag.empty
+
+     pat_var_occs :: Bag (PatSubst, v)
+     pat_var_occs = fromList [ (psubst, x)
+                             | (pat_var, x) <- mm_xvar
+                             , e == lookupPatSubst pat_var psubst ]
+
+     look_at_e :: Bag (PatSubst, v)
+     look_at_e = case e of
+        Lit lit   -> case Map.lookup lit (mm_lit mt) of
+                      Just v  -> Bag.single (psubst,v)
+                      Nothing -> Bag.empty
+        App e1 e2 -> (psubst, m_app mt) |> lkT e1 >=> lkT e2
+\end{code}
 
 \end{document}
 
