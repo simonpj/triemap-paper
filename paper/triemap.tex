@@ -896,7 +896,7 @@ $$
 $$
 and suppose we look up $(f\,(2+x))$ in the trie.  The first entry matches, but the second also matches (with $S = [p \mapsto 2, q \mapsto x]$), and \emph{the second pattern is a substitution instance of the first}.  So we may want to return just the second match.  We call this \emph{most-specific matching}.
 
-\subsection{The API of a matching trie}
+\subsection{The API of a matching trie} \label{sec:match-api}
 
 Here are the signatures of the lookup and insertion\footnote{We begin with \lstinline{insert}
   because it is simpler than \lstinline{alter}} functions:
@@ -905,8 +905,8 @@ type ExprPat = ([PatVar], Expr)
 type PatVar  = Var
 data Match v = ([(PatVar, Expr)], v)
 
-insert :: ExprPat -> v -> MExprMap v -> MExprMap v
-lookup :: Expr -> MExprMap v -> Bag (Match v)
+insertMExpr :: ExprPat -> v -> MExprMap v -> MExprMap v
+lookupMExpr :: Expr -> MExprMap v -> Bag (Match v)
 \end{code}
 A \lstinline{MExprMap} is a trie, keyed by \lstinline{Expr} \emph{patterns}.
 A pattern variable, of type \lstinline{PatVar} is just a \lstinline{Var}; we
@@ -965,31 +965,74 @@ be canonicalised to $(f\,\pv{}\,\pvo{1}\,\pvo{1})$, where the first (or binding)
 is denoted $\pv{}$ and subsequent (bound) occurrences of pattern variable $i$ are denoted $\pvo{i}$.
 
 For pattern-variable occurrences we really do need the subcript! Consider the
-patterns $([x,y], f\,x\,y\,y\,x)$ and $([x,y], f\,x\,y\,x\,y)$. They canonicalise to
-$(f \,\pv{}\, \pv{}\, \pvo{2}\, \pvo{1})$ and $(f \,\pv{}\, \pv{}\, \pvo{1}\, \pvo{2})$
-respectively.
+patterns $$([x,y], f\,x\,y\,y\,x) \qquad and \qquad ([p,q], f\,q\,p\,q\,p)$$
+which differ not only in the names of their pattern variables, but also in the
+order in which they occur in the pattern.
+They canonicalise to
+$$(f \,\pv{}\, \pv{}\, \pvo{2}\, \pvo{1}) \qquad and  \qquad (f \,\pv{}\, \pv{}\, \pvo{1}\, \pvo{2})$$
+respectively.  The subscripts are essential to keep these two patterns distinct.
+
+\subsection{Undoing the pattern keys} \label{sec:patkeymap}
+
+The trouble with canonicalising our patterns (to share the structure of the patterns)
+is that matching will produce a substitution mapping patttern \emph{keys} to
+expressions, rather that mapping pattern \emph{variables} to values.  For example,
+suppose we start with the pattern $([x,y], f \,x\, y\, y\, x)$ from the
+end of the last section. Its canonical form is $(f \,\pv{}\, \pv{}\, \pvo{2}\, \pvo{1})$.
+If we match that against a target $(f\,e_1\,e_2\,e_2\,e_1)$ we will produce a substitution $[\pvo{1} \mapsto e_1, \pvo{2} \mapsto e_2]$.
+But  what we \emph{want} is a \lstinline{Match} (\Cref{sec:match-api}),
+that gives a list of (pattern-variable, value) pairs $[(x, e_1), (y,e_2)]$.
+
+Somehow we must accumulate a \emph{pattern-key map} that, for each
+individual entry, maps its pattern keys back to its corresponding
+pattern variables.  The pattern-key map is just a list of (pattern-variable, pattern-key) pairs.
+For our example the pattern key map would be
+$[(x, \pv{1}), (y,\pv{2})]$.  We can store the pattern key
+map paired with the value, so that once we find a successful match we can use the pattern
+key map and the pattern-key substitution to recover the pattern-variable substition that we want.
+
+To summrise, suppose we want to build a matching trie for the following (pattern, value) pairs:
+$$
+(([x,y],\; f\;y\;(g\;y\;x)),\; v_1) \qquad and \qquad (([a],\; f\;a\;True),\;v_2)
+$$
+Then we will build a trie for the followng key-value pairs
+$$
+( (f \;\pv{}\;(g\;\pvo{1}\;\pv{})),\; (([(x,\pv{2}),(y,\pv{1})]), v_1) )
+  \qquad and \qquad
+( (f \;\pv{}\;True),\; ([(a,\pv{1})],\;v_2) )
+$$
+
 
 \subsection{Implementation}
 
-We begin by ignoring lambdas and variables, and returning to
-\lstinline{ExprS} (defined in \Cref{sec:ExprS}).  The ideas of
-\Cref{sec:binders} will apply with no difficulty, but it reduces
-clutter to ignore the issue of lambda binders and alpha-conversion for
-now.
+We are finally ready to give an implementation of matching tries.
+We begin with \lstinline{ExprS} (defined in \Cref{sec:ExprS}) as our key type;
+that is we will not deal with lambdas and lambda-bound variables for now.
+\Cref{sec:binders} will apply with no difficulty, but we can add that back
+in after we have dealt with matching.
 
 With these thoughts in mind, our matching trie has this definition:
 \begin{code}
-data MExprSMap v
+type PatKeyMap   = [(PatVar,PatKey)]
+type MExprSMap v = MExprSMapX (PatKeyMap, v)
+
+data MExprSMapX v
     = MM { mm_lit  :: Map Lit v
          , mm_app  :: MExprSMap (MExprSMap v)
-         , mm_tvar :: Maybe v     -- First occurrence of a pattern var
+         , mm_pvar :: Maybe v     -- First occurrence of a pattern var
          , mm_xvar :: PatOccs v   -- Subsequent occurrence of a pattern var
        }
 type PatOccs v = [(PatKey,v)]
 \end{code}
-The first two fields are familiar. The third deals with the binding occurrence
+The client-visible \lstinline{MExprSMap} with values of type \lstinline{v}
+is a matching trie \lstinline{MExprSMapX} with values of type \lstinline{(PatKeyMap,v)},
+as described in \Cref{sec:patkeymap}.
+The trie \lstinline{MExprSMapX} has four fields, one for each case in the pattern.
+The first two fields deal with literals and applications, just as before. The third deals with the binding occurrence
 of a pattern variable $\pv{}$, and the fourth with a bound occurrence of
-a pattern variable $\pvo{i}$.  The lookup function looks like this:
+a pattern variable $\pvo{i}$.
+
+The lookup function looks like this:
 \begin{code}
 lkT :: forall v. ExprS -> (PatSubst, MExprSMap v) -> Bag (PatSubst, v)
 
@@ -1001,13 +1044,42 @@ a \lstinline{PatSubst} that gives the bindings for pattern variable bound so far
 It returns a bag of results, since more than one entry in the trie may match,
 each paired with the \lstinline{PatSubst} that binds the pattern variables.
 
-Once we have the type signature, the code writes itself.
+Given \lstinline{lkT} we can write \lstinline{lookupMExpr},
+the externally-callable lookup function:
 \begin{code}
+lookupMExpr :: Expr -> MExprSMap v -> Bag (Match v)
+lookupMExpr e m = map rejig (lkT e m)
+  where
+    rejig :: (PatSubst, (PatKeyMap, v)) -> Match v
+    rejig (ps, (pkmk, v)) = (map (lookupPatKey ps) pmk, v)
+
+lookupPatKey :: PatSubst -> (PatVar,PatKey) -> (Papvar,ExprS)
+lookupPatKey subst (pat_var, pat_key) = (pat_var, lookupPatSubst pat_key subst)
+
+lookupPatSubst :: PatKey -> PatSubst -> ExprS
+lookupPatSubst pat_key (PS { ps_subst = subst })
+  = case Map.lookup pat_key pat_subst of
+      Just expr -> expr
+      Nothing   -> error "Unbound key"
+\end{code}
+Here \lstinline{lookupMExpr} is just an impedence-matching shim around
+a call to \lstinline{lkT} that does all the work.  Notice that the
+input.  The latter returns a bag of \lstiinline{(PatSubst, (PatKeyMap, v))}
+values, which the function \lstinline{rejig} converts into the
+the \lstinline{Match v} results that we want.  The ``unbound key''
+failure case in \lstinline{lookupPatSubst} means that
+\lstinline{PatKeyMap} in a looked-up value asks for a key that is not
+bound in the pattern.  The insertion function will ensure that this
+never occurs.
+
+Now we can return to the recursive function that does all the work: \lstinline{lkT}:
+\begin{code}
+lkT :: forall v. ExprS -> (PatSubst, MExprSMap v) -> Bag (PatSubst, v)
 lkT e (psubst, mt)
   = pat_var_bndr `Bag.union` pat_var_occs `Bag.union` look_at_e
   where
      pat_var_bndr :: Bag (PatSubst, v)
-     pat_var_bndr = case mm_tvar of
+     pat_var_bndr = case mm_pvar of
                       Just x  -> Bag.single (extendPatSubst ty tsubst, x)
                       Nothing -> Bag.empty
 
@@ -1023,6 +1095,9 @@ lkT e (psubst, mt)
                       Nothing -> Bag.empty
         App e1 e2 -> (psubst, m_app mt) |> lkT e1 >=> lkT e2
 \end{code}
+The bag of results is the union of three possibilities:
+\begin{itmemize}
+  \item \lstinline{pat_var_bndr}: we consult the \lstinline{mm_pvar} `at least one of the patterns in this trie has a pattern binder $\pv{}$ at this spot.  In that case
 
 \end{document}
 
