@@ -880,7 +880,7 @@ Next, we extend our tries to accomodate \emph{matching}, as we
 sketched in \Cref{sec:matching-intro}.  A key advantage of tries over other representations is
 that they can naturally extend to support matching.
 
-\subsection{What ``matching'' means}
+\subsection{What ``matching'' means} \label{sec:matching-spec}
 
 First, we have to ask what the API should be.
 Our overall goal is to build a \emph{matching trie} into which we can:
@@ -1199,7 +1199,19 @@ xtCons _   Nothing  pat_occs = pat_occs
 xtCons key (Just x) pat_occs = (key,x) : pat_occs
 \end{code}
 
+\subsection{Most specific match}
 
+\Cref{sec:matching-spec} described the goal of returning only the \emph{most specific matches} from
+a lookup.  In GHC today, the lookup returns \emph{all} matches, and these matches are then
+exhaustively compared against each other; if one is more specific than (a substitution instance of) another, the latter is discarded.
+
+A happy consequence of the trie representation is that a one-line change suffices
+to return only the most-specific matches.  We simply modify the definition of
+\lstinline{pat_var_bndr} in \lstinline{lkMExprS}, we simply test for 
+\begin{code}
+lkMExprS e (psubst, mt)
+  = pat_var_bndr `Bag.union` pat_var_occs `Bag.union` look_at_e
+\end{code}
 
 \section{Related work}
 
