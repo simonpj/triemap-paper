@@ -433,7 +433,7 @@ extendTmplSubst ty subst
 *                                                                      *
 ********************************************************************* -}
 
-type BoundVar = Int  -- Bound variables are deBruijn numbered
+type BoundVar = CmKey  -- Bound variables are deBruijn numbered
 type BoundVarMap a = IntMap.IntMap a
 
 emptyBoundVarMap :: BoundVarMap a
@@ -461,8 +461,9 @@ xtBoundVarOcc tv f tm = IntMap.alter f tv tm
 *                                                                      *
 ********************************************************************* -}
 
-data CmEnv = CME { cme_next :: !BoundVar
-                 , cme_env  :: Map.Map TyVar BoundVar }
+type CmKey = Int
+data CmEnv = CME { cme_next :: !CmKey
+                 , cme_env  :: Map.Map TyVar CmKey }
 
 emptyCME :: CmEnv
 emptyCME = CME { cme_next = 0, cme_env = Map.empty }
