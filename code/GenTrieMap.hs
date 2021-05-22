@@ -22,91 +22,8 @@ import Data.Coerce
 import Data.Type.Equality
 import Unsafe.Coerce
 
-{- *********************************************************************
-*                                                                      *
-                   Preliminaries
-*                                                                      *
-********************************************************************* -}
-
-type Ty = Kind.Type
-
-{- *********************************************************************
-*                                                                      *
-                   Natural numbers
-*                                                                      *
-********************************************************************* -}
-
-data Nat = Zero | Succ Nat    -- used only at compile time
-
-type SNat :: Nat -> Ty
-newtype SNat n where
-  UnsafeMkSNat :: { snatToInt :: Int } -> SNat n
-
-type SNatI :: Nat -> Constraint
-class SNatI n where
-  snat :: SNat n
-instance SNatI Zero where
-  {-# INLINE snat #-}
-  snat = UnsafeMkSNat 0
-instance SNatI n => SNatI (Succ n) where
-  {-# INLINE snat #-}
-  snat = UnsafeMkSNat (1 + snatToInt (snat @n))
-
-unsafeNatEqualityProof :: m :~: n
-unsafeNatEqualityProof = unsafeCoerce (Refl @())
-
-eqSNat :: SNat m -> SNat n -> Maybe (m :~: n)
-eqSNat (UnsafeMkSNat m) (UnsafeMkSNat n)
-  | m == n    = Just unsafeNatEqualityProof
-  | otherwise = Nothing
-
-type Fin :: Nat -> Ty     -- numbers in the range [0, n)
-newtype Fin n where
-  UnsafeMkFin :: { finToInt :: Int } -> Fin n
-  deriving (Show, Eq)
-
-maxFin :: forall n. SNatI n => Fin (Succ n)
-maxFin = UnsafeMkFin (snatToInt (snat @n))
-
-bumpFinIndex :: Fin n -> Fin (Succ n)
-bumpFinIndex = coerce
-
-{- *********************************************************************
-*                                                                      *
-                   Maps
-*                                                                      *
-********************************************************************* -}
-
-type FinMap :: Nat -> Ty -> Ty
-newtype FinMap n a where
-  UnsafeMkFinMap :: IntMap.IntMap a -> FinMap n a
-
-emptyFinMap :: FinMap n a
-emptyFinMap = UnsafeMkFinMap IntMap.empty
-
-lookupFinMap :: Fin n -> FinMap n a -> Maybe a
-lookupFinMap (UnsafeMkFin k) (UnsafeMkFinMap m) = IntMap.lookup k m
-
-insertFinMap :: Fin n -> a -> FinMap n a -> FinMap n a
-insertFinMap (UnsafeMkFin k) val (UnsafeMkFinMap m) = UnsafeMkFinMap (IntMap.insert k val m)
-
-bumpFinMapIndex :: FinMap n a -> FinMap (Succ n) a
-bumpFinMapIndex = coerce
-
-{- *********************************************************************
-*                                                                      *
-                   Vectors
-*                                                                      *
-********************************************************************* -}
-
-type Vec :: Nat -> Ty -> Ty
-data Vec n a where
-  Nil  :: Vec Zero a
-  (:>) :: a -> Vec n a -> Vec (Succ n) a
-infixr 5 :>
-
-deriving instance Functor (Vec n)
-deriving instance Foldable (Vec n)
+import Prelim
+import Safe
 
 {- *********************************************************************
 *                                                                      *
@@ -237,9 +154,9 @@ insertTypeMap tmpl_tvs ty x tm
     tmpl_set = foldMap Set.singleton tmpl_tvs  -- is there a better way to do this?
 
     f :: forall m. TmplKeys m -> XT (Match a m)
-    f tkeys _ = case unsafeNatEqualityProof @n @m of   -- if this assumption is wrong, an inst_key will fail
-     -- The "_" means just overwrite previous value
-                  Refl -> Just (MkMatch (fmap inst_key tmpl_tvs) x)
+     -- The "_" below means just overwrite previous value
+    f tkeys _ = unsafeAssumeEqual @n @m $  -- if this assumption is wrong, an inst_key will fail
+                Just (MkMatch (fmap inst_key tmpl_tvs) x)
 
      where
         inst_key :: forall. TyVar -> (TmplVar, TmplKey m)  -- `m` is from outer scope
@@ -414,7 +331,7 @@ xtCons key (Just x) tmpl_occs = (key,x) : tmpl_occs
 ---------------
 type TmplSubst n = FinMap n Type     -- Maps TmplKey -> Type
 
-emptyTmplSubst :: TmplSubst n
+emptyTmplSubst :: SNatI n => TmplSubst n
 emptyTmplSubst = emptyFinMap
 
 lookupTmplSubst :: TmplKey n -> TmplSubst n -> Type
