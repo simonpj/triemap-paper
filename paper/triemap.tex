@@ -298,13 +298,13 @@ Our contributions are as follows:
 \begin{code}
 type XT v = Maybe v -> Maybe v
 
-Map.empty  :: Map k v
-Map.insert :: Ord k => k -> v -> Map k v
-Map.lookup :: Ord k => k -> Map k v -> Maybe v
-Map.alter  :: Ord k => k -> XT v -> Map k v -> Maybe v
-Map.union  :: Ord k => Map k a -> Map k a -> Map k a
-Map.size   :: Map k v -> Int
-Map.foldr  :: (v -> r -> r) -> r -> Map k v -> r
+Map.empty     :: Map k v
+Map.insert    :: Ord k => k -> v -> Map k v
+Map.lookup    :: Ord k => k -> Map k v -> Maybe v
+Map.alter     :: Ord k => k -> XT v -> Map k v -> Maybe v
+Map.unionWith :: Ord k => (v->v->v) -> Map k v -> Map k v -> Map k v
+Map.size      :: Map k v -> Int
+Map.foldr     :: (v -> r -> r) -> r -> Map k v -> r
 
 
 infixr 1 (>=>)  -- Kleisli composition
@@ -566,11 +566,20 @@ In tree-based implementations of finite maps, such union operations can be trick
 The two trees, which have been built independently, might not have the same
 left-subtree/right-subtree structure, so some careful re-alignment may be requried.
 But for tries there are no such worries --
-their structure is identical, and we can simply zip them together:
+their structure is identical, and we can simply zip them together.  There is one
+wrinkle: just as we had to generalise \lstinline{insert} to \lstinline{alter},
+to accomodate the nested map in \lstinline{esm_app}, so we need to generalise \lstinline{union} to \lstinline{unionWith}:
 \begin{code}
-unionExprS (ESM { esm_var = m1_var, esm_app = m1_app })
-           (ESM { esm_var = m2_var, esm_app = m2_app })
-   = ESM { esm_var = Map.union m1_var m2_lt, esm_app = unionExprS m1_app m2_app }
+unionWithExprS :: (v -> v -> v) -> ExprSMap v -> ExprSMap v -> ExprSMap v
+\end{code}
+When a key appears on both maps, the combining function is used to
+combine the two corresponding values.
+With that generalisation, the code is as follows:
+\begin{code}
+unionWithExprS f (ESM { esm_var = m1_var, esm_app = m1_app })
+                 (ESM { esm_var = m2_var, esm_app = m2_app })
+  = ESM { esm_var = Map.unionWith f m1_var m2_lt
+        , esm_app = unionExprWith (unionWithExprS f) m1_app m2_app }
 \end{code}
 It could hardly be simpler.
 
@@ -1022,7 +1031,7 @@ $$
 $$
 
 
-\subsection{Implementation: lookup}
+\subsection{Implementation: lookup} \label{sec:matching-lookup}
 
 We are finally ready to give an implementation of matching tries.
 We begin with \lstinline{ExprS} (defined in \Cref{sec:ExprS}) as our key type;
@@ -1206,18 +1215,39 @@ a lookup.  In GHC today, the lookup returns \emph{all} matches, and these matche
 exhaustively compared against each other; if one is more specific than (a substitution instance of) another, the latter is discarded.
 
 A happy consequence of the trie representation is that a one-line change suffices
-to return only the most-specific matches.  We simply modify the definition of
-\lstinline{pat_var_bndr} in \lstinline{lkMExprS}, we simply test for 
+to return only the most-specific matches.  We simply modify the definition \lstinline{lkMExprS} from \Cref{sec:matching-lookup} as follows:
 \begin{code}
 lkMExprS e (psubst, mt)
-  = pat_var_bndr `Bag.union` pat_var_occs `Bag.union` look_at_e
+  | isEmptyBag pat_var_occs && isEmptyBag look_at_e
+  = pat_var_bndr
+  | otherwise
+  = pat_var_occs `Bag.union` look_at_e
+  where
+    ...as before...
 \end{code}
+That is, we only return the matches obtained by matching a pattern variable (\lstinline{pat_var_bndr}) if there
+are no more-specific matches (namely \lstinline{pat_var_occs} and \lstinline{look_at_e}).  It is a happy
+consequence of the trie structure that this simple (and efficient in execution terms) change suffices
+to return the most-specific matches.
+
+\subsection{Unification}
 
 \section{Related work}
 
-* Using a FSM; e.g \emph{Interpreted Pattern Match Execution} by Jeff Niu, a UW undergrad intern at Google.  https://docs.google.com/presentation/d/1e8MlXOBgO04kdoBoKTErvaPLY74vUaVoEMINm8NYDds/edit?usp=sharing
+\begin{itemize}
+\item Using a FSM; e.g \emph{Interpreted Pattern Match Execution} by Jeff Niu, a UW undergrad intern at Google.  https://docs.google.com/presentation/d/1e8MlXOBgO04kdoBoKTErvaPLY74vUaVoEMINm8NYDds/edit?usp=sharing
 
-* Matching multiple strings.
+\item Matching multiple strings.
+\end{itemize}
+
+There is rich literature on radix trees, which incorporate the Singleton optimisation simply as ``each node that is the only child is merged with its parent'', and an abundance of related work in the theorem proving community available under the term ``Discrimination Tree'' and ``Term Indexing''. I think it would help the paper if instead of starting from ``an API for finite maps''/tries as a baseline, it would start from "an API for term indexing"/discrimination trees as decribed in the Handbook of Automated Reasoning (2001), for example. I'll have access to a hard copy in a couple of days and can then report on the contents...
+
+Here's a GH issue that suggests using Discrimination Trees to speed up Hoogle queries: https://github.com/ndmitchell/hoogle/issues/250. That thread generally seems like a good source of references to consider. It suggests that discrimination trees are but the simplest data structure to perform term indexing.
+Remy Goldschmidt (@taktoa, the GH issue creator) even provides a model implementation of discrimination trees in Haskell: https://gist.github.com/taktoa/7a4d77ebc3a312dd69bb19199d30863b
+
+Here's a paper from 1994 claiming to be faster than discrimination trees: http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.43.823 (In case you're wondering, I'm not affiliated with the author at all.)
+
+It appears that at least since 2009, the 1994 approach has already been extended to a higher-order pattern scenario (allowing e.g. miller pattern unification): https://dl.acm.org/doi/10.1145/1614431.1614437
 
 \end{document}
 
