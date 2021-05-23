@@ -15,6 +15,9 @@ module SNat.Unsafe
   , SNatI(snat)
   , snatToInt
   , eqSNat
+
+  -- * Unsafe exports
+  , pattern UnsafeMkSNat
   ) where
 
 import Prelim

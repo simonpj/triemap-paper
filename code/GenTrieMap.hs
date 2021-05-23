@@ -23,7 +23,8 @@ import Data.Type.Equality
 import Unsafe.Coerce
 
 import Prelim
-import Safe
+import Unsafe
+import qualified SizedSet.Unsafe as SS
 
 {- *********************************************************************
 *                                                                      *
@@ -136,10 +137,13 @@ eqDeBT _ _ = False
 *                                                                      *
 ********************************************************************* -}
 
-type Match :: (Nat -> Ty) -> Nat -> Ty
+type TmplTy = Nat  -- how many template variables are free here
+           -> Ty
+
+type Match :: TmplTy -> TmplTy
 data Match a n = MkMatch (Vec n (TmplVar, TmplKey n)) (a n)
 
-type TypeMap :: (Nat -> Ty) -> Ty
+type TypeMap :: TmplTy -> Ty
 type TypeMap a = GTypeMap (Match a) Zero
 
 emptyTypeMap :: TypeMap a
@@ -149,10 +153,11 @@ insertTypeMap :: forall a n. Vec n TyVar   -- Template type variables
                           -> Type          -- Template
                           -> a n -> TypeMap a -> TypeMap a
 insertTypeMap tmpl_tvs ty x tm
+  | Just tmpl_set <- SS.fromVec tmpl_tvs
   = xtT tmpl_set (deBruijnize ty) f emptyTmplKeys tm
+  | otherwise
+  = error "duplicate template variables"
   where
-    tmpl_set = foldMap Set.singleton tmpl_tvs  -- is there a better way to do this?
-
     f :: forall m. TmplKeys m -> XT (Match a m)
      -- The "_" below means just overwrite previous value
     f tkeys _ = unsafeAssumeEqual @n @m $  -- if this assumption is wrong, an inst_key will fail
@@ -201,11 +206,11 @@ deriving instance (forall m. Show (a m)) => Show (GTypeMap a n)
 emptyGTypeMap :: GTypeMap a n
 emptyGTypeMap = EmptyTM
 
-mkEmptyGTypeMap :: GTypeMap a n
+mkEmptyGTypeMap :: SNatI n => GTypeMap a n
 mkEmptyGTypeMap
   = TM { tm_tvar   = Nothing
        , tm_fvar   = emptyFreeVarMap
-       , tm_xvar   = []
+       , tm_xvar   = emptyFinMap
        , tm_bvar   = emptyBoundVarMap
        , tm_fun    = emptyGTypeMap
        , tm_tycon  = Map.empty
@@ -242,7 +247,7 @@ lkT (D bv_env ty) (LkTR tsubst (TM { .. }))
                    = []
 
      tmpl_var_occs = [ LkTR tsubst x
-                     | (tmpl_var, x) <- tm_xvar
+                     | (tmpl_var, x) <- finMapToList tm_xvar
                      , deBruijnize (lookupTmplSubst tmpl_var tsubst)
                        `eqDeBT` (D bv_env ty)
                      ]
@@ -253,35 +258,33 @@ lkTC tc (tsubst, tc_map) = case Map.lookup tc tc_map of
                              Just x  -> [LkTR tsubst x]
 
 xtT :: SNatI n
-    => TmplVarSet -> DeBruijn Type
-    -> (forall m. SNatI m => TmplKeys m -> XT (a m))
+    => TmplVarSet m -> DeBruijn Type
+    -> (forall p. SNatI p => TmplKeys p -> XT (a p))
     -> TmplKeys n -> GTypeMap a n -> GTypeMap a n
 -- xt = alter
 xtT tmpls ty f tkeys EmptyTM
  = xtT tmpls ty f tkeys mkEmptyGTypeMap
 
-xtT tmpls (D bv_env ty) f tkeys m@(TM {..})
-  = go ty
-  where
-   go (TyVarTy tv)
+xtT tmpls (D bv_env ty) f tkeys m@(TM {..}) = case ty of
+   TyVarTy tv
       -- Second or subsequent occurrence of a template tyvar
-      | Just xv <- Map.lookup tv tkeys  = m { tm_xvar = xtTmplVarOcc xv (f tkeys) tm_xvar }
+      | Just xv <- Map.lookup tv tkeys  -> m { tm_xvar = xtTmplVarOcc xv (f tkeys) tm_xvar }
 
       -- First occurrence of a template tyvar
-      | tv `Set.member` tmpls = m { tm_tvar = f (extendTmplKeys tv tkeys) tm_tvar  }
+      | tv `SS.member` tmpls -> m { tm_tvar = f (extendTmplKeys tv tkeys) tm_tvar  }
 
       -- Occurrence of a forall-bound var
-      | Just bv <- lookupCME tv bv_env = m { tm_bvar = xtBoundVarOcc bv (f tkeys) tm_bvar }
+      | Just bv <- lookupCME tv bv_env -> m { tm_bvar = xtBoundVarOcc bv (f tkeys) tm_bvar }
 
       -- A completely free variable
-      | otherwise = m { tm_fvar = xtFreeVarOcc  tv (f tkeys) tm_fvar }
+      | otherwise -> m { tm_fvar = xtFreeVarOcc  tv (f tkeys) tm_fvar }
 
-   go (TyConTy tc)  = m { tm_tycon = xtTC tc (f tkeys) tm_tycon }
-   go (FunTy t1 t2) = m { tm_fun   = xtT tmpls (D bv_env t1)
-                                         (liftXT (xtT tmpls (D bv_env t2) f))
-                                         tkeys tm_fun }
-   go (ForAllTy tv ty) = m { tm_forall = xtT tmpls (D (extendCME tv bv_env) ty)
-                                             f tkeys tm_forall }
+   TyConTy tc  -> m { tm_tycon = xtTC tc (f tkeys) tm_tycon }
+   FunTy t1 t2 -> m { tm_fun   = xtT tmpls (D bv_env t1)
+                                     (liftXT (xtT tmpls (D bv_env t2) f))
+                                     tkeys tm_fun }
+   ForAllTy tv ty -> m { tm_forall = xtT tmpls (D (extendCME tv bv_env) ty)
+                                                f tkeys tm_forall }
 
 
 xtTC :: TyCon -> XT a -> Map.Map TyCon a ->  Map.Map TyCon a
@@ -301,7 +304,7 @@ liftXT insert tkeys (Just m) = Just (insert tkeys m)
 ********************************************************************* -}
 
 type TmplVar = TyVar
-type TmplVarSet = Set.Set TyVar
+type TmplVarSet n = SS.SizedSet n TyVar
 type TmplKey n = Fin n
 type TmplKeys n = Map.Map TmplVar (TmplKey n)  -- Maps TmplVar :-> TmplKey
 
@@ -315,18 +318,10 @@ bumpTmplKeysRange :: TmplKeys n -> TmplKeys (Succ n)
 bumpTmplKeysRange = fmap bumpFinIndex   -- should rewrite to a simple call to `coerce`
 
 type TmplOccs :: (Nat -> Ty) -> Nat -> Ty
-type TmplOccs a n = [(TmplKey n, a n)]
+type TmplOccs a n = FinMap n (a n)
 
 xtTmplVarOcc :: TmplKey n -> XT (a n) -> TmplOccs a n -> TmplOccs a n
-xtTmplVarOcc key f []
-  = xtCons key (f Nothing) []
-xtTmplVarOcc key f ((key1,x):prs)
-  | key == key1 = xtCons key (f (Just x)) prs
-  | otherwise   = (key1,x) : xtTmplVarOcc key f prs
-
-xtCons :: TmplKey n -> Maybe (a n) -> TmplOccs a n -> TmplOccs a n
-xtCons _   Nothing  tmpl_occs = tmpl_occs
-xtCons key (Just x) tmpl_occs = (key,x) : tmpl_occs
+xtTmplVarOcc key f mapping = alterFinMap f key mapping
 
 ---------------
 type TmplSubst n = FinMap n Type     -- Maps TmplKey -> Type
@@ -533,6 +528,10 @@ instance (Pretty k, Pretty a) => Pretty (Map.Map k a) where
 instance Pretty a => Pretty (IntMap.IntMap a) where
    ppr m = brackets $ vcat [ ppr k <+> text ":->" <+> ppr v
                            | (k,v) <- IntMap.toList m ]
+
+instance Pretty a => Pretty (FinMap n a) where
+  ppr m = brackets $ commaSep [ ppr k <+> text ":->" <+> ppr v
+                              | (k,v) <- finMapToList m ]
 
 instance Pretty a => Pretty (Maybe a) where
   ppr Nothing  = text "Nothing"

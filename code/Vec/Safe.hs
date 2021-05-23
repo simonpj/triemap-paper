@@ -9,10 +9,13 @@
 
 module Vec.Safe
   ( Vec(..)
+  , vLength
   , vReplicate
   , (!!!)
   , vUpdateAt
   , vSnoc
+  , vZipEqual
+  , fins, finsI
   ) where
 
 import Prelim
@@ -27,6 +30,11 @@ infixr 5 :>
 
 deriving instance Functor (Vec n)
 deriving instance Foldable (Vec n)
+deriving instance Show a => Show (Vec n a)
+
+vLength :: Vec n a -> SNat n
+vLength Nil       = SZero
+vLength (_ :> xs) = SSucc (vLength xs)
 
 vReplicate :: SNat n -> a -> Vec n a
 vReplicate SZero     _ = Nil
@@ -39,13 +47,24 @@ v !!! f = go f v
     go FZero (x :> _) = x
     go (FSucc f) (_ :> xs) = go f xs
 
-vUpdateAt :: forall n a. Vec n a -> Fin n -> a -> Vec n a
-vUpdateAt v f y = go f v
+vUpdateAt :: forall n a. Vec n a -> Fin n -> (a -> a) -> Vec n a
+vUpdateAt v f upd = go f v
   where
     go :: Fin m -> Vec m a -> Vec m a
-    go FZero     (_ :> xs) = y :> xs
+    go FZero     (x :> xs) = upd x :> xs
     go (FSucc f) (x :> xs) = x :> go f xs
 
 vSnoc :: Vec n a -> a -> Vec (Succ n) a
 vSnoc Nil       y = y :> Nil
 vSnoc (x :> xs) y = x :> vSnoc xs y
+
+vZipEqual :: Vec n a -> Vec n b -> Vec n (a,b)
+vZipEqual Nil Nil = Nil
+vZipEqual (x :> xs) (y :> ys) = (x,y) :> vZipEqual xs ys
+
+fins :: SNat n -> Vec n (Fin n)
+fins SZero = Nil
+fins (SSucc n) = FZero :> fmap FSucc (fins n)
+
+finsI :: SNatI n => Vec n (Fin n)
+finsI = fins snat

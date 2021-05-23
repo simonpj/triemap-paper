@@ -4,9 +4,12 @@
 *                                                                      *
 ********************************************************************* -}
 
+{-# LANGUAGE TypeOperators, TypeFamilies, StandaloneKindSignatures,
+             DataKinds #-}
+
 module Prelim
   ( Ty
-  , Nat(..)
+  , Nat(..), type (+)
   ) where
 
 import qualified Data.Kind as Kind
@@ -22,3 +25,8 @@ type Ty = Kind.Type
 ********************************************************************* -}
 
 data Nat = Zero | Succ Nat    -- used only at compile time
+
+type (+) :: Nat -> Nat -> Nat
+type family n + m where
+  Zero   + m = m
+  Succ n + m = Succ (n + m)
