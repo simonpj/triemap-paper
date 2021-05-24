@@ -85,10 +85,11 @@ type TmplType :: Nat  -- # of template variables already bound
               -> Ty
 data TmplType m n where
   TTmplVar :: TmplType n (Succ Zero)
-  TTyVarTy :: TyVar -> TmplType n Zero
+  TFreeTyVarTy :: TyVar -> TmplType n Zero
+  TBoundTyVarTy :: CmKey -> TmplType n Zero
   TTmplOcc :: Fin n -> TmplType n Zero
   TFunTy   :: TmplType n1 n2 -> TmplType (n1 + n2) n3 -> TmplType n1 (n2 + n3)
-  TForAllTy :: TyVar -> TmplType n1 n2 -> TmplType n1 n2
+  TForAllTy :: TmplType n1 n2 -> TmplType n1 n2
   TTyConTy :: TyCon -> TmplType n Zero
 
 type ClosedTmplType n = TmplType Zero n
@@ -105,7 +106,9 @@ mappingBound (MkTM tmpl_keys _) = mapFinSize tmpl_keys
 
 validateTmplType :: forall n. SNatI n => TmplVarSet n -> Type -> Maybe (ClosedTmplType n)
 validateTmplType tmpl_tvs ty = gcastWith (zeroIsRightIdentity (snat @n)) $
-                               validateOpenTmplType (MkTM emptyTmplKeys tmpl_tvs) ty finish
+                               validateOpenTmplType (MkTM emptyTmplKeys tmpl_tvs)
+                                                    (deBruijnize ty)
+                                                    finish
   where
     finish :: forall bound unbound
             . TmplMapping bound unbound n
@@ -119,12 +122,12 @@ validateTmplType tmpl_tvs ty = gcastWith (zeroIsRightIdentity (snat @n)) $
 
 validateOpenTmplType
   :: forall bound rest total r
-   . TmplMapping bound rest total -> Type
+   . TmplMapping bound rest total -> DeBruijn Type
   -> (forall new_bound new_rest. TmplMapping (bound + new_bound) new_rest total
                               -> TmplType bound new_bound
                               -> r)
   -> r
-validateOpenTmplType mapping@(MkTM tmpl_keys tmpl_tvs) ty k
+validateOpenTmplType mapping@(MkTM tmpl_keys tmpl_tvs) (D bv_env ty) k
   = gcastWith (zeroIsRightIdentity bound) $
     case ty of
   TyVarTy tv
@@ -140,21 +143,24 @@ validateOpenTmplType mapping@(MkTM tmpl_keys tmpl_tvs) ty k
          k (MkTM tmpl_keys' tmpl_tvs') TTmplVar
 
       -- free or locally bound
+    | Just bv <- lookupCME tv bv_env
+      -> k mapping (TBoundTyVarTy bv)
+
     | otherwise
-      -> k mapping (TTyVarTy tv)
+      -> k mapping (TFreeTyVarTy tv)
 
   TyConTy tc    -> k mapping (TTyConTy tc)
 
-  FunTy ty1 ty2 -> validateOpenTmplType mapping  ty1 $
+  FunTy ty1 ty2 -> validateOpenTmplType mapping  (D bv_env ty1) $
                    \ mapping2 (ty1' :: TmplType bound new_bound1) ->
-                   validateOpenTmplType mapping2 ty2 $
+                   validateOpenTmplType mapping2 (D bv_env ty2) $
                    \ mapping3 (ty2' :: TmplType (bound + new_bound1) new_bound2) ->
                    gcastWith (plusIsAssoc bound @new_bound1 @new_bound2) $
                    k mapping3 (TFunTy ty1' ty2')
 
-  ForAllTy tv inner_ty -> validateOpenTmplType mapping inner_ty $
+  ForAllTy tv inner_ty -> validateOpenTmplType mapping (D (extendCME tv bv_env) inner_ty) $
                           \ mapping2 inner_ty' ->
-                          k mapping2 (TForAllTy tv inner_ty')
+                          k mapping2 (TForAllTy inner_ty')
 
   where
     bound :: SNat bound
