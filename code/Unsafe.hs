@@ -6,6 +6,8 @@ module Unsafe
   , module Fin.Unsafe
   , module Vec.Unsafe
   , module FinMap.Unsafe
+  , module Nat.Properties.Unsafe
+  , module MapFin.Unsafe
   ) where
 
 import Nat.Unsafe
@@ -13,3 +15,5 @@ import SNat.Unsafe
 import Fin.Unsafe
 import Vec.Unsafe
 import FinMap.Unsafe
+import Nat.Properties.Unsafe
+import MapFin.Unsafe

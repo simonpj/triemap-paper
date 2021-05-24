@@ -13,7 +13,7 @@ module Fin.Safe
   , pattern FZero
   , pattern FSucc
   , finToInt
-  , maxFin
+  , maxFin, maxFinI
   , bumpFinIndex
   ) where
 
@@ -35,12 +35,12 @@ finToInt :: Fin n -> Int
 finToInt FZero = 0
 finToInt (FSucc f) = 1 + finToInt f
 
-maxFin :: forall n. SNatI n => Fin (Succ n)
-maxFin = go (snat @n)
-  where
-    go :: SNat m -> Fin (Succ m)
-    go SZero = FZero
-    go (SSucc n) = FSucc (go n)
+maxFin :: SNat m -> Fin (Succ m)
+maxFin SZero = FZero
+maxFin (SSucc n) = FSucc (maxFin n)
+
+maxFinI :: forall n. SNatI n => Fin (Succ n)
+maxFinI = maxFin (snat @n)
 
 bumpFinIndex :: Fin n -> Fin (Succ n)
 bumpFinIndex FZero = FZero

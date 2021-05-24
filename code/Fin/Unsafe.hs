@@ -13,7 +13,7 @@ module Fin.Unsafe
   , pattern FZero
   , pattern FSucc
   , finToInt
-  , maxFin
+  , maxFin, maxFinI
   , bumpFinIndex
 
   -- * Unsafe exports below
@@ -58,8 +58,13 @@ pattern FSucc f <- (fsuccPat -> FSPR_Yes f)
 
 {-# COMPLETE FZero, FSucc #-}
 
-maxFin :: forall n. SNatI n => Fin (Succ n)
-maxFin = UnsafeMkFin (snatToInt (snat @n))
+-- NB: the Fin created equals the number passed in, due to the Succ in the
+-- return type
+maxFin :: SNat n -> Fin (Succ n)
+maxFin = coerce
+
+maxFinI :: forall n. SNatI n => Fin (Succ n)
+maxFinI = coerce (snat @n)
 
 bumpFinIndex :: Fin n -> Fin (Succ n)
 bumpFinIndex = coerce

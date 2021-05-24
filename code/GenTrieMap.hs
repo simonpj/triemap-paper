@@ -2,7 +2,7 @@
              RecordWildCards, ScopedTypeVariables, StandaloneKindSignatures,
              DataKinds, GADTs, TypeApplications, QuantifiedConstraints,
              StandaloneDeriving, DeriveFoldable, TypeOperators, PolyKinds,
-             DeriveFunctor #-}
+             DeriveFunctor, AllowAmbiguousTypes #-}
 
 module GenTrieMap where
 
@@ -75,6 +75,94 @@ anyFreeVarsOfType p ty
 
 {- *********************************************************************
 *                                                                      *
+                   TmplType
+*                                                                      *
+********************************************************************* -}
+
+-- A TmplType is a template type -- used as a key into a TrieMap
+type TmplType :: Nat  -- # of template variables already bound
+              -> Nat  -- # of template variables bound in this type
+              -> Ty
+data TmplType m n where
+  TTmplVar :: TmplType n (Succ Zero)
+  TTyVarTy :: TyVar -> TmplType n Zero
+  TTmplOcc :: Fin n -> TmplType n Zero
+  TFunTy   :: TmplType n1 n2 -> TmplType (n1 + n2) n3 -> TmplType n1 (n2 + n3)
+  TForAllTy :: TyVar -> TmplType n1 n2 -> TmplType n1 n2
+  TTyConTy :: TyCon -> TmplType n Zero
+
+type ClosedTmplType n = TmplType Zero n
+
+type TmplMapping :: Nat   -- # of bound variables
+                 -> Nat   -- # of variables to go
+                 -> Nat   -- # variables total
+                 -> Ty
+data TmplMapping bound unbound total where
+  MkTM :: TmplKeys bound -> TmplVarSet unbound -> TmplMapping bound unbound (unbound + bound)
+
+mappingBound :: TmplMapping bound unbound total -> SNat bound
+mappingBound (MkTM tmpl_keys _) = mapFinSize tmpl_keys
+
+validateTmplType :: forall n. SNatI n => TmplVarSet n -> Type -> Maybe (ClosedTmplType n)
+validateTmplType tmpl_tvs ty = gcastWith (zeroIsRightIdentity (snat @n)) $
+                               validateOpenTmplType (MkTM emptyTmplKeys tmpl_tvs) ty finish
+  where
+    finish :: forall bound unbound
+            . TmplMapping bound unbound n
+           -> TmplType Zero bound
+           -> Maybe (TmplType Zero n)
+    finish (MkTM _keys unbound_vars) new_ty
+      | Just Refl <- SS.isEmptySizedSet unbound_vars
+      = Just new_ty
+      | otherwise
+      = Nothing
+
+validateOpenTmplType
+  :: forall bound rest total r
+   . TmplMapping bound rest total -> Type
+  -> (forall new_bound new_rest. TmplMapping (bound + new_bound) new_rest total
+                              -> TmplType bound new_bound
+                              -> r)
+  -> r
+validateOpenTmplType mapping@(MkTM tmpl_keys tmpl_tvs) ty k
+  = gcastWith (zeroIsRightIdentity bound) $
+    case ty of
+  TyVarTy tv
+      -- bound template variable
+    | Just tmpl_key <- lookupMapFin tv tmpl_keys
+      -> k mapping (TTmplOcc tmpl_key)
+
+      -- unbound template variable
+    | SS.FADR_Yes tmpl_tvs' <- SS.findAndDelete tv tmpl_tvs
+      -> let tmpl_keys' = extendTmplKeys tv tmpl_keys in
+         gcastWith (succOnRight bound @Zero) $
+         gcastWith (succOnRight (SS.size tmpl_tvs') @bound) $
+         k (MkTM tmpl_keys' tmpl_tvs') TTmplVar
+
+      -- free or locally bound
+    | otherwise
+      -> k mapping (TTyVarTy tv)
+
+  TyConTy tc    -> k mapping (TTyConTy tc)
+
+  FunTy ty1 ty2 -> validateOpenTmplType mapping  ty1 $
+                   \ mapping2 (ty1' :: TmplType bound new_bound1) ->
+                   validateOpenTmplType mapping2 ty2 $
+                   \ mapping3 (ty2' :: TmplType (bound + new_bound1) new_bound2) ->
+                   gcastWith (plusIsAssoc bound @new_bound1 @new_bound2) $
+                   k mapping3 (TFunTy ty1' ty2')
+
+  ForAllTy tv inner_ty -> validateOpenTmplType mapping inner_ty $
+                          \ mapping2 inner_ty' ->
+                          k mapping2 (TForAllTy tv inner_ty')
+
+  where
+    bound :: SNat bound
+    bound = mappingBound mapping
+
+
+{- *********************************************************************
+*                                                                      *
                    DeBruijn
 *                                                                      *
 ********************************************************************* -}
@@ -92,7 +180,7 @@ data DeBruijn a = D CmEnv a
 -- isn't already a 'CmEnv' in scope.
 deBruijnize :: a -> DeBruijn a
 deBruijnize ty = D emptyCME ty
-
+{-
 instance Eq (DeBruijn a) => Eq (DeBruijn [a]) where
     D _   []     == D _    []       = True
     D env (x:xs) == D env' (x':xs') = D env x  == D env' x' &&
@@ -103,7 +191,7 @@ instance Eq (DeBruijn a) => Eq (DeBruijn (Maybe a)) where
     D _   Nothing  == D _    Nothing   = True
     D env (Just x) == D env' (Just x') = D env x  == D env' x'
     _              == _                = False
-
+-}
 noCaptured :: CmEnv -> Type -> Bool
 -- True iff no free var of the type is bound by CmEnv
 noCaptured bv_env ty
@@ -165,7 +253,7 @@ insertTypeMap tmpl_tvs ty x tm
 
      where
         inst_key :: forall. TyVar -> (TmplVar, TmplKey m)  -- `m` is from outer scope
-        inst_key tv = case Map.lookup tv tkeys of
+        inst_key tv = case lookupMapFin tv tkeys of
                          Nothing  -> error ("Unbound tmpl var " ++ tv)
                          Just key -> (tv, key)
 
@@ -268,7 +356,7 @@ xtT tmpls ty f tkeys EmptyTM
 xtT tmpls (D bv_env ty) f tkeys m@(TM {..}) = case ty of
    TyVarTy tv
       -- Second or subsequent occurrence of a template tyvar
-      | Just xv <- Map.lookup tv tkeys  -> m { tm_xvar = xtTmplVarOcc xv (f tkeys) tm_xvar }
+      | Just xv <- lookupMapFin tv tkeys  -> m { tm_xvar = xtTmplVarOcc xv (f tkeys) tm_xvar }
 
       -- First occurrence of a template tyvar
       | tv `SS.member` tmpls -> m { tm_tvar = f (extendTmplKeys tv tkeys) tm_tvar  }
@@ -306,16 +394,13 @@ liftXT insert tkeys (Just m) = Just (insert tkeys m)
 type TmplVar = TyVar
 type TmplVarSet n = SS.SizedSet n TyVar
 type TmplKey n = Fin n
-type TmplKeys n = Map.Map TmplVar (TmplKey n)  -- Maps TmplVar :-> TmplKey
+type TmplKeys n = MapFin TmplVar n    -- Maps TmplVar :-> TmplKey
 
-emptyTmplKeys :: TmplKeys n
-emptyTmplKeys = Map.empty
+emptyTmplKeys :: TmplKeys Zero
+emptyTmplKeys = emptyMapFin
 
-extendTmplKeys :: forall n. SNatI n => TyVar -> TmplKeys n -> TmplKeys (Succ n)
-extendTmplKeys tv tkeys = Map.insert tv (maxFin :: Fin (Succ n)) (bumpTmplKeysRange tkeys)
-
-bumpTmplKeysRange :: TmplKeys n -> TmplKeys (Succ n)
-bumpTmplKeysRange = fmap bumpFinIndex   -- should rewrite to a simple call to `coerce`
+extendTmplKeys :: forall n. TyVar -> TmplKeys n -> TmplKeys (Succ n)
+extendTmplKeys tv tkeys = insertKeyMapFin tv tkeys
 
 type TmplOccs :: (Nat -> Ty) -> Nat -> Ty
 type TmplOccs a n = FinMap n (a n)
@@ -335,9 +420,10 @@ lookupTmplSubst key subst
       Just ty -> ty
       Nothing -> error ("lookupTmplSubst " ++ show key)
 
+-- "RAE"
 extendTmplSubst :: forall n. SNatI n => Type -> TmplSubst n -> TmplSubst (Succ n)
 extendTmplSubst ty subst
-  = insertFinMap (maxFin :: Fin (Succ n)) ty (bumpFinMapIndex subst)
+  = insertFinMap (maxFinI :: Fin (Succ n)) ty (bumpFinMapIndex subst)
 
 {- *********************************************************************
 *                                                                      *

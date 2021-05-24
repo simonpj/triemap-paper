@@ -9,7 +9,7 @@
 
 module Prelim
   ( Ty
-  , Nat(..), type (+)
+  , Nat(..), type (+), type (-)
   ) where
 
 import qualified Data.Kind as Kind
@@ -30,3 +30,8 @@ type (+) :: Nat -> Nat -> Nat
 type family n + m where
   Zero   + m = m
   Succ n + m = Succ (n + m)
+
+type (-) :: Nat -> Nat -> Nat
+type family n - m where
+  n      - Zero = n
+  Succ n - Succ m = n - m
