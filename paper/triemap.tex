@@ -164,6 +164,8 @@
     morekeywords=[2]{String, Map, Ord, Maybe, Int, Bool},
     morekeywords=[2]{Name, Expression, ESummary, PosTree, Structure, HashCode, VarMap},
     keywordstyle=[3]\color{dkcyan},
+    mathescape=false, % so that we can write infix $
+    escapechar=\%,    % ... but still have a way to write math between % %
     literate=%
         {=}{{{\color{operator-color}=}}}1
         {|}{{{\color{operator-color}|}}}1
@@ -189,6 +191,9 @@
 \begin{document}
 
 \newcommand{\simon}[1]{{\bf SLPJ}: #1 {\bf End SLPJ}}
+\newcommand{\js}[1]{{\bf JS}: #1 {\bf End JS}}
+\newcommand{\rae}[1]{{\bf RAE}: #1 {\bf End RAE}}
+\newcommand{\sg}[1]{{\bf SG}: #1 {\bf End SG}}
 
 \newcommand{\bv}[1]{\#_{#1}}    -- Lambda-bound variable occurrence
 \newcommand{\pv}[1]{\$_{#1}}    -- Pattern variable binder
@@ -289,8 +294,8 @@ Our contributions are as follows:
 \begin{itemize}
 \item We describe the language-agnostic Variable Trie-Map (VTM) data structure, with the semantics as described above (and made more precise in \cref{sec:vtm}). The keys in a VTM support local bound variables via on-the-fly conversion to de Bruijn levels, necessary to support polymorphic types or $\lambda$-expressions. Looking up in a VTM is linear in the size of the key, regardless of the size of the VTM itself. The operations on a VTM are proved to uphold the sensible properties described in \cref{sec:vtm-properties}.
 \item Some languages require not only the matching behavior above, but also a \emph{unification} operation, where we find not only keys that match, but keys that would match if variables in the looked-up tree were further instantiated. \Cref{sec:unification} describes how we extend VTMs to support unification as well as matching.
-\item While VTMs are time-efficient, they can be space-inefficient. \Cref{sec:path-compression} describes an easy optimization which drastically reduces the memory footprint of VTMs whose keys share little structure in common. This optimization shows a 30% geometric mean savings in the size of the structure GHC uses to look up rewrite rules.
-\item Our work was motivated by quadratic behavior in GHC, observed when checking for instance consistency among imports. This became a problem in practice in Haskell's use at Facebook. We report on our implementation within GHC, showing that it achieves a 98% speedup against the previous (admittedly naive) implementation of instance tables.
+\item While VTMs are time-efficient, they can be space-inefficient. \Cref{sec:path-compression} describes an easy optimization which drastically reduces the memory footprint of VTMs whose keys share little structure in common. This optimization shows a 30\% geometric mean savings in the size of the structure GHC uses to look up rewrite rules.
+\item Our work was motivated by quadratic behavior in GHC, observed when checking for instance consistency among imports. This became a problem in practice in Haskell's use at Facebook. We report on our implementation within GHC, showing that it achieves a 98\% speedup against the previous (admittedly naive) implementation of instance tables.
 \end{itemize}
 
 \section{The problem we address}
@@ -336,7 +341,7 @@ you could imagine it being defined simply as a string:
 The data type \lstinline{Expr} is capable of representing expressions like $add 2 3$
 $\lambda x. add x 3$.  We will use this data type throughout the paper, because it
 has all the features that occur in real expression data types: free variables like $add$, represented by a \lstinline{Var} node;
-lambdas which can bind variables (\lstinline{Lam}), and occurrences of those bound variables (\lstinline{Var}); 
+lambdas which can bind variables (\lstinline{Lam}), and occurrences of those bound variables (\lstinline{Var});
 and nodes with multiple children (\lstinline{App}).  A real-world compiler like GHC would have
 many more constructors in the data type.
 
@@ -717,6 +722,9 @@ liftXT :: (ExprSMap v -> ExprSMap v) -> XT (ExprSMap)
 liftXT f Nothing  = Just (f empExprS)
 liftXT f (Just m) = Just (f m)
 \end{code}
+\sg{liftXT expands Nothing to empExprS but doesn't contract an empExprS result
+from (f m) back to Nothing. So inserting and deleting a key will leave behind
+the spine of an empty map for that key.}
 Although we began by speaking of a map containing only one key-value pair,
 this representation uses \lstinline{ESM} while there are keys that share structure,
 but as soon as we get into a sub-treee where there is no overlap, we revert
