@@ -5,46 +5,61 @@
 ********************************************************************* -}
 
 {-# LANGUAGE StandaloneKindSignatures, DataKinds, GADTs,
-             StandaloneDeriving #-}
+             StandaloneDeriving, ScopedTypeVariables #-}
 
 module FinMap.Safe
   ( FinMap
   , emptyFinMap
   , lookupFinMap
   , insertFinMap
+  , growFinMap
   , alterFinMap
-  , bumpFinMapIndex
   , finMapToList
   ) where
 
 import Prelim
 import SNat.Safe
 import Fin.Safe
-import Vec.Safe
 
 import Data.Foldable ( toList )
+import Control.Arrow ( first )
 
 type FinMap :: Nat -> Ty -> Ty
-newtype FinMap n a where
-  MkFinMap :: Vec n (Maybe a) -> FinMap n a
+-- could just store a vector, but then we need SNatI n when constructing
+-- the empty FinMap, which is annoying
+data FinMap n a where
+  FMNil :: FinMap n a
+  (:>>) :: Maybe a -> FinMap n a -> FinMap (Succ n) a
+infixr 5 :>>
 
 deriving instance Show a => Show (FinMap n a)
 
-emptyFinMap :: SNatI n => FinMap n a
-emptyFinMap = MkFinMap (vReplicate snat Nothing)
+emptyFinMap :: FinMap n a
+emptyFinMap = FMNil
 
 lookupFinMap :: Fin n -> FinMap n a -> Maybe a
-lookupFinMap index (MkFinMap v) = v !!! index
+lookupFinMap _ FMNil = Nothing
+lookupFinMap FZero (x :>> _) = x
+lookupFinMap (FSucc f) (_ :>> xs) = lookupFinMap f xs
 
-insertFinMap :: Fin n -> a -> FinMap n a -> FinMap n a
-insertFinMap index elt (MkFinMap v) = MkFinMap (vUpdateAt v index (const $ Just elt))
+insertFinMap :: forall n a. Fin n -> a -> FinMap n a -> FinMap n a
+insertFinMap index elt m = alterFinMap (\_ -> Just elt) index m
+
+growFinMap :: a -> FinMap n a -> FinMap (Succ n) a
+growFinMap elt FMNil = Just elt :>> FMNil
+growFinMap elt (x :>> xs) = x :>> growFinMap elt xs
 
 alterFinMap :: (Maybe a -> Maybe a) -> Fin n -> FinMap n a -> FinMap n a
-alterFinMap upd f (MkFinMap v) = MkFinMap (vUpdateAt v f upd)
-
-bumpFinMapIndex :: FinMap n a -> FinMap (Succ n) a
-bumpFinMapIndex (MkFinMap v) = MkFinMap (v `vSnoc` Nothing)
+alterFinMap upd index FMNil = buildFinMap (upd Nothing) index
+alterFinMap upd FZero (x :>> xs) = upd x :>> xs
+alterFinMap upd (FSucc index) (x :>> xs) = x :>> alterFinMap upd index xs
 
 finMapToList :: FinMap n a -> [(Fin n, a)]
-finMapToList (MkFinMap v) = [ (f, x)
-                            | (f, Just x) <- toList $ fins (vLength v) `vZipEqual` v ]
+finMapToList FMNil = []
+finMapToList (Just x  :>> xs) = (FZero, x) : map (first FSucc) (finMapToList xs)
+finMapToList (Nothing :>> xs) = map (first FSucc) (finMapToList xs)
+
+-- internal only; inserts the element at the index provided
+buildFinMap :: Maybe a -> Fin n -> FinMap n a
+buildFinMap elt FZero = elt :>> FMNil
+buildFinMap elt (FSucc f) = Nothing :>> buildFinMap elt f

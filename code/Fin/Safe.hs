@@ -35,6 +35,7 @@ finToInt :: Fin n -> Int
 finToInt FZero = 0
 finToInt (FSucc f) = 1 + finToInt f
 
+-- NB: the result is Fin (Succ m), not Fin m
 maxFin :: SNat m -> Fin (Succ m)
 maxFin SZero = FZero
 maxFin (SSucc n) = FSucc (maxFin n)

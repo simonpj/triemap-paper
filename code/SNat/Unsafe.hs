@@ -12,6 +12,7 @@ module SNat.Unsafe
   ( SNat
   , pattern SZero
   , pattern SSucc
+  , (%+)
   , SNatI(snat)
   , snatToInt
   , eqSNat
@@ -25,6 +26,7 @@ import Nat.Unsafe
 
 import Data.Kind          ( Constraint )
 import Data.Type.Equality ( (:~:)(..) )
+import Data.Coerce
 
 type SNat :: Nat -> Ty
 newtype SNat n where
@@ -53,6 +55,9 @@ pattern SSucc n <- (ssuccPat -> SPR_Yes n)
     SSucc (UnsafeMkSNat n) = UnsafeMkSNat (1+n)
 
 {-# COMPLETE SZero, SSucc #-}
+
+(%+) :: SNat n1 -> SNat n2 -> SNat (n1 + n2)
+(%+) = coerce ((+) @Int)
 
 type SNatI :: Nat -> Constraint
 class SNatI n where

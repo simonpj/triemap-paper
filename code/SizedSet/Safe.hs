@@ -5,7 +5,8 @@
 ********************************************************************* -}
 
 {-# LANGUAGE StandaloneKindSignatures, DataKinds, GADTs, TypeOperators,
-             TypeApplications, ScopedTypeVariables, PatternSynonyms #-}
+             TypeApplications, ScopedTypeVariables, PatternSynonyms,
+             StandaloneDeriving, DeriveFoldable #-}
 
 module SizedSet.Safe
   ( SizedSet
@@ -14,6 +15,7 @@ module SizedSet.Safe
   , isEmptySizedSet
   , findAndDelete, FindAndDeleteResult, pattern FADR_Yes, pattern FADR_No
   , size
+  , toList
   ) where
 
 import Prelim
@@ -23,11 +25,14 @@ import SNat.Safe
 import Data.Type.Equality
 import qualified Data.Set as Set
 import Data.Coerce
+import qualified Data.Foldable as Foldable
 
 -- Invariant: no duplicates
 type SizedSet :: Nat -> Ty -> Ty
 newtype SizedSet n a where
   MkSizedSet :: Vec n a -> SizedSet n a
+
+deriving instance Foldable (SizedSet n)
 
 -- fails when there are duplicates
 fromVec :: Ord a => Vec n a -> Maybe (SizedSet n a)

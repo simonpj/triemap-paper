@@ -14,7 +14,7 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.IntMap as IntMap
 import Control.Monad
-import Data.Maybe( isJust )
+import Data.Maybe( isJust, fromJust )
 import Text.PrettyPrint as PP
 import Debug.Trace
 import Data.Functor.Const
@@ -43,8 +43,12 @@ ty1 = FunTy (TyConTy "Int") (TyConTy "Int")
 ty2 = FunTy (TyConTy "Char") (TyConTy "Char")
 ty3 = FunTy (TyConTy "Char") (TyConTy "Int")
 
-ins :: TypeMap (Const String) -> (String, Vec n TyVar, Type) -> TypeMap (Const String)
-ins m (s,tvs,ty) = insertTypeMap tvs ty (Const s) m
+ins :: TypeMap (Const String) -> (String, [TyVar], Type) -> TypeMap (Const String)
+ins m (s,tvs,ty) = fromJust $ do
+  MkEV tv_vec <- return (vecFromList tvs)
+  tv_set <- SS.fromVec tv_vec
+  (_, tmpl_ty) <- validateTmplType tv_set ty
+  return (insertTypeMap tmpl_ty (Const s) m)
 
 {- *********************************************************************
 *                                                                      *
@@ -104,8 +108,8 @@ data TmplMapping bound unbound total where
 mappingBound :: TmplMapping bound unbound total -> SNat bound
 mappingBound (MkTM tmpl_keys _) = mapFinSize tmpl_keys
 
-validateTmplType :: forall n. SNatI n => TmplVarSet n -> Type -> Maybe (ClosedTmplType n)
-validateTmplType tmpl_tvs ty = gcastWith (zeroIsRightIdentity (snat @n)) $
+validateTmplType :: forall n. TmplVarSet n -> Type -> Maybe (TmplKeys n, ClosedTmplType n)
+validateTmplType tmpl_tvs ty = gcastWith (zeroIsRightIdentity (SS.size tmpl_tvs)) $
                                validateOpenTmplType (MkTM emptyTmplKeys tmpl_tvs)
                                                     (deBruijnize ty)
                                                     finish
@@ -113,10 +117,10 @@ validateTmplType tmpl_tvs ty = gcastWith (zeroIsRightIdentity (snat @n)) $
     finish :: forall bound unbound
             . TmplMapping bound unbound n
            -> TmplType Zero bound
-           -> Maybe (TmplType Zero n)
-    finish (MkTM _keys unbound_vars) new_ty
+           -> Maybe (TmplKeys n, TmplType Zero n)
+    finish (MkTM keys unbound_vars) new_ty
       | Just Refl <- SS.isEmptySizedSet unbound_vars
-      = Just new_ty
+      = Just (keys, new_ty)
       | otherwise
       = Nothing
 
@@ -166,6 +170,14 @@ validateOpenTmplType mapping@(MkTM tmpl_keys tmpl_tvs) (D bv_env ty) k
     bound :: SNat bound
     bound = mappingBound mapping
 
+tmplTypeBound :: TmplType bound new_bound -> SNat new_bound
+tmplTypeBound TTmplVar = SSucc SZero
+tmplTypeBound (TFreeTyVarTy _) = SZero
+tmplTypeBound (TBoundTyVarTy _) = SZero
+tmplTypeBound (TTmplOcc _) = SZero
+tmplTypeBound (TFunTy t1 t2) = tmplTypeBound t1 %+ tmplTypeBound t2
+tmplTypeBound (TForAllTy ty) = tmplTypeBound ty
+tmplTypeBound (TTyConTy _) = SZero
 
 {- *********************************************************************
 *                                                                      *
@@ -234,47 +246,20 @@ eqDeBT _ _ = False
 type TmplTy = Nat  -- how many template variables are free here
            -> Ty
 
-type Match :: TmplTy -> TmplTy
-data Match a n = MkMatch (Vec n (TmplVar, TmplKey n)) (a n)
-
 type TypeMap :: TmplTy -> Ty
-type TypeMap a = GTypeMap (Match a) Zero
+type TypeMap a = GTypeMap a Zero
 
 emptyTypeMap :: TypeMap a
 emptyTypeMap = emptyGTypeMap
 
-insertTypeMap :: forall a n. Vec n TyVar   -- Template type variables
-                          -> Type          -- Template
+insertTypeMap :: forall a n. ClosedTmplType n
                           -> a n -> TypeMap a -> TypeMap a
-insertTypeMap tmpl_tvs ty x tm
-  | Just tmpl_set <- SS.fromVec tmpl_tvs
-  = xtT tmpl_set (deBruijnize ty) f emptyTmplKeys tm
-  | otherwise
-  = error "duplicate template variables"
-  where
-    f :: forall m. TmplKeys m -> XT (Match a m)
-     -- The "_" below means just overwrite previous value
-    f tkeys _ = unsafeAssumeEqual @n @m $  -- if this assumption is wrong, an inst_key will fail
-                Just (MkMatch (fmap inst_key tmpl_tvs) x)
+insertTypeMap tmpl_ty x tm
+  = xtT SZero tmpl_ty (\ _ -> Just x) tm
 
-     where
-        inst_key :: forall. TyVar -> (TmplVar, TmplKey m)  -- `m` is from outer scope
-        inst_key tv = case lookupMapFin tv tkeys of
-                         Nothing  -> error ("Unbound tmpl var " ++ tv)
-                         Just key -> (tv, key)
-
-type LookupTypeMapResult :: (Nat -> Ty) -> Ty
-data LookupTypeMapResult a where
-  LTMR :: forall n a. Vec n (TmplVar, Type) -> a n -> LookupTypeMapResult a
-
-lookupTypeMap :: Type -> TypeMap a -> [LookupTypeMapResult a]
+lookupTypeMap :: Type -> TypeMap a -> [LkTResult a]
 lookupTypeMap ty tm
-  = [ LTMR (fmap (lookup tsubst) prs) x
-    | LkTR tsubst (MkMatch prs x) <- lkT (deBruijnize ty) (LkTR emptyTmplSubst tm) ]
-  where
-    lookup :: TmplSubst n -> (TmplVar, TmplKey n) -> (TmplVar, Type)
-    lookup tsubst (tv, key) = (tv, lookupTmplSubst key tsubst)
-
+  = lkT (deBruijnize ty) (LkTR emptyTmplSubst tm)
 
 {- *********************************************************************
 *                                                                      *
@@ -300,7 +285,7 @@ deriving instance (forall m. Show (a m)) => Show (GTypeMap a n)
 emptyGTypeMap :: GTypeMap a n
 emptyGTypeMap = EmptyTM
 
-mkEmptyGTypeMap :: SNatI n => GTypeMap a n
+mkEmptyGTypeMap :: GTypeMap a n
 mkEmptyGTypeMap
   = TM { tm_tvar   = Nothing
        , tm_fvar   = emptyFreeVarMap
@@ -312,7 +297,7 @@ mkEmptyGTypeMap
 
 type LkTResult :: (Nat -> Ty) -> Ty
 data LkTResult a where
-  LkTR :: forall n a. SNatI n => TmplSubst n -> a n -> LkTResult a
+  LkTR :: forall n a. TmplSubst n -> a n -> LkTResult a
 
 lkT :: forall a. DeBruijn Type -> LkTResult (GTypeMap a) -> [LkTResult a]
 -- lk = lookup
@@ -346,49 +331,51 @@ lkT (D bv_env ty) (LkTR tsubst (TM { .. }))
                        `eqDeBT` (D bv_env ty)
                      ]
 
-lkTC :: SNatI n => TyCon -> (TmplSubst n, Map.Map TyCon (a n)) -> [LkTResult a]
+lkTC :: TyCon -> (TmplSubst n, Map.Map TyCon (a n)) -> [LkTResult a]
 lkTC tc (tsubst, tc_map) = case Map.lookup tc tc_map of
                              Nothing -> []
                              Just x  -> [LkTR tsubst x]
 
-xtT :: SNatI n
-    => TmplVarSet m -> DeBruijn Type
-    -> (forall p. SNatI p => TmplKeys p -> XT (a p))
-    -> TmplKeys n -> GTypeMap a n -> GTypeMap a n
+xtT :: forall bound_before bound_here a
+     . SNat bound_before
+    -> TmplType bound_before bound_here
+    -> XT (a (bound_before + bound_here))
+    -> GTypeMap a bound_before -> GTypeMap a bound_before
 -- xt = alter
-xtT tmpls ty f tkeys EmptyTM
- = xtT tmpls ty f tkeys mkEmptyGTypeMap
+xtT bound_before tmpl_ty f EmptyTM
+ = xtT bound_before tmpl_ty f mkEmptyGTypeMap
 
-xtT tmpls (D bv_env ty) f tkeys m@(TM {..}) = case ty of
-   TyVarTy tv
+xtT bound_before tmpl_ty f m@(TM {..}) = gcastWith (zeroIsRightIdentity bound_before) $
+                            case tmpl_ty of
       -- Second or subsequent occurrence of a template tyvar
-      | Just xv <- lookupMapFin tv tkeys  -> m { tm_xvar = xtTmplVarOcc xv (f tkeys) tm_xvar }
+   TTmplOcc xv -> m { tm_xvar = xtTmplVarOcc xv f tm_xvar }
 
       -- First occurrence of a template tyvar
-      | tv `SS.member` tmpls -> m { tm_tvar = f (extendTmplKeys tv tkeys) tm_tvar  }
+   TTmplVar    -> gcastWith (succOnRight bound_before @Zero) $
+                  m { tm_tvar = f tm_tvar  }
 
       -- Occurrence of a forall-bound var
-      | Just bv <- lookupCME tv bv_env -> m { tm_bvar = xtBoundVarOcc bv (f tkeys) tm_bvar }
+   TBoundTyVarTy bv -> m { tm_bvar = xtBoundVarOcc bv f tm_bvar }
 
       -- A completely free variable
-      | otherwise -> m { tm_fvar = xtFreeVarOcc  tv (f tkeys) tm_fvar }
+   TFreeTyVarTy tv -> m { tm_fvar = xtFreeVarOcc  tv f tm_fvar }
 
-   TyConTy tc  -> m { tm_tycon = xtTC tc (f tkeys) tm_tycon }
-   FunTy t1 t2 -> m { tm_fun   = xtT tmpls (D bv_env t1)
-                                     (liftXT (xtT tmpls (D bv_env t2) f))
-                                     tkeys tm_fun }
-   ForAllTy tv ty -> m { tm_forall = xtT tmpls (D (extendCME tv bv_env) ty)
-                                                f tkeys tm_forall }
-
+   TTyConTy tc  -> m { tm_tycon = xtTC tc f tm_tycon }
+   TFunTy (t1 :: TmplType bound_before bound_in_t1)
+          (t2 :: TmplType (bound_before + bound_in_t1) bound_in_t2)
+     -> gcastWith (plusIsAssoc bound_before @bound_in_t1 @bound_in_t2) $
+        m { tm_fun   = xtT bound_before t1
+                           (liftXT (xtT (bound_before %+ tmplTypeBound t1) t2 f))
+                           tm_fun }
+   TForAllTy ty -> m { tm_forall = xtT bound_before ty f tm_forall }
 
 xtTC :: TyCon -> XT a -> Map.Map TyCon a ->  Map.Map TyCon a
 xtTC tc f m = Map.alter f tc m
 
-liftXT :: SNatI n
-       => (forall m. SNatI m => TmplKeys m -> GTypeMap a m -> GTypeMap a m)
-       -> TmplKeys n -> Maybe (GTypeMap a n) -> Maybe (GTypeMap a n)
-liftXT insert tkeys Nothing  = Just (insert tkeys emptyGTypeMap)
-liftXT insert tkeys (Just m) = Just (insert tkeys m)
+liftXT :: (GTypeMap a n -> GTypeMap a n)
+       -> Maybe (GTypeMap a n) -> Maybe (GTypeMap a n)
+liftXT insert Nothing  = Just (insert emptyGTypeMap)
+liftXT insert (Just m) = Just (insert m)
 
 
 {- *********************************************************************
@@ -426,10 +413,8 @@ lookupTmplSubst key subst
       Just ty -> ty
       Nothing -> error ("lookupTmplSubst " ++ show key)
 
--- "RAE"
-extendTmplSubst :: forall n. SNatI n => Type -> TmplSubst n -> TmplSubst (Succ n)
-extendTmplSubst ty subst
-  = insertFinMap (maxFinI :: Fin (Succ n)) ty (bumpFinMapIndex subst)
+extendTmplSubst :: forall n. Type -> TmplSubst n -> TmplSubst (Succ n)
+extendTmplSubst ty subst = growFinMap ty subst
 
 {- *********************************************************************
 *                                                                      *
@@ -449,7 +434,7 @@ lookupBoundVarMap = IntMap.lookup
 extendBoundVarMap :: BoundVar -> a -> BoundVarMap a -> BoundVarMap a
 extendBoundVarMap = IntMap.insert
 
-lkBoundVarOcc :: SNatI n => BoundVar -> (TmplSubst n, BoundVarMap (a n)) -> [LkTResult a]
+lkBoundVarOcc :: BoundVar -> (TmplSubst n, BoundVarMap (a n)) -> [LkTResult a]
 lkBoundVarOcc var (tsubst, env) = case lookupBoundVarMap var env of
                                      Just x  -> [LkTR tsubst x]
                                      Nothing -> []
@@ -500,7 +485,7 @@ extendFreeVarMap env tv val = Map.insert tv val env
 xtFreeVarOcc :: TyVar -> XT a -> FreeVarMap a -> FreeVarMap a
 xtFreeVarOcc tv f tm = Map.alter f tv tm
 
-lkFreeVarOcc :: SNatI n => TyVar -> (TmplSubst n, FreeVarMap (a n)) -> [LkTResult a]
+lkFreeVarOcc :: TyVar -> (TmplSubst n, FreeVarMap (a n)) -> [LkTResult a]
 lkFreeVarOcc var (tsubst, env) = case Map.lookup var env of
                                     Just x  -> [LkTR tsubst x]
                                     Nothing -> []

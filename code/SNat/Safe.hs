@@ -11,6 +11,7 @@ module SNat.Safe
   ( SNat
   , pattern SZero
   , pattern SSucc
+  , (%+)
   , SNatI(snat)
   , snatToInt
   , eqSNat
@@ -25,6 +26,10 @@ type SNat :: Nat -> Ty
 data SNat n where
   SZero :: SNat Zero
   SSucc :: SNat n -> SNat (Succ n)
+
+(%+) :: SNat n1 -> SNat n2 -> SNat (n1 + n2)
+SZero     %+ n2 = n2
+SSucc n1' %+ n2 = SSucc (n1' %+ n2)
 
 snatToInt :: SNat n -> Int
 snatToInt SZero = 0

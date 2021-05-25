@@ -5,7 +5,8 @@
 ********************************************************************* -}
 
 {-# LANGUAGE StandaloneKindSignatures, DataKinds, GADTs, TypeApplications,
-             ScopedTypeVariables, TypeOperators, PatternSynonyms #-}
+             ScopedTypeVariables, TypeOperators, PatternSynonyms,
+             StandaloneDeriving, DeriveFoldable #-}
 
 module SizedSet.Unsafe
   ( SizedSet
@@ -29,6 +30,8 @@ import Data.Coerce
 type SizedSet :: Nat -> Ty -> Ty
 newtype SizedSet n a where
   UnsafeMkSizedSet :: Set.Set a -> SizedSet n a
+
+deriving instance Foldable (SizedSet n)
 
 -- fails when there are duplicates
 fromVec :: Ord a => Vec n a -> Maybe (SizedSet n a)
@@ -65,3 +68,4 @@ findAndDelete needle (UnsafeMkSizedSet s)
 
 size :: forall n a. SizedSet n a -> SNat n
 size = coerce Set.size
+

@@ -8,7 +8,9 @@
              DeriveFunctor, DeriveFoldable, ScopedTypeVariables #-}
 
 module Vec.Safe
-  ( Vec(..)
+  ( Vec
+  , pattern Nil
+  , pattern (:>)
   , vLength
   , vReplicate
   , (!!!)
@@ -16,6 +18,8 @@ module Vec.Safe
   , vSnoc
   , vZipEqual
   , fins, finsI
+  , EVec(..)
+  , vecFromList
   ) where
 
 import Prelim
@@ -68,3 +72,11 @@ fins (SSucc n) = FZero :> fmap FSucc (fins n)
 
 finsI :: SNatI n => Vec n (Fin n)
 finsI = fins snat
+
+type EVec :: Ty -> Ty
+data EVec a where
+  MkEV :: Vec n a -> EVec a
+
+vecFromList :: [a] -> EVec a
+vecFromList [] = MkEV Nil
+vecFromList (x : xs) = case vecFromList xs of MkEV xs' -> MkEV (x :> xs')

@@ -5,10 +5,13 @@
 ********************************************************************* -}
 
 {-# LANGUAGE DataKinds, StandaloneKindSignatures, GADTs, StandaloneDeriving,
-             DeriveFunctor, DeriveFoldable, ScopedTypeVariables, TypeApplications #-}
+             DeriveFunctor, DeriveFoldable, ScopedTypeVariables, TypeApplications,
+             TypeOperators, ViewPatterns #-}
 
 module Vec.Unsafe
-  ( Vec(..)
+  ( Vec
+  , pattern Nil
+  , pattern (:>)
   , vLength
   , vReplicate
   , (!!!)
@@ -16,12 +19,16 @@ module Vec.Unsafe
   , vSnoc
   , vZipEqual
   , fins, finsI
+  , EVec(..)
+  , vecFromList
   ) where
 
 import Prelim
 import SNat.Unsafe
 import Fin.Unsafe
+import Nat.Unsafe
 
+import Data.Type.Equality
 import Data.Coerce
 
 type Vec :: Nat -> Ty -> Ty
@@ -31,6 +38,29 @@ newtype Vec n a where
 deriving instance Functor (Vec n)
 deriving instance Foldable (Vec n)
 deriving instance Show a => Show (Vec n a)
+
+nilPat :: forall n a. Vec n a -> Maybe (n :~: Zero)
+nilPat (UnsafeMkVec []) = unsafeAssumeEqual @n @Zero (Just Refl)
+nilPat _                = Nothing
+
+pattern Nil :: forall n a. () => n ~ Zero => Vec n a
+pattern Nil <- (nilPat -> Just Refl)
+  where Nil = UnsafeMkVec []
+
+type ConsPatResult :: Nat -> Ty -> Ty
+data ConsPatResult n a where
+  CPR_Yes :: a -> Vec n a -> ConsPatResult (Succ n) a
+  CPR_No  :: ConsPatResult n a
+
+consPat :: forall n a. Vec n a -> ConsPatResult n a
+consPat (UnsafeMkVec (x : xs)) = unsafeAssumeSucc @n $
+                                 CPR_Yes x (UnsafeMkVec xs)
+consPat _                      = CPR_No
+
+pattern (:>) :: forall n a. () => forall m. (n ~ Succ m) => a -> Vec m a -> Vec n a
+pattern x :> xs <- (consPat -> CPR_Yes x xs)
+  where (:>) = coerce ((:) @a)
+infixr 5 :>
 
 vLength :: forall n a. Vec n a -> SNat n
 vLength = coerce (length @[] @a)
@@ -64,3 +94,10 @@ fins n = UnsafeMkVec (go [] (snatToInt n))
 
 finsI :: SNatI n => Vec n (Fin n)
 finsI = fins snat
+
+type EVec :: Ty -> Ty
+data EVec a where
+  MkEV :: Vec n a -> EVec a
+
+vecFromList :: [a] -> EVec a
+vecFromList = MkEV . UnsafeMkVec

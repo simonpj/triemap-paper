@@ -34,8 +34,8 @@ lookupMapFin :: forall k n. Ord k => k -> MapFin k n -> Maybe (Fin n)
 lookupMapFin = coerce (Map.lookup @k @(Fin n))
 
 insertKeyMapFin :: Ord k => k -> MapFin k n -> MapFin k (Succ n)
-insertKeyMapFin k mf@(UnsafeMkMapFin m)
-  = UnsafeMkMapFin (Map.insert k (maxFin (mapFinSize mf)) (coerce m))
+insertKeyMapFin k (UnsafeMkMapFin m)
+  = UnsafeMkMapFin (Map.insert k (coerce (Map.size m)) (coerce m))
 
 mapFinSize :: forall k n. MapFin k n -> SNat n
 mapFinSize = coerce (Map.size @k @(Fin n))
