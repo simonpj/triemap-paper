@@ -22,6 +22,7 @@ import Data.Coerce
 import Data.Type.Equality
 import Unsafe.Coerce
 import Data.Foldable ( toList )
+import Control.Monad.Except
 
 import Prelim
 import Unsafe
@@ -44,12 +45,8 @@ ty1 = FunTy (TyConTy "Int") (TyConTy "Int")
 ty2 = FunTy (TyConTy "Char") (TyConTy "Char")
 ty3 = FunTy (TyConTy "Char") (TyConTy "Int")
 
-ins :: TypeMap (Const String) -> (String, [TyVar], Type) -> TypeMap (Const String)
-ins m (s,tvs,ty) = fromJust $ do
-  MkEV tv_vec <- return (vecFromList tvs)
-  tv_set <- SS.fromVec tv_vec
-  (_, tmpl_ty) <- validateTmplType tv_set ty
-  return (insertTypeMap tmpl_ty (Const s) m)
+ins :: STypeMap String -> (String, [TyVar], Type) -> STypeMap String
+ins m (s,tvs,ty) = insertSTypeMap tvs ty s m
 
 {- *********************************************************************
 *                                                                      *
@@ -264,6 +261,55 @@ lookupTypeMap ty tm
 
 {- *********************************************************************
 *                                                                      *
+                  STypeMap
+*                                                                      *
+********************************************************************* -}
+
+-- | An STypeMap is a "simple" TypeMap, where the stored value is
+-- not indexed.
+type STypeMap :: Ty -> Ty
+type STypeMap a = TypeMap (Match a)
+
+type Match :: Ty -> Nat -> Ty
+data Match a n where
+  MkMatch :: TmplKeys n -> a -> Match a n
+
+-- | Checks a 'Maybe' in the 'Except' monad
+checkMaybe :: e        -- error message
+           -> Maybe a
+           -> Except e a
+checkMaybe err Nothing  = throwError err
+checkMaybe _   (Just x) = return x
+
+-- | Inserts a type (with the given template variables) into a 'STypeMap'.
+-- Calls error if:
+--  1) The list of TmplVars contains any duplicates, or
+--  2) Not every TmplVar is used in the Type
+insertSTypeMap :: [TmplVar] -> Type -> a -> STypeMap a -> STypeMap a
+insertSTypeMap tmpl_var_list ty value m
+  = case runExcept $
+         do MkEV tmpl_var_vec <- return (vecFromList tmpl_var_list)
+            tmpl_var_set <- checkMaybe "duplicates found" $
+                            SS.fromVec tmpl_var_vec
+            (keys, tmpl_ty) <- checkMaybe "template var not used" $
+                               validateTmplType tmpl_var_set ty
+            return (insertTypeMap tmpl_ty (MkMatch keys value) m)
+    of Left err -> error err
+       Right r  -> r
+
+lookupSTypeMap :: Type -> STypeMap a -> [ ([(TmplVar, Type)], a) ]
+lookupSTypeMap ty m
+  = [ (compose keys subst, x)
+    | LkTR subst (MkMatch keys x) <- lookupTypeMap ty m ]
+
+  where
+    compose :: TmplKeys n -> TmplSubst n -> [(TmplVar, Type)]
+    compose keys subst = [ (tmpl_var, ty)
+                         | (tmpl_var, tmpl_key) <- mapFinToList keys
+                         , let ty = lookupTmplSubst tmpl_key subst ]
+
+{- *********************************************************************
+*                                                                      *
                   GTypeMap
 *                                                                      *
 ********************************************************************* -}
@@ -405,19 +451,17 @@ xtTmplVarOcc :: TmplKey n -> XT (a n) -> TmplOccs a n -> TmplOccs a n
 xtTmplVarOcc key f mapping = alterFinMap f key mapping
 
 ---------------
-type TmplSubst n = FinMap n Type     -- Maps TmplKey -> Type
+type TmplSubst n = CompleteFinMap n Type     -- Maps TmplKey -> Type
 
-emptyTmplSubst :: SNatI n => TmplSubst n
-emptyTmplSubst = emptyFinMap
+emptyTmplSubst :: TmplSubst Zero
+emptyTmplSubst = emptyCompleteFinMap
 
 lookupTmplSubst :: TmplKey n -> TmplSubst n -> Type
 lookupTmplSubst key subst
-  = case lookupFinMap key subst of
-      Just ty -> ty
-      Nothing -> error ("lookupTmplSubst " ++ show key)
+  = lookupCompleteFinMap key subst
 
 extendTmplSubst :: forall n. Type -> TmplSubst n -> TmplSubst (Succ n)
-extendTmplSubst ty subst = growFinMap ty subst
+extendTmplSubst ty subst = growCompleteFinMap ty subst
 
 {- *********************************************************************
 *                                                                      *
@@ -616,6 +660,10 @@ instance Pretty a => Pretty (IntMap.IntMap a) where
 instance Pretty a => Pretty (FinMap n a) where
   ppr m = brackets $ commaSep [ ppr k <+> text ":->" <+> ppr v
                               | (k,v) <- finMapToList m ]
+
+instance Pretty a => Pretty (CompleteFinMap n a) where
+  ppr m = brackets $ commaSep [ ppr k <+> text ":->" <+> ppr v
+                              | (k,v) <- completeFinMapToList m ]
 
 instance Pretty a => Pretty (SS.SizedSet n a) where
   ppr m = braces $ commaSep (map ppr $ toList m)

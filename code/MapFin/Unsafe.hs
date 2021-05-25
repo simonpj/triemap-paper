@@ -13,6 +13,7 @@ module MapFin.Unsafe
   , lookupMapFin
   , insertKeyMapFin
   , mapFinSize
+  , mapFinToList
   ) where
 
 import Prelim
@@ -39,3 +40,6 @@ insertKeyMapFin k (UnsafeMkMapFin m)
 
 mapFinSize :: forall k n. MapFin k n -> SNat n
 mapFinSize = coerce (Map.size @k @(Fin n))
+
+mapFinToList :: forall k n. MapFin k n -> [(k, Fin n)]
+mapFinToList = coerce (Map.toList @k @(Fin n))

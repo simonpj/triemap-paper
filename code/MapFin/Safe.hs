@@ -12,12 +12,15 @@ module MapFin.Safe
   , lookupMapFin
   , insertKeyMapFin
   , mapFinSize
+  , mapFinToList
   ) where
 
 import Prelim
 import Vec.Safe
 import Fin.Safe
 import SNat.Safe
+
+import Data.Foldable ( toList )
 
 type MapFin :: Ty -> Nat -> Ty
 newtype MapFin k n where
@@ -40,3 +43,6 @@ insertKeyMapFin k (MkMapFin v) = MkMapFin (v `vSnoc` k)
 
 mapFinSize :: forall k n. MapFin k n -> SNat n
 mapFinSize (MkMapFin v) = vLength v
+
+mapFinToList :: MapFin k n -> [(k, Fin n)]
+mapFinToList (MkMapFin v) = toList (v `vZipEqual` fins (vLength v))
