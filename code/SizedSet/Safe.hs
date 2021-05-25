@@ -15,7 +15,6 @@ module SizedSet.Safe
   , isEmptySizedSet
   , findAndDelete, FindAndDeleteResult, pattern FADR_Yes, pattern FADR_No
   , size
-  , toList
   ) where
 
 import Prelim
@@ -33,6 +32,7 @@ newtype SizedSet n a where
   MkSizedSet :: Vec n a -> SizedSet n a
 
 deriving instance Foldable (SizedSet n)
+deriving instance Show a => Show (SizedSet n a)
 
 -- fails when there are duplicates
 fromVec :: Ord a => Vec n a -> Maybe (SizedSet n a)
@@ -40,7 +40,7 @@ fromVec v
   | has_duplicates = Nothing
   | otherwise      = Just $ MkSizedSet v
   where
-    has_duplicates = length (foldMap Set.singleton v) == length v
+    has_duplicates = length (foldMap Set.singleton v) /= length v
 
 member :: Ord a => a -> SizedSet n a -> Bool
 member x (MkSizedSet v) = elem x v

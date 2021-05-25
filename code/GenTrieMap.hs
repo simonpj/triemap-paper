@@ -2,7 +2,7 @@
              RecordWildCards, ScopedTypeVariables, StandaloneKindSignatures,
              DataKinds, GADTs, TypeApplications, QuantifiedConstraints,
              StandaloneDeriving, DeriveFoldable, TypeOperators, PolyKinds,
-             DeriveFunctor, AllowAmbiguousTypes #-}
+             DeriveFunctor, AllowAmbiguousTypes, UndecidableInstances #-}
 
 module GenTrieMap where
 
@@ -21,6 +21,7 @@ import Data.Functor.Const
 import Data.Coerce
 import Data.Type.Equality
 import Unsafe.Coerce
+import Data.Foldable ( toList )
 
 import Prelim
 import Unsafe
@@ -298,6 +299,8 @@ mkEmptyGTypeMap
 type LkTResult :: (Nat -> Ty) -> Ty
 data LkTResult a where
   LkTR :: forall n a. TmplSubst n -> a n -> LkTResult a
+
+deriving instance (forall n. Show (a n)) => Show (LkTResult a)
 
 lkT :: forall a. DeBruijn Type -> LkTResult (GTypeMap a) -> [LkTResult a]
 -- lk = lookup
@@ -592,6 +595,10 @@ instance {-# OVERLAPPING #-} Pretty String where
 instance Pretty (Fin n) where
   ppr f = ppr (finToInt f)
 
+instance (forall n. Pretty (a n)) => Pretty (LkTResult a) where
+  ppr (LkTR subst x) = text "<" PP.<> (ppr subst PP.<> comma $$
+                                       ppr x) PP.<> text ">"
+
 instance (Pretty a, Pretty b) => Pretty (a,b) where
   ppr (x,y) = parens (ppr x PP.<> comma <+> ppr y)
 
@@ -610,9 +617,15 @@ instance Pretty a => Pretty (FinMap n a) where
   ppr m = brackets $ commaSep [ ppr k <+> text ":->" <+> ppr v
                               | (k,v) <- finMapToList m ]
 
+instance Pretty a => Pretty (SS.SizedSet n a) where
+  ppr m = braces $ commaSep (map ppr $ toList m)
+
 instance Pretty a => Pretty (Maybe a) where
   ppr Nothing  = text "Nothing"
   ppr (Just x) = text "Just" <+> ppr x
+
+instance Pretty a => Pretty (Const a x) where
+  ppr (Const x) = ppr x
 
 instance Pretty Type where
    ppr ty = text (show ty)

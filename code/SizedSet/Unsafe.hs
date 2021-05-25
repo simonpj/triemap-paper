@@ -32,6 +32,7 @@ newtype SizedSet n a where
   UnsafeMkSizedSet :: Set.Set a -> SizedSet n a
 
 deriving instance Foldable (SizedSet n)
+deriving instance Show a => Show (SizedSet n a)
 
 -- fails when there are duplicates
 fromVec :: Ord a => Vec n a -> Maybe (SizedSet n a)
@@ -40,7 +41,7 @@ fromVec v
   | otherwise      = Just $ UnsafeMkSizedSet set
   where
     set            = foldMap Set.singleton v  -- is there a better way to do this?
-    has_duplicates = length set == length v
+    has_duplicates = length set /= length v
 
 member :: Ord a => a -> SizedSet n a -> Bool
 member x (UnsafeMkSizedSet s) = Set.member x s
