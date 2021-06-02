@@ -20,15 +20,15 @@ import Data.Char
 ********************************************************************* -}
 
 item1, item2, item3, item4 :: (String, [TyVar], Type)
-item1 = ("item1", ["a"], FunTy (TyVarTy "a") (TyConTy "Int"))
-item2 = ("item2", ["a"], FunTy (TyVarTy "a") (TyVarTy "a"))
-item3 = ("item3", [],    FunTy (TyConTy "Int") (TyConTy "Int"))
-item4 = ("item4", ["a", "b"], FunTy (TyVarTy "b") (TyVarTy "a"))
+item1 = ("item1", ["a"], read "a -> Int")
+item2 = ("item2", ["a"], read "a -> a")
+item3 = ("item3", [],    read "Int -> Int")
+item4 = ("item4", ["a", "b"], read "b -> a")
 
 ty1, ty2, ty3 :: Type
-ty1 = FunTy (TyConTy "Int") (TyConTy "Int")
-ty2 = FunTy (TyConTy "Char") (TyConTy "Char")
-ty3 = FunTy (TyConTy "Char") (TyConTy "Int")
+ty1 = read "Int -> Int"
+ty2 = read "Char -> Char"
+ty3 = read "Char -> Int"
 
 ins :: TypeMap String -> (String, [TyVar], Type) -> TypeMap String
 ins m (s,tvs,ty) = insertTypeMap tvs ty s m
@@ -486,7 +486,6 @@ instance Read Type where
                   ++
                   readParen (p > piPrec) (\s -> do
                     (tok, r1) <- lex s
-                    trace (show tok ++ show (isSymbol (head tok))) (return ())
                     case tok of
                       [c] | c `elem` "∀@#%" -> do -- multiple short-hands for ForAllTy
                         (TyVarTy v, r2) <- readsPrec (piPrec+1) r1
