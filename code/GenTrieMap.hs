@@ -11,6 +11,7 @@ import Control.Monad
 import Data.Maybe( isJust )
 import Text.PrettyPrint as PP
 import Debug.Trace
+import Data.Char
 
 {- *********************************************************************
 *                                                                      *
@@ -45,7 +46,6 @@ data Type = TyVarTy TyVar
           | FunTy Type Type
           | ForAllTy TyVar Type
           | TyConTy TyCon
-  deriving( Show )
 
 anyFreeVarsOfType :: (TyVar -> Bool) -> Type -> Bool
 -- True if 'p' returns True of any free variable
@@ -458,6 +458,46 @@ deMaybe (Just m) = m
                    Pretty-printing
 *                                                                      *
 ********************************************************************* -}
+
+piPrec :: Int
+piPrec = 1
+
+-- | Example output: @Bool -> (∀a. Int) -> (Int -> Int) -> ∀b. Char -> b@
+instance Show Type where
+  showsPrec _ (TyVarTy v)       = showString v
+  showsPrec _ (TyConTy tc)      = showString tc
+  showsPrec p (FunTy arg res)   = showParen (p > piPrec) $
+    showsPrec (piPrec+1) arg . showString " -> " . showsPrec piPrec res
+  showsPrec p (ForAllTy v body) = showParen (p > piPrec) $
+    showString "∀" . showString v . showString ". " . showsPrec piPrec body
+
+-- | This monster parses Types in the REPL etc. Accepts syntax like
+-- @Bool -> (∀a. Int) -> (Int -> Int) -> ∀b. Char -> b@
+--
+-- >>> read "Bool -> (∀a. Int) -> (Int -> Int) -> ∀b. Char -> b" :: Type
+-- Bool -> (∀a. Int) -> (Int -> Int) -> ∀b. Char -> b
+instance Read Type where
+  readsPrec p s = readParen False (\s -> do
+                    (v@(_:_), r) <- lex s
+                    guard (all isAlphaNum v)
+                    pure $ if isLower (head v)
+                      then (TyVarTy v, r)
+                      else (TyConTy v, r)) s
+                  ++
+                  readParen (p > piPrec) (\s -> do
+                    (tok, r1) <- lex s
+                    trace (show tok ++ show (isSymbol (head tok))) (return ())
+                    case tok of
+                      [c] | c `elem` "∀@#%" -> do -- multiple short-hands for ForAllTy
+                        (TyVarTy v, r2) <- readsPrec (piPrec+1) r1
+                        (".", r3) <- lex r2
+                        (body, r4) <- readsPrec piPrec r3
+                        pure (ForAllTy v body, r4)
+                      _ -> do -- FunTy
+                        (arg, r1) <- readsPrec (piPrec+1) s
+                        ("->", r2) <- lex r1
+                        (res, r3) <- readsPrec piPrec r2
+                        pure (FunTy arg res, r3)) s
 
 class Pretty a where
   ppr :: a -> Doc
