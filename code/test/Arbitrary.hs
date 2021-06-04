@@ -1,12 +1,10 @@
-{-# LANGUAGE GeneralisedNewtypeDeriving #-}
-{-# LANGUAGE DerivingStrategies #-}
-
-module Arbitrary (genType) where
+module Arbitrary (Env, genEnv, boundVars, genOpenType, genClosedType) where
 
 import GenTrieMap
 
 import qualified Data.Set as Set
 import Data.Char
+import Text.Show
 import Control.Arrow
 import Control.Monad.Trans.Reader
 import Control.Monad.Trans.Class
@@ -15,6 +13,9 @@ import qualified Test.QuickCheck as QC
 
 newtype Env = Env { nextFree :: Int }
 
+instance Show Env where
+  showsPrec _ = showListWith showString . boundVars
+
 idx2TyVar :: Int -> TyVar
 idx2TyVar n | n <= 26   = [chr (ord 'a' + n)]
             | otherwise = "t" ++ show n
@@ -22,63 +23,45 @@ idx2TyVar n | n <= 26   = [chr (ord 'a' + n)]
 boundVars :: Env -> [TyVar]
 boundVars (Env n) = map idx2TyVar [0..n-1]
 
+mkEnvWithNVars :: Int -> Env
+mkEnvWithNVars = Env
+
 emptyEnv :: Env
-emptyEnv = Env 0
+emptyEnv = mkEnvWithNVars 0
 
-newtype EnvGen a = EnvGen (ReaderT Env QC.Gen a)
-  deriving newtype (Functor, Applicative, Monad)
+genEnv :: QC.Gen Env
+genEnv = QC.sized $ \size -> QC.elements (map mkEnvWithNVars [0..size])
 
-runEnvGen :: Env -> EnvGen a -> QC.Gen a
-runEnvGen env (EnvGen m) = runReaderT m env
+genClosedType :: QC.Gen Type
+genClosedType = genOpenType emptyEnv
 
-getEnv :: EnvGen Env
-getEnv = EnvGen ask
-
-liftGen :: QC.Gen a -> EnvGen a
-liftGen m = EnvGen (lift m)
-
-getSize :: EnvGen Int
-getSize = liftGen QC.getSize
-
-scale :: (Int -> Int) -> EnvGen a -> EnvGen a
-scale f g = EnvGen $ ReaderT $ \env -> QC.scale f (runEnvGen env g)
-
-elements :: [a] -> EnvGen a
-elements elts = liftGen (QC.elements elts)
-
-frequency :: [(Int, EnvGen a)] -> EnvGen a
-frequency alts = EnvGen $ ReaderT $ \env ->
-  QC.frequency [ (w, runEnvGen env m) | (w, m) <- alts ]
-
-genType :: QC.Gen Type
-genType = runEnvGen emptyEnv genType'
-
-genType' :: EnvGen Type
-genType' = do
-  env <- getEnv
-  size <- getSize
-  frequency $ concat
-    [ [ (1, genTyConTy')  ]
-    , [ (2, genTyVarTy')  | not $ null $ boundVars env ]
-    , [ (size, genFunTy')    ]
-    , [ (size, genForAllTy') ]
+genOpenType :: Env -> QC.Gen Type
+genOpenType env = QC.sized $ \size ->
+  QC.frequency $ concat
+    [ [ (1, genTyConTy env)     ]
+    , [ (2, genTyVarTy env)     | not $ null $ boundVars env ]
+    , [ (size, genFunTy env)    ]
+    , [ (size, genForAllTy env) ]
     ]
 
-genTyConTy', genTyVarTy', genFunTy', genForAllTy' :: EnvGen Type
-genTyConTy' = elements (map TyConTy ["Int", "Bool", "Char", "Void", "String"])
-genTyVarTy' = do
-  env <- getEnv
-  elements (map TyVarTy (boundVars env))
-genFunTy' = FunTy <$> scale (subtract 1) genType' <*> scale (subtract 1) genType'
-genForAllTy' = withFreshlyBoundTyVar $ \tv ->
-  ForAllTy tv <$> scale (subtract 1) genType'
+genTyConTy, genTyVarTy, genFunTy, genForAllTy :: Env -> QC.Gen Type
+genTyConTy  _   = QC.elements (map TyConTy ["Int", "Bool", "Char", "Void", "String"])
+genTyVarTy  env = QC.elements (map TyVarTy (boundVars env))
+genFunTy    env = FunTy <$> QC.scale (subtract 1) (genOpenType env)
+                        <*> QC.scale (subtract 1) (genOpenType env)
+genForAllTy env = withBoundTyVar env $ \tv env' ->
+  ForAllTy tv <$> QC.scale (subtract 1) (genOpenType env')
 
-withFreshlyBoundTyVar :: (TyVar -> EnvGen a) -> EnvGen a
-withFreshlyBoundTyVar f = do
-  env <- getEnv
-  let tv   = idx2TyVar (nextFree env)
-      env' = env { nextFree = nextFree env + 1 }
-  liftGen $ runEnvGen env' (f tv)
+withBoundTyVar :: Env -> (TyVar -> Env -> QC.Gen a) -> QC.Gen a
+withBoundTyVar env f = QC.oneof [ fresh, shadowing ]
+  where
+    fresh = do
+      let tv   = idx2TyVar (nextFree env)
+          env' = env { nextFree = nextFree env + 1 }
+      f tv env'
+    shadowing = do
+      tv <- QC.elements (boundVars env)
+      f tv env
 
 -- Just for prototyping
-main = QC.sample genType
+main = QC.sample genClosedType
