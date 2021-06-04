@@ -1,4 +1,4 @@
-module Arbitrary (Env, genEnv, boundVars, genOpenType, genClosedType) where
+module Arbitrary (Env, genEnv, boundVars, genOpenType, genClosedType, printSample) where
 
 import GenTrieMap
 
@@ -53,7 +53,7 @@ genForAllTy env = withBoundTyVar env $ \tv env' ->
   ForAllTy tv <$> QC.scale (subtract 1) (genOpenType env')
 
 withBoundTyVar :: Env -> (TyVar -> Env -> QC.Gen a) -> QC.Gen a
-withBoundTyVar env f = QC.oneof [ fresh, shadowing ]
+withBoundTyVar env f = QC.oneof $ fresh : [ shadowing | not $ null $ boundVars env ]
   where
     fresh = do
       let tv   = idx2TyVar (nextFree env)
@@ -64,4 +64,4 @@ withBoundTyVar env f = QC.oneof [ fresh, shadowing ]
       f tv env
 
 -- Just for prototyping
-main = QC.sample genClosedType
+printSample = QC.sample genClosedType
