@@ -190,10 +190,10 @@
 
 \begin{document}
 
-\newcommand{\simon}[1]{{\bf SLPJ}: #1 {\bf End SLPJ}}
-\newcommand{\js}[1]{{\bf JS}: #1 {\bf End JS}}
-\newcommand{\rae}[1]{{\bf RAE}: #1 {\bf End RAE}}
-\newcommand{\sg}[1]{{\bf SG}: #1 {\bf End SG}}
+\newcommand{\simon}[1]{{\bf SLPJ}: {\color{dkcyan} #1} {\bf End SLPJ}}
+\newcommand{\js}[1]{{\bf JS}: {\color{olive} #1} {\bf End JS}}
+\newcommand{\rae}[1]{{\bf RAE}: {\color{dkblue} #1} {\bf End RAE}}
+\newcommand{\sg}[1]{{\bf SG}: {\color{darkbrown} #1} {\bf End SG}}
 
 \newcommand{\bv}[1]{\#_{#1}}    -- Lambda-bound variable occurrence
 \newcommand{\pv}[1]{\$_{#1}}    -- Pattern variable binder
@@ -876,9 +876,18 @@ lookupBVM :: Var -> BoundVarMap -> Maybe BoundVarKey
 lookupBVM v (BVM {bvm_map = bvm }) = Map.lookup v bvm
 \end{code}
 We maintain a \lstinline{BoundVarMap}
-that maps each lambda-bound variable to its de-Bruijn index, of type \lstinline{BoundVarKey}.  The key
-we look up --- the first argument of \lstinline{lkExpr} --- becomes a \lstinline{DBExpr},
-which is a pair of a \lstinline{BoundVarMap} and an \lstinline{Expr}.
+that maps each lambda-bound variable to its de-Bruijn index, of type \lstinline{BoundVarKey}.
+\sg{We are using de Bruijn \emph{levels}, not \emph{indices}. A Var occurrence
+with De Bruijn indices would count the number of lambdas between the occ and
+its binding site. Levels, on the other hand, count the number of lambdas from
+the root of the expr to the binding site. So within the const function
+$\lambda x. \lambda y. y$, the occ of $y$ has DB index 0, but DB level 1.
+Indices are favorable when doing subsitution which I presume we don't. See
+also \url{https://randall-holmes.github.io/Watson/babydocs/node26.html} and
+\url{https://mail.haskell.org/pipermail/haskell-cafe/2007-May/025424.html}.}
+The key we look up --- the first argument of \lstinline{lkExpr} --- becomes
+a \lstinline{DBExpr}, which is a pair of a \lstinline{BoundVarMap} and an
+\lstinline{Expr}.
 At a \lstinline{Lam}
 node we extend the \lstinline{BoundVarMap}. At a \lstinline{Var} node we
 look up the variable in the \lstinline{BoundVarMap} to decide whether it is
@@ -912,7 +921,7 @@ What is a pattern? It is a pair $(vs,p)$ where
 \item $p$ is a \emph{pattern expression}, such as $f\, a\, (g\, b\, c)$.
 \end{itemize}
 A pattern may of course contain free variables (not bound by the pattern), such as $f$ and $g$
-in the above example.
+in the above example. \sg{Which are regarded the same as constants by the algorithm. Correct?}
 A pattern $(vs, p)$ \emph{matches} a target expression $e$ iff there is a unique substitution
 $S$ whose domain is $vs$, such that $S(p) = e$.
 
@@ -954,6 +963,13 @@ a \lstinline{Match} that includes the \lstinline{(PatVar, Expr)} pairs obtained 
 matching the pattern, plus the value in the map (which presumably mentions those
 pattern variables).
 
+\sg{Why does lookupMExpr return a Bag? I thought we care for most-specific
+matches? Shouldn't it then return a DAG of matches, or a tree, or at least a
+list? Bag means no order at all... Later code assumes we can call map on Bags,
+but Bag isn't defined anywhere. Maybe just return a list?
+(A long time later, after I read 5.7) Ah, so it really is unordered. Fair
+enough, but it would help to say as much.}
+
 \subsection{Canonical patterns and pattern keys}
 
 In \Cref{sec:binders} we saw how we could use de-Bruijn numbers to
@@ -987,6 +1003,19 @@ $$
    f~\pv{}~\pv{}~True      \qquad and \qquad  f~\pv{}~\pv{}~False
 $$
 
+\sg{I found that point \emph{very} confusing. In contrast to binding occs in
+lambdas, those occs are not binding at all! Their binding site is in the list of
+pattern vars. Hence it is completely obvious to me that we need the subscript.
+The following paragraph comes to the same conclusion, but justifies it by saying
+that the first occ of every pattern var is the binding occ. I mean, I see
+that we \emph{can} omit the index on $\pv{}$, because it is redundant by the
+numbering we propose, but \emph{should} we really omit it? It's probably
+important for identifying whether the PV is flexible or rigid, fair enough...
+
+Why is the current design better than the simple and obvious solution where we
+label all $\pv{}$ with an index and don't bother having $\pvo{}$ altogether?
+Handling flex-rigid vs. rigid-rigid constraints is pretty standard in
+unification literature... Why can't we do it similarly?}
 
 What if the variable occurs more than once? For example, suppose we are matching
 the pattern $([x],\, f\, x\,x\,x)$ against the target expression
@@ -1018,6 +1047,9 @@ end of the last section. Its canonical form is $(f \,\pv{}\, \pv{}\, \pvo{2}\, \
 If we match that against a target $(f\,e_1\,e_2\,e_2\,e_1)$ we will produce a substitution $[\pvo{1} \mapsto e_1, \pvo{2} \mapsto e_2]$.
 But  what we \emph{want} is a \lstinline{Match} (\Cref{sec:match-api}),
 that gives a list of (pattern-variable, value) pairs $[(x, e_1), (y,e_2)]$.
+\sg{What is the difference between ,,expression'' and ,,value''
+here? I think for a Match, you have to give the value in addition to the list of
+pairs.}
 
 Somehow we must accumulate a \emph{pattern-key map} that, for each
 individual entry, maps its pattern keys back to its corresponding
@@ -1057,6 +1089,9 @@ data MExprSMapX v
          , mm_fvar :: Map Var v
          , mm_pvar :: Maybe v     -- First occurrence of a pattern var
          , mm_xvar :: PatOccs v   -- Subsequent occurrence of a pattern var
+             -- SG: I propose to combine mm_pvar, mm_xvar and have a single
+             -- mm_pvar :: PatKeyMap v. We can resolve first (flex) and second
+             -- or subseq (rigid) occs as we go.
        }
 type PatOccs v = [(PatKey,v)]
 \end{code}
@@ -1067,6 +1102,17 @@ The trie \lstinline{MExprSMapX} has four fields, one for each case in the patter
 The first two fields deal with literals and applications, just as before. The third deals with the \emph{binding} occurrence
 of a pattern variable $\pv{}$, and the fourth with a \emph{bound} occurrence of
 a pattern variable $\pvo{i}$.
+
+\sg{I think that most queries will have multiple Apps at the top-level and the
+head will be a variable. It is a shame that we have to chase n pointers for an
+n-ary application to get to the head! I think it would would be much more
+efficient to store the list of App args in mm\_fvar, like}
+\begin{code}
+         , mm_fvar :: Map Var (ListMap ExprS v)
+\end{code}
+\sg{(NB: PatVars can't occur in app heads that way. If we want them to, we have to give
+mm\_pvar a similar treatment.) IIRC, that is what Lean's DiscTree does, and it's
+also how we implement RULE matching (grep for ru\_fn)...}
 
 The core lookup function looks like this:
 \begin{code}
@@ -1087,7 +1133,7 @@ lookupMExprS :: Expr -> MExprSMap v -> Bag (Match v)
 lookupMExprS e m = map rejig (lkMExprS e m)
   where
     rejig :: (PatSubst, (PatKeys, v)) -> Match v
-    rejig (ps, (pkmk, v)) = (map (lookupPatKey ps) pmk, v)
+    rejig (ps, (pkmk, v)) = (map (lookupPatKey ps) pkmk, v)
 
 lookupPatKey :: PatSubst -> (PatVar,PatKey) -> (Papvar,ExprS)
 lookupPatKey subst (pat_var, pat_key) = (pat_var, lookupPatSubst pat_key subst)
@@ -1115,21 +1161,29 @@ lkMExprS e (psubst, mt)
   = pat_var_bndr `Bag.union` pat_var_occs `Bag.union` look_at_e
   where
      pat_var_bndr :: Bag (PatSubst, v)
-     pat_var_bndr = case mm_pvar of
-                      Just e  -> Bag.single (extendPatSubst e tsubst, x)
+     pat_var_bndr = case mm_pvar mt of
+                      Just v  -> Bag.single (extendPatSubst e tsubst, v)
                       Nothing -> Bag.empty
 
      pat_var_occs :: Bag (PatSubst, v)
      pat_var_occs = fromList [ (psubst, v)
-                             | (pat_var, v) <- mm_xvar
+                             | (pat_var, v) <- mm_xvar mt
                              , e == lookupPatSubst pat_var psubst ]
+                             -- SG: the equality check here might get very costly, right?
+                             -- Although it probably only matters for pattern/pattern comparisons, e.g.,
+                             -- Are the following patterns compatible?
+                             --   ([x], f <huge> x .. x) and ([y], f y y .. y)
+                             -- A union/find would help here, I think, so that
+                             -- we record that x and y are equal (after we check
+                             -- the second arg pair) and don't have to compare
+                             -- the substitution of x and y, <huge>, multiple times.
 
      look_at_e :: Bag (PatSubst, v)
      look_at_e = case e of
-        Var x     -> case Map.lookup lit (mm_var mt) of
+        Var x     -> case Map.lookup x (mm_fvar mt) of
                        Just v  -> Bag.single (psubst,v)
                        Nothing -> Bag.empty
-        App e1 e2 -> (psubst, m_app mt) |> lkMExprS e1 >=> lkMExprS e2
+        App e1 e2 -> (psubst, mm_app mt) |> lkMExprS e1 >=> lkMExprS e2
 \end{code}
 The bag of results is the union of three possibilities, as follows. (Keep in mind that a \lstinline{MExprSMap} represents \emph{many} patterns simultaneously.)
 \begin{itemize}
@@ -1184,20 +1238,20 @@ Now we can define the workhorse, \lstinline{xtExprS}:
 \begin{code}
 xtExprS pvs e xt pkm mm
   = case e of
-      AppS e1 e2 -> mm { mm_app = xtMExprS pvs e2 (liftXT (xtMExprS pvs e2 f))
+      AppS e1 e2 -> mm { mm_app = xtMExprS pvs e1 (liftXT (xtMExprS pvs e2 xt))
                                            pkm (mm_app mm) }
 
       VarS x | Just xv <- lookupBVM tv pkm
              -> -- Second or subsequent occurrence of a pattern variable
-                mm { tm_xvar = xtPatVarOcc xv (f pkm) (tm_xvar mm) }
+                mm { tm_xvar = xtPatVarOcc xv (xt pkm) (tm_xvar mm) }
 
              | pv `Set.member` pvs
              -> -- First occurrence of a pattern variable
-                mm { tm_tvar = xt (extendBVM pv pkm) (tm_tvar mm) }
+                mm { tm_pvar = xt (extendBVM pv pkm) (tm_pvar mm) }
 
              | otherwise
              -> -- A free variable
-                mm { tm_fvar = Map.alter (xt pmm) x (tm_fvar mm) }
+                mm { tm_fvar = Map.alter (xt pkm) x (tm_fvar mm) }
 
 liftXT :: (PatKeys -> MExprSMap v -> MExprSMap v)
         -> PatKeys -> Maybe (MExprSMap v) -> Maybe (MExprSMap v)
@@ -1237,6 +1291,15 @@ That is, we only return the matches obtained by matching a pattern variable (\ls
 are no more-specific matches (namely \lstinline{pat_var_occs} and \lstinline{look_at_e}).  It is a happy
 consequence of the trie structure that this simple (and efficient in execution terms) change suffices
 to return the most-specific matches.
+
+\sg{But that notion of most-specific is biased towards specificity happening
+early in the App chain, if I'm not mistaken. So given the map $\{(([x],
+f~x~True), 1), (([y], f~True~y), 2)\}$, the most-specific match of $f~True~True$
+will be $2$: the second pattern is more specific in the first App arg, while
+the first one has simply an unbound patvar in that position. But actually I'd
+consider $1$ just as specific, albeit incomparable to $2$. In effect, you're
+forcing a lexicographic ordering on patterns where I don't think there should
+be one.}
 
 \subsection{Unification}
 
