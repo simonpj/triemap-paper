@@ -1,1 +1,6 @@
 triemap.pdf
+triemap.tex
+triemap.hs
+*.hi
+*.o
+*.ptb
