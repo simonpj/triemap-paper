@@ -4,3 +4,5 @@ triemap.hs
 *.hi
 *.o
 *.ptb
+*.dyn_hi
+*.dyn_o
