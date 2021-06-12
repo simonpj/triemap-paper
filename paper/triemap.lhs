@@ -222,6 +222,9 @@
 \begin{code}
 {-# LANGUAGE ScopedTypeVariables, TypeFamilies, AllowAmbiguousTypes,
              TemplateHaskell, ExtendedDefaultRules, DataKinds, NoMonomorphismRestriction #-}
+{-# OPTIONS_GHC -Wall -Werror -Wno-missing-signatures -Wno-type-defaults -Wno-orphans
+                -Wno-unused-matches #-}
+{-# OPTIONS_GHC -Wwarn=incomplete-patterns #-}
 
 module TrieMap where
 
@@ -244,8 +247,8 @@ import GHC.TypeLits ( Nat )
 class Dummy (n :: Nat) where
   method :: ()
 
-f1 >=> f2 = \x -> do y <- f1 x
-                     f2 y
+f1 >=> f3 = \x -> do y <- f1 x
+                     f3 y
 
 (>.>) = flip (.)
 
@@ -267,11 +270,11 @@ lookupListExpr = undefined
 lookupList0 = undefined
 lookupList1 = undefined
 
-{-# NOINLINE f #-}
-f :: Int -> Int -> Char
-f = undefined
-f2 :: Int -> Char
-f2 = undefined
+{-# NOINLINE exf #-}
+exf :: Int -> Int -> Char
+exf = undefined
+exf2 :: Int -> Char
+exf2 = undefined
 
 insertMExpr = undefined
 lookupMExpr = undefined
@@ -794,7 +797,7 @@ unionWithExprS f (ESM { esm_var = m1_var, esm_app = m1_app })
   = ESM { esm_var = Map.unionWith f m1_var m2_var
         , esm_app = unionWithExprS (unionWithExprS f) m1_app m2_app }
 \end{code}
-It could hardly be simpler.
+It could hardly be simpler. \rae{What about empty/single maps? They're missing here.}
 
 \subsection{Folds and the empty map} \label{sec:fold}
 
@@ -1193,9 +1196,15 @@ $S$ whose domain is $vs$, such that $S(p) = e$.
 
 We allow the same variable to occur more than once in the pattern.
 For example, suppose we wanted to encode the rewrite rule
+%{
+%if style == newcode
+%format f = "exf"
+%format f2 = "exf2"
+%endif
 \begin{code}
 prag_begin RULES "foo" forall x. f x x = f2 x prag_end
 \end{code}
+%}
 Here the pattern $([x], f~ x~ x)$ has a repeated variable $x$,
 and should match targets like $(f~ 1~ 1)$ or $(f ~(g~ v)~ (g ~v))$,
 but not $(f~ 1~ (g~ v))$.  This ability important if we are to use matching tries
@@ -1537,8 +1546,8 @@ xtExprS pvs e xt pkm mm
 
 liftXTS :: (PatKeyMap -> MExprSMap v -> MExprSMap v)
         -> PatKeyMap -> Maybe (MExprSMap v) -> Maybe (MExprSMap v)
-liftXTS insert pkeys Nothing  = Just (insert pkeys EmptyMM)
-liftXTS insert pkeys (Just m) = Just (insert pkeys m)
+liftXTS xt pkeys Nothing  = Just (xt pkeys EmptyMM)
+liftXTS xt pkeys (Just m) = Just (xt pkeys m)
 
 xtPatVarOcc :: PatKey -> XT v -> PatOccs v -> PatOccs v
 xtPatVarOcc key f []
