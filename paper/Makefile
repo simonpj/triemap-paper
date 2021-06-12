@@ -2,6 +2,9 @@ PAPER = triemap
 
 FMT_FILES = rae.fmt
 
+GHC_OPTS = -dynamic-too
+HS_MODULES = Bag RandomType
+
 all: $(PAPER).pdf
 
 code: $(PAPER).o
@@ -12,8 +15,10 @@ code: $(PAPER).o
 %.pdf: %.tex refs.bib
 	pdflatex $<
 
+$(PAPER).o: $(HS_MODULES:%=%.o)
+
 %.o: %.hs
-	ghc -c $<
+	ghc $(GHC_OPTS) -c $<
 
 %.hs: %.lhs $(FMT_FILES)
 	lhs2TeX --newcode -o $@ $<
@@ -23,3 +28,4 @@ clean:
 	rm -f $(PAPER).pdf $(PAPER).tex $(PAPER).hs
 
 .PHONY: all code
+.SECONDARY:

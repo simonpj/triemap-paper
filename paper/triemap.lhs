@@ -198,6 +198,76 @@
 \newcommand{\tick}{\text{\textquoteright}}
 \newcommand{\package}[1]{\textsf{#1}}
 
+%if style == poly
+%format checktype(e) = e
+%endif
+
+%if style == newcode
+\begin{code}
+{-# LANGUAGE ScopedTypeVariables, TypeFamilies, AllowAmbiguousTypes,
+             TemplateHaskell, ExtendedDefaultRules, DataKinds #-}
+
+module TrieMap where
+
+import qualified Data.Map as Map
+import Data.Map ( Map )
+import Data.Kind ( Type )
+import qualified Bag
+import Bag ( Bag )
+import Data.Set ( Set)
+import qualified Data.Set as Set
+import RandomType
+
+import GHC.TypeLits ( Nat )
+
+class Dummy (n :: Nat) where
+  method :: ()
+
+f1 >=> f2 = \x -> do y <- f1 x
+                     f2 y
+
+(>.>) = flip (.)
+
+(|>) = flip ($)
+
+empty = undefined
+lookup = undefined
+alter = undefined
+
+type Var = String
+
+unionExprS = unionWithExprS const
+
+data ListExprMap v
+lookupListExpr = undefined
+lookupList0 = undefined
+lookupList1 = undefined
+
+{-# NOINLINE f #-}
+f :: Int -> Int -> Char
+f = undefined
+f2 :: Int -> Char
+f2 = undefined
+
+insertMExpr = undefined
+lookupMExpr = undefined
+data MExprMap v
+
+lkMExprS0 = undefined
+
+xtMExprS = undefined
+
+instance Eq ExprS where
+  VarS v1 == VarS v2 = v1 == v2
+  AppS e1a e1b == AppS e2a e2b = e1a == e2a && e1b == e2b
+  _ == _ = False
+
+\end{code}
+
+%format checktype(e) = "instance Dummy $( randomType ) where method = const () (" e ")"
+
+%endif
+
 
 \begin{document}
 
@@ -311,25 +381,25 @@ Our contributions are as follows:
 
 \section{The problem we address}
 \begin{figurebox}
+\raggedright
 \begin{code}
 type XT v = Maybe v -> Maybe v
 
-Map.empty     :: Map k v
-Map.insert    :: Ord k => k -> v -> Map k v
-Map.lookup    :: Ord k => k -> Map k v -> Maybe v
-Map.alter     :: Ord k => k -> XT v -> Map k v -> Maybe v
-Map.unionWith :: Ord k => (v->v->v) -> Map k v -> Map k v -> Map k v
-Map.size      :: Map k v -> Int
-Map.foldr     :: (v -> r -> r) -> r -> Map k v -> r
+checktype(Map.empty      :: Map k v)
+checktype(Map.insert     :: Ord k => k -> v -> Map k v -> Map k v)
+checktype(Map.lookup     :: Ord k => k -> Map k v -> Maybe v)
+checktype(Map.alter      :: Ord k => XT v -> k -> Map k v -> Map k v)
+checktype(Map.unionWith  :: Ord k => (v->v->v) -> Map k v -> Map k v -> Map k v)
+checktype(Map.size       :: Map k v -> Int)
+checktype(Map.foldr      :: (v -> r -> r) -> r -> Map k v -> r)
 
-
-infixr 1 (>=>)  -- Kleisli composition
+infixr 1 >=>  -- Kleisli composition
 (>=>) :: Monad m => (a -> m b) -> (b -> m c) -> a -> m c
 
-infixr 1 (>.>)   -- Forward composition
+infixr 1 >.>   -- Forward composition
 (>.>)  :: (a -> b) -> (b -> c) -> a -> c
 
-infixr 0 (|>)   -- Reverse function application
+infixr 0 |>   -- Reverse function application
 (|>)  :: a -> (a -> b) -> b
 \end{code}
 \caption{API for library functions}
@@ -339,6 +409,13 @@ infixr 0 (|>)   -- Reverse function application
 Our general task is as follows: \emph{implement a finite mapping from keys to values,
 in which the key type is some kind of tree}.
 For example, an |Expr| data type might be defined like this:
+%{
+%if style == newcode
+%format Expr = "Expr0"
+%format App = "App0"
+%format Lam = "Lam0"
+%format Var = "Var0"
+%endif
 \begin{code}
 data Expr = App Expr Expr | Lam  Var Expr | Var Var
 \end{code}
@@ -347,8 +424,9 @@ equality and used as the key of a finite map.  Its definition is nor important
 for this paper, but for the sake of concretemess
 you could imagine it being defined simply as a string:
 \begin{code}
-  type Var = String
+type Var = String
 \end{code}
+%}
 The data type |Expr| is capable of representing expressions like $add 2 3$
 $\lambda x. add x 3$.  We will use this data type throughout the paper, because it
 has all the features that occur in real expression data types: free variables like $add$, represented by a |Var| node;
@@ -372,12 +450,16 @@ key is a type.
 What API might such a map have? We follow the design pattern of
 the |containers| library, whose key functions are given in \Cref{fig:containers},
 and seek these basic operations:
+%{
+%if style == newcode
+%format XT = "XT1"
+%endif
 \begin{code}
-  type XT v = Maybe v -> Maybe v
+type XT v = Maybe v -> Maybe v
 
-  empty  :: ExprMap v
-  lookup :: Expr -> ExprMap v -> Maybe v
-  alter  :: Expr -> XT v -> ExprMap v -> ExprMap v
+empty   :: ExprMap v
+lookup  :: Expr -> ExprMap v -> Maybe v
+alter   :: Expr -> XT v -> ExprMap v -> ExprMap v
 \end{code}
 The functions |empty| and |lookup| should be
 self-explanatory.  The function |alterTM| is a standard
@@ -388,12 +470,13 @@ transforms the existing value associated with key, if any (hence the
 |Maybe|), to a new value, with |Nothing|
 indicating deletion.  Given |alter| we can easily define |insert| and |delete|:
 \begin{code}
-  insert :: Expr -> v -> ExprMap v -> ExprMap v
-  insert e v = alter e (\_ -> Just v)
+insert :: Expr -> v -> ExprMap v -> ExprMap v
+insert e v = alter e (\_ -> Just v)
 
-  delete :: Expr -> ExprMap v -> ExprMap v
-  delete e = alter e (\_ -> Nothing)
+delete :: Expr -> ExprMap v -> ExprMap v
+delete e = alter e (\_ -> Nothing)
 \end{code}
+%}
 You might wonder if, for the purposes of this paper we could just define |insert|,
 leaving |alter| for the Appendix, but as we will see in \Cref{sec:alter}, our
 approach using tries fundamentally requires the generality of |alter|.
@@ -486,6 +569,17 @@ We will return to lambdas in \Cref{sec:binders}.
 \subsection{The basic idea} \label{sec:basic} \label{sec:alter}
 
 Here is a trie-based implemenation for |ExprS|:
+%{
+%if style == newcode
+%format ExprSMap = "ExprSMap0"
+%format ESM = "ESM0"
+%format esm_var = "esm_var0"
+%format esm_app = "esm_app0"
+%format lookupExprS = "lookupExprS0"
+%format alterExprS = "alterExprS0"
+%format liftXT = "liftXT0"
+%format emptyExprS = "emptyExprS0"
+%endif
 \begin{code}
 data ExprSMap v = ESM { esm_var :: Map Var v
                       , esm_app :: ExprSMap (ExprSMap v) }
@@ -497,7 +591,7 @@ the |containers| package will do as well as any.
 One way to understand this slightly odd data type is to study its lookup function:
 \begin{code}
 lookupExprS :: ExprS -> ExprSMap v -> Maybe v
-lookupExprS e (ESM { esm_var = m_Var, esm_app = m_app }
+lookupExprS e (ESM { esm_var = m_var, esm_app = m_app })
   = case e of
      VarS x     -> Map.lookup x m_var
      AppS e1 e2 -> case lookupExprS e1 m_app of
@@ -511,10 +605,19 @@ in the |esm_app| field, \emph{which returns a finite map}.  We then look up |e2|
 in that map.  Each distinct |e1| yields a different map in which to look up |e2|.
 
 We can substantially abbreviate this code, at the expense of making it more cryptic, thus:
+%{
+%if style == newcode
+%format lookupExprS = "lookupExprS2"
 \begin{code}
-lookupExprS (VarS x)     = esm_var >.> Map.Lookup x
+lookupExprS :: forall v. ExprS -> ExprSMap v -> Maybe v
+  -- we need this type signature because the body is polymorphic recursive
+\end{code}
+%endif
+\begin{code}
+lookupExprS (VarS x)     = esm_var >.> Map.lookup x
 lookupExprS (AppS e1 e2) = esm_app >.> lookupExprS e1 >=> lookupExprS e2
 \end{code}
+%}
 We use some simple composition combinators, whose types are given in \Cref{fig:library}
 to chain together the component pieces.  The function |esm_var :: ExprSMap v -> Map Var v|
 is the auto-generated selector that picks |esm_var| field from an |ESM| record.
@@ -540,15 +643,16 @@ It is not enough to look up in a trie -- we need to \emph{build} them too!
 Here is the code for |alter|:
 \begin{code}
 alterExprS  :: ExprS -> XT v -> ExprSMap v -> ExprSMap v
-alterExprS e xt m@(ESM { esm_var = m_var, esm_app = m_app }
-  = case of
-      VarS x     -> m { esm_var = Map.alter x xt m_var }
+alterExprS e xt m@(ESM { esm_var = m_var, esm_app = m_app })
+  = case e of
+      VarS x     -> m { esm_var = Map.alter xt x m_var }
       AppS e1 e2 -> m { esm_app = alterExprS e1 (liftXT (alterExprS e2 xt)) m_app }
 
-liftXT :: (ExprSMap v -> ExprSMap v) -> XT (ExprSMap)
-liftXT f Nothing  = Just (f empExprS)
+liftXT :: (ExprSMap v -> ExprSMap v) -> XT (ExprSMap v)
+liftXT f Nothing  = Just (f emptyExprS)
 liftXT f (Just m) = Just (f m)
 \end{code}
+%}
 In the |VarS| case, we must just update the map stored in the |esm_var| field,
 using the |Map.alter| function from \Cref{fig:containers};
 in Haskell the notation ``|m { fld = e }|'' means the result
@@ -594,41 +698,57 @@ With that generalisation, the code is as follows:
 \begin{code}
 unionWithExprS f (ESM { esm_var = m1_var, esm_app = m1_app })
                  (ESM { esm_var = m2_var, esm_app = m2_app })
-  = ESM { esm_var = Map.unionWith f m1_var m2_lt
-        , esm_app = unionExprWith (unionWithExprS f) m1_app m2_app }
+  = ESM { esm_var = Map.unionWith f m1_var m2_var
+        , esm_app = unionWithExprS (unionWithExprS f) m1_app m2_app }
 \end{code}
 It could hardly be simpler.
 
 \subsection{Folds and the empty map} \label{sec:fold}
 
 Of course, we need an empty trie. Here is one way to define such a thing:
+%{
+%if style == newcode
+%format emptyExprS = "emptyExprS0"
+%format foldrExprS = "foldrExprS0"
+%format sizeExprS = "sizeExprS0"
+%format ExprSMap = "ExprSMap0"
+%format esm_var = "esm_var0"
+%format esm_app = "esm_app0"
+%format ESM = "ESM0"
+%endif
 \begin{code}
-empExprS :: ExprSMap v
-empExprS = ESM { esm_var = Map.empty, esm_app = empExprS }
+emptyExprS :: ExprSMap v
+emptyExprS = ESM { esm_var = Map.empty, esm_app = emptyExprS }
 \end{code}
-It is interesting to note that |empExprS| is an infinite, recursive structure:
-the |esm_app| field refers back to |empExprS|.
+It is interesting to note that |emptyExprS| is an infinite, recursive structure:
+the |esm_app| field refers back to |emptyExprS|.
 This slightly strange definition works fine for lookup and alteration, but it fails
 fundamentally when we want to iterate over the elements of the trie.
 
 For example, suppose we wanted to count the number of elements in the finite map; in |containers|
 this is the function |Map.size| (\Cref{fig:containers}).  We might try
+%{
+%if style == poly
+%format undefined = "???"
+%endif
 \begin{code}
-  sizeExprS :: ExprSMap v -> Int
-  sizeExprS (ESM { esm_var = m_var, esm_app = m_app })
-    = Map.size m_var + ???
+sizeExprS :: ExprSMap v -> Int
+sizeExprS (ESM { esm_var = m_var, esm_app = m_app })
+  = Map.size m_var + undefined
 \end{code}
+%}
 We seem stuck because the size of the |m_app| map is not what we want: rather,
 we want to add up the sizes of its elements, and we don't have a way to do that yet.
 The right thing to do is to generalise to a fold:
 \begin{code}
-  foldrExprS :: (v -> r -> r) -> r -> ExprSMap v -> r
-  foldrExprS k z (ESM { esm_var = m_var, esm_app = m_app })
-    = Map.foldr k z1 m_var
-    where
-      z1 = foldrExprS kapp z m_app
-      kapp m1 r = foldrExprS k r m1
+foldrExprS :: (v -> r -> r) -> r -> ExprSMap v -> r
+foldrExprS k z (ESM { esm_var = m_var, esm_app = m_app })
+  = Map.foldr k z1 m_var
+  where
+    z1 = foldrExprS kapp z m_app
+    kapp m1 r = foldrExprS k r m1
 \end{code}
+%}
 Here, in the binding for |z1| we fold over |m_app :: ExprSMap (ExprSMap v)|.
 The function |kapp| is combines the map we find with the accumulator, by again
 folding over the map with |foldrExprS|.
@@ -638,12 +758,20 @@ But alas, |foldrExprS| will never terminate!  It always invokes itself immediate
 |foldrExprS|; and so on for ever.
 The solution is simple: we just need an explicit representation of the empty map.
 Here is one way to do it (we will see another in \Cref{sec:generalised}):
+%{
+%if style == newcode
+%format ExprSMap = "ExprSMap1"
+%format EmptyESM = "EmptyESM1"
+%format ESM = "ESM1"
+%format esm_var = "esm_var1"
+%format esm_app = "esm_app1"
+%endif
 \begin{code}
 data ExprSMap v = EmptyESM
                 | ESM { esm_var :: Map Var v, esm_app :: ExprSMap (ExprSMap v) }
 
-empExprS :: ExprSMap v
-empExprS = EmptyESM
+emptyExprS :: ExprSMap v
+emptyExprS = EmptyESM
 
 foldrExprS :: (v -> r -> r) -> r -> ExprSMap v -> r
 foldrExprS k z EmptyESM                                   = z
@@ -655,20 +783,20 @@ foldrExprS k z (ESM { esm_var = m_var, esm_app = m_app }) = Map.foldr k z1 m_var
 Equipped with a fold, we can easily define the size function, and another
 that returns the range of the map:
 \begin{code}
-  sizeExprS :: ExprSMap v -> Int
-  sizeExprS = foldrExprS (\_ n -> n+1) 0
+sizeExprS :: ExprSMap v -> Int
+sizeExprS = foldrExprS (\_ n -> n+1) 0
 
-  elemsExprS :: ExprSMap v -> [v]
-  elemsExprS = foldrExprS (:) []
+elemsExprS :: ExprSMap v -> [v]
+elemsExprS = foldrExprS (:) []
 \end{code}
-
+%}
 \subsection{Singleton maps} \label{sec:singleton}
 
 Suppose we start with an empty map, and insert a value
 with a key (an |Expr|) that is large, say
-\begin{code}
-  App (App (Var "f") (Var "x")) (Var "y"))
-\end{code}
+\begin{spec}
+  App (App (Var "f") (Var "x")) (Var "y")
+\end{spec}
 Looking at the code
 for |alterExprS| in \Cref{sec:alter}, you can see that
 because there is an |App| at the root, we will build an
@@ -689,16 +817,23 @@ data ExprSMap v = EmptyESM
                 | ESM { esm_var :: Map Var v, esm_app :: ExprSMap (ExprSMap v) }
 \end{code}
 The code for lookup practically writes itself:
+%{
+%if style = poly
+%format dots = "\ldots"
+%else
+%format dots = undefined
+%endif
 \begin{code}
 lookupExprS :: ExprS -> ExprSMap v -> Maybe v
 lookupExprS e EmptyESM
   = Nothing
 lookupExprS e1 (SingleESM e2 v2)
-= if e1 == e2 then Just e2
+  = if e1 == e2 then Just v2
               else Nothing
-lookupExprS e (ESM { esm_var = m_var, esm_app = m_app }
-  = ....     -- Exactly as before
+lookupExprS e (ESM { esm_var = m_var, esm_app = m_app })
+  = dots     -- Exactly as before
 \end{code}
+%}
 Notice that in the |SingleESM| case we need equality on |Expr|,
 to tell if the key being looked up, |k1| is the same as the key in
 the |SingleESM|, namely |k2|.
@@ -722,18 +857,18 @@ alterExprS e xt m@(SingleESM key v1)
       Nothing -> m
       Just v2 -> alterExprS key (\_ -> Just v1) $
                  alterExprS e   (\_ -> Just v2) $
-                 ESM { esm_var = Map.empty, esm_app = emptyESM }
+                 ESM { esm_var = Map.empty, esm_app = EmptyESM }
 
-alterExprS e xt m@(ESM { esm_var = m_var, esm_app = m_app }
-  = case of
-      Var x      -> Map.alter x xt m_var
-      AppS e1 e2 -> alterExprS e1 (liftXT (alterExprS e2 xt)) m_app
+alterExprS e xt m@(ESM { esm_var = m_var, esm_app = m_app })
+  = case e of
+      VarS x     -> m { esm_var = Map.alter xt x m_var }
+      AppS e1 e2 -> m { esm_app = alterExprS e1 (liftXT (alterExprS e2 xt)) m_app }
 
-liftXT :: (ExprSMap v -> ExprSMap v) -> XT (ExprSMap)
-liftXT f Nothing  = Just (f empExprS)
+liftXT :: (ExprSMap v -> ExprSMap v) -> XT (ExprSMap v)
+liftXT f Nothing  = Just (f EmptyESM)
 liftXT f (Just m) = Just (f m)
 \end{code}
-\sg{liftXT expands Nothing to empExprS but doesn't contract an empExprS result
+\sg{liftXT expands Nothing to emptyExprS but doesn't contract an emptyExprS result
 from (f m) back to Nothing. So inserting and deleting a key will leave behind
 the spine of an empty map for that key.}
 Although we began by speaking of a map containing only one key-value pair,
@@ -751,7 +886,7 @@ we can do it once and for all, like this:
 data SEMap m k v  -- Wrapper for singleton and empty map
   = EmptyTM | SingleTM k v | MultiTM (m v)
 
-emptySEMap : SEMap m k v
+emptySEMap :: SEMap m k v
 emptySEMap = EmptyTM
 
 lkSEMap :: Eq k => (k -> m v -> Maybe v) -> k -> SEMap m k v -> Maybe v
@@ -774,61 +909,88 @@ The code for |xtSEMap|, and |alterExprSMap|, follows straightforwardly.
 \subsection{Maps of higher kinds}
 
 Suppose our expresions had multi-argument apply nodes, thus
+%{
+%if style == poly
+%format dots = "\ldots"
+%else
+%format dots = "Ctor"
+%format Expr = "Expr1"
+%endif
 \begin{code}
-data Expr = ...
+data Expr = dots
           | AppV Expr [Expr]
 \end{code}
+%}
 Then we would need to built a trie keyed by a \emph{list} of |Expr|.
 Since a list is just another algebraic data type, build with nil and cons,
 we can use exactly the same approach, thus
 \begin{code}
-lookupListExpr ::: [Expr] -> ListExprMap v -> Maybe v
+lookupListExpr :: [Expr] -> ListExprMap v -> Maybe v
 \end{code}
 But rather than build an implementation
 for |[Expr]|, and then another for |[Decl]|, etc, we obviously
 want to build a trie for lists of \emph{anything}, something like this \cite{hinze}:
+%{
+%if style == newcode
+%format lookupList = "lookupList0"
+%endif
 \begin{code}
-lookupList ::: [k] -> ListMap k v -> Maybe v
+-- lookupList :: [k] -> ListMap k v -> Maybe v  \rae{The kinds don't work out there. What do we mean?}
 \end{code}
+%}
 But this obviously cannot work: we need some type-class constraint on the key |k|,
 saying that it can be used as the key of a trie.   That suggests
+%{
+%if style == newcode
+%format lookupList = "lookupList1"
+%endif
 \begin{code}
-lookupList :: TrieKey k => [k] -> TrieMap k v -> Maybe v
+lookupList :: TrieKey k => [k] -> TrieMap [k] v -> Maybe v
 
 class Eq k => TrieKey k where
   type TrieMap k :: Type -> Type
-  emptyTM  :: TrieMap k v
+  emptyTM  :: TrieMap k v    -- \rae{This type is ambiguous.}
   lookupTM :: k -> TrieMap k v -> Maybe v
   alterTM  :: k -> XT v -> TrieMap k v -> TrieMap k v
   foldTM   :: (v -> r -> r) -> r -> TrieMap k v -> r
 \end{code}
+%}
 The class constraint |TrieKey k| says that the type |k|
 can be used as the key of a triemap.
 The class has an \emph{associated type}, |TrieMap k|,
 a type-level function that transforms the type of the key into
 the type of a trie for that key.  Now we can witness the fact that |ExprS| can be
 used as the key of a triemap, like this:
+%{
+%if style == poly
+%format dots = "\ldots"
+%else
+%format dots = "alterTM = undefined; foldTM = undefined"
+%endif
+\rae{Are there definitions for |alterTM| and |foldTM| for this, if we wanted them?}
 \begin{code}
 instance TrieKey ExprS where
   type TrieMap ExprS = SEMap ExprSMap ExprS
   emptyTM  = emptySEMap
   lookupTM = lkSEMap lookupExprS
-  ...
+  dots
 \end{code}
+
 All this puts us in a position to write the instance for lists:
 \begin{code}
 instance TrieKey k => TrieKey [k] where
   type TrieMap [k] = SEMap (ListMap (TrieMap k)) [k]
   emptyTM  = emptySEMap
-  lookupTM = lkSEMap lookupList
-  ...
+  lookupTM = undefined -- lkSEMap lookupList  \rae{There is a type error here. Fix.}
+  dots
 
 data ListMap elt_m v = LM { lm_nil  :: Maybe v, lm_cons :: elt_m (ListMap elt_m  v) }
 
 lookupList :: TrieKey k => [k] -> TrieMap [k] v -> Maybe v
-lookupList []     = lm_nil
-lookupList (x:xs) = lm_app |> lookupTM y >=> lookupList ys
+lookupList []     = undefined  -- @lm_nil@  \rae{another type error}
+lookupList (x:xs) = undefined  -- @lm_cons |> lookupTM x >=> lookupList xs@  \rae{another type error}
 \end{code}
+%}
 The code for |alter| and |fold| is routine.
 
 \section{Keys with binders} \label{sec:binders}
@@ -847,9 +1009,9 @@ So, when inserting or looking up a key $(\lambda x.\, foo~ (\lambda y.\, x+y))$ 
 behave as if the key was $(\lambda.\, foo ~(\lambda. \bv{1} + \bv{2}))$, where
 each $\bv{i}$ stands for an occurrence of the variable bound by the $i$'th lambda.
 In effect, then, we behave as if the data type was like this:
-\begin{code}
+\begin{spec}
 data Expr' = App Expr Expr | Lam Expr | FreeVar Var | BoundVar Int
-\end{code}
+\end{spec}
 Notice (a) the |Lam| node no longer has a binder and (b) there are
 two sorts of |Var| nodes, one for free variables and one for bound
 variables. We will not actually build a value of type |Expr'| and look
@@ -859,21 +1021,21 @@ we are going to \emph{behave as if we did}. Here is the code
 data ExprMap v = EM { em_app :: ExprMap (ExprMap v)
                     , em_lam :: ExprMap v
                     , em_fv  :: Map Var v           -- Free variables
-                    , em_vb  :: Map BoundVarKey v } -- Lambda-bound variables
+                    , em_bv  :: Map BoundVarKey v } -- Lambda-bound variables
 
 lookupExpr :: Expr -> ExprMap v -> Maybe v
 lookupExpr e = lkExpr (DB emptyBVM e)
 
-data DBExpr = DB { edb_bvm :: BoundVarMap, edb_expr = Expr }
+data DBExpr = DB { edb_bvm :: BoundVarMap, edb_expr :: Expr }
 
 lkExpr :: DBExpr -> ExprMap v -> Maybe v
 lkExpr (DB bvm (App e1 e2)) = em_app >.> lkExpr (DB bvm e1) >=> lkExpr (DB bvm e2)
 lkExpr (DB bvm (Lam v e))   = em_lam >.> lkExpr (DB (extendBVM v bvm) e)
 lkExpr (DB bvm (Var v))     = case lookupBVM v bvm of
                                 Nothing -> em_fv  >.> Map.lookup v  -- Free
-                                Just bv -> em_bv  >.> Map.lookup v  -- Lambda-bound
+                                Just bv -> em_bv  >.> Map.lookup bv -- Lambda-bound
 
-data BoundVarMap = BVM { bvm_next :: BoundVarKey, bvm_map = Map Var BoundVarKey }
+data BoundVarMap = BVM { bvm_next :: BoundVarKey, bvm_map :: Map Var BoundVarKey }
 type BoundVarKey = Int
 
 emptyBVM :: BoundVarMap
@@ -939,7 +1101,7 @@ $S$ whose domain is $vs$, such that $S(p) = e$.
 We allow the same variable to occur more than once in the pattern.
 For example, suppose we wanted to encode the rewrite rule
 \begin{code}
-{#- RULE "foo" forall x. f x x = f2 x #-}
+prag_begin RULES "foo" forall x. f x x = f2 x prag_end
 \end{code}
 Here the pattern $([x], f~ x~ x)$ has a repeated variable $x$,
 and should match targets like $(f~ 1~ 1)$ or $(f ~(g~ v)~ (g ~v))$,
@@ -956,14 +1118,16 @@ and suppose we look up $(f\,(2+x))$ in the trie.  The first entry matches, but t
 
 Here are the signatures of the lookup and insertion\footnote{We begin with |insert|
   because it is simpler than |alter|} functions:
+\rae{I changed |Expr| to |ExprS| here. Correct?}
 \begin{code}
-type ExprPat = ([PatVar], Expr)
+type ExprPat = ([PatVar], ExprS)
 type PatVar  = Var
-type Match v = ([(PatVar, Expr)], v)
+type Match v = ([(PatVar, ExprS)], v)
 
 insertMExpr :: ExprPat -> v -> MExprMap v -> MExprMap v
-lookupMExpr :: Expr -> MExprMap v -> Bag (Match v)
+lookupMExpr :: ExprS -> MExprMap v -> Bag (Match v)
 \end{code}
+\rae{What is the actual definition of |MExprMap|?}
 A |MExprMap| is a trie, keyed by |Expr| \emph{patterns}.
 A pattern variable, of type |PatVar| is just a |Var|; we
 use the type synonym just for documentation purposes. When inserting into a
@@ -1104,6 +1268,7 @@ data MExprSMapX v
              -- |mm_pvar :: PatKeyMap v|. We can resolve first (flex) and second
              -- or subseq (rigid) occs as we go.
        }
+     | EmptyMM
 type PatOccs v = [(PatKey,v)]
 \end{code}
 The client-visible |MExprSMap| with values of type |v|
@@ -1118,20 +1283,33 @@ a pattern variable $\pvo{i}$.
 head will be a variable. It is a shame that we have to chase n pointers for an
 n-ary application to get to the head! I think it would would be much more
 efficient to store the list of App args in mm\_fvar, like}
-\begin{code}
+\begin{spec}
          , mm_fvar :: Map Var (ListMap ExprS v)
-\end{code}
+\end{spec}
 \sg{(NB: PatVars can't occur in app heads that way. If we want them to, we have to give
 mm\_pvar a similar treatment.) IIRC, that is what Lean's DiscTree does, and it's
 also how we implement RULE matching (grep for ru\_fn)...}
 
 The core lookup function looks like this:
+%{
+%if style == newcode
+%format lkMExprS = "lkMExprS0"
+%endif
 \begin{code}
 lkMExprS :: forall v. ExprS -> (PatSubst, MExprSMapX v) -> Bag (PatSubst, v)
 
 type PatKey = Int
 data PatSubst = PS { ps_next  :: PatKey, ps_subst :: Map PatKey ExprS }
+
+-- \rae{describe? omit?}
+emptyPatSubst :: PatSubst
+emptyPatSubst = PS { ps_next = 0, ps_subst = Map.empty }
+
+extendPatSubst :: ExprS -> PatSubst -> PatSubst
+extendPatSubst e (PS { ps_next = next, ps_subst = subst })
+  = PS { ps_next = next + 1, ps_subst = Map.insert next e subst }
 \end{code}
+%}
 As well as the target expression |ExprS| and the trie, the lookup function also takes
 a |PatSubst| that gives the bindings for pattern variable bound so far.
 It returns a bag of results, since more than one entry in the trie may match,
@@ -1140,18 +1318,18 @@ each paired with the |PatSubst| that binds the pattern variables.
 Given |lkMExprS| we can write |lookupMExpr|,
 the externally-callable lookup function:
 \begin{code}
-lookupMExprS :: Expr -> MExprSMap v -> Bag (Match v)
-lookupMExprS e m = map rejig (lkMExprS e m)
+lookupMExprS :: ExprS -> MExprSMap v -> Bag (Match v)
+lookupMExprS e m = fmap rejig (lkMExprS e (emptyPatSubst, m))
   where
     rejig :: (PatSubst, (PatKeys, v)) -> Match v
     rejig (ps, (pkmk, v)) = (map (lookupPatKey ps) pkmk, v)
 
-lookupPatKey :: PatSubst -> (PatVar,PatKey) -> (Papvar,ExprS)
+lookupPatKey :: PatSubst -> (PatVar,PatKey) -> (PatVar,ExprS)
 lookupPatKey subst (pat_var, pat_key) = (pat_var, lookupPatSubst pat_key subst)
 
 lookupPatSubst :: PatKey -> PatSubst -> ExprS
 lookupPatSubst pat_key (PS { ps_subst = subst })
-  = case Map.lookup pat_key pat_subst of
+  = case Map.lookup pat_key subst of
       Just expr -> expr
       Nothing   -> error "Unbound key"
 \end{code}
@@ -1173,28 +1351,28 @@ lkMExprS e (psubst, mt)
   where
      pat_var_bndr :: Bag (PatSubst, v)
      pat_var_bndr = case mm_pvar mt of
-                      Just v  -> Bag.single (extendPatSubst e tsubst, v)
+                      Just v  -> Bag.single (extendPatSubst e psubst, v)
                       Nothing -> Bag.empty
 
      pat_var_occs :: Bag (PatSubst, v)
-     pat_var_occs = fromList [ (psubst, v)
-                             | (pat_var, v) <- mm_xvar mt
-                             , e == lookupPatSubst pat_var psubst ]
-                             -- SG: the equality check here might get very costly, right?
-                             -- Although it probably only matters for pattern/pattern comparisons, e.g.,
-                             -- Are the following patterns compatible?
-                             --   ([x], f <huge> x .. x) and ([y], f y y .. y)
-                             -- A union/find would help here, I think, so that
-                             -- we record that x and y are equal (after we check
-                             -- the second arg pair) and don't have to compare
-                             -- the substitution of x and y, <huge>, multiple times.
+     pat_var_occs = Bag.fromList [ (psubst, v)
+                                 | (pat_var, v) <- mm_xvar mt
+                                 , e == lookupPatSubst pat_var psubst ]
+                                 -- SG: the equality check here might get very costly, right?
+                                 -- Although it probably only matters for pattern/pattern comparisons, e.g.,
+                                 -- Are the following patterns compatible?
+                                 --   ([x], f <huge> x .. x) and ([y], f y y .. y)
+                                 -- A union/find would help here, I think, so that
+                                 -- we record that x and y are equal (after we check
+                                 -- the second arg pair) and don't have to compare
+                                 -- the substitution of x and y, <huge>, multiple times.
 
      look_at_e :: Bag (PatSubst, v)
      look_at_e = case e of
-        Var x     -> case Map.lookup x (mm_fvar mt) of
-                       Just v  -> Bag.single (psubst,v)
-                       Nothing -> Bag.empty
-        App e1 e2 -> (psubst, mm_app mt) |> lkMExprS e1 >=> lkMExprS e2
+        VarS x     -> case Map.lookup x (mm_fvar mt) of
+                        Just v  -> Bag.single (psubst,v)
+                        Nothing -> Bag.empty
+        AppS e1 e2 -> undefined -- @(psubst, mm_app mt) |> lkMExprS e1 >=> lkMExprS e2@  \rae{type error here}
 \end{code}
 The bag of results is the union of three possibilities, as follows. (Keep in mind that a |MExprSMap| represents \emph{many} patterns simultaneously.)
 \begin{itemize}
@@ -1249,27 +1427,27 @@ Now we can define the workhorse, |xtExprS|:
 \begin{code}
 xtExprS pvs e xt pkm mm
   = case e of
-      AppS e1 e2 -> mm { mm_app = xtMExprS pvs e1 (liftXT (xtMExprS pvs e2 xt))
+      AppS e1 e2 -> mm { mm_app = xtMExprS pvs e1 (liftXTS (xtMExprS pvs e2 xt))
                                            pkm (mm_app mm) }
 
-      VarS x | Just xv <- lookupBVM tv pkm
+      VarS x | Just xv <- lookupBVM x pkm
              -> -- Second or subsequent occurrence of a pattern variable
-                mm { tm_xvar = xtPatVarOcc xv (xt pkm) (tm_xvar mm) }
+                mm { mm_xvar = xtPatVarOcc xv (xt pkm) (mm_xvar mm) }
 
-             | pv `Set.member` pvs
+             | x `Set.member` pvs
              -> -- First occurrence of a pattern variable
-                mm { tm_pvar = xt (extendBVM pv pkm) (tm_pvar mm) }
+                mm { mm_pvar = xt (extendBVM x pkm) (mm_pvar mm) }
 
              | otherwise
              -> -- A free variable
-                mm { tm_fvar = Map.alter (xt pkm) x (tm_fvar mm) }
+                mm { mm_fvar = Map.alter (xt pkm) x (mm_fvar mm) }
 
-liftXT :: (PatKeys -> MExprSMap v -> MExprSMap v)
-        -> PatKeys -> Maybe (MExprSMap v) -> Maybe (MExprSMap v)
-liftXT insert pkeys Nothing  = Just (insert pkeys emptyMExprSMapX)
-liftXT insert pkeys (Just m) = Just (insert pkeys m)
+liftXTS :: (PatKeyMap -> MExprSMap v -> MExprSMap v)
+        -> PatKeyMap -> Maybe (MExprSMap v) -> Maybe (MExprSMap v)
+liftXTS insert pkeys Nothing  = Just (insert pkeys EmptyMM)
+liftXTS insert pkeys (Just m) = Just (insert pkeys m)
 
-xtPatVarOcc :: PatKey -> XT v -> TmplOccs v -> TmplOccs v
+xtPatVarOcc :: PatKey -> XT v -> PatOccs v -> PatOccs v
 xtPatVarOcc key f []
   = xtCons key (f Nothing) []
 xtPatVarOcc key f ((key1,x):prs)
@@ -1289,15 +1467,23 @@ exhaustively compared against each other; if one is more specific than (a substi
 
 A happy consequence of the trie representation is that a one-line change suffices
 to return only the most-specific matches.  We simply modify the definition |lkMExprS| from \Cref{sec:matching-lookup} as follows:
+%{
+%if style == poly
+%format as_before = "\ldots \text{as before} \ldots"
+%else
+%format as_before = "pat_var_occs :: Bag (PatSubst, v); pat_var_occs = undefined; look_at_e :: Bag (PatSubst, v); look_at_e = undefined; pat_var_bndr :: Bag (PatSubst, v); pat_var_bndr = undefined"
+%format lkMExprS = "lkMExprS2"
+%endif
 \begin{code}
 lkMExprS e (psubst, mt)
-  | isEmptyBag pat_var_occs && isEmptyBag look_at_e
+  | Bag.null pat_var_occs && Bag.null look_at_e
   = pat_var_bndr
   | otherwise
   = pat_var_occs `Bag.union` look_at_e
   where
-    ...as before...
+    as_before
 \end{code}
+%}
 That is, we only return the matches obtained by matching a pattern variable (|pat_var_bndr|) if there
 are no more-specific matches (namely |pat_var_occs| and |look_at_e|).  It is a happy
 consequence of the trie structure that this simple (and efficient in execution terms) change suffices
