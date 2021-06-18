@@ -8,7 +8,9 @@ import Data.List( foldl' )
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.IntMap as IntMap
+import Data.Bifunctor( first, second )
 import Data.Kind
+import Control.Applicative as M
 import Control.Monad
 import Data.Maybe( isJust )
 import Text.PrettyPrint as PP
@@ -32,8 +34,8 @@ ty1 = read "Int -> Int"
 ty2 = read "Char -> Char"
 ty3 = read "Char -> Int"
 
-ins :: MExprMap String -> (String, [Var], Expr) -> MExprMap String
-ins m (s,tvs,ty) = insertMExprMap tvs ty s m
+-- ins :: MExprMap String -> (String, [Var], Expr) -> MExprMap String
+-- ins m (s,tvs,ty) = insertMExprMap tvs ty s m
 
 {- *********************************************************************
 *                                                                      *
@@ -136,50 +138,6 @@ eqDeBT _ _ = False
 
 {- *********************************************************************
 *                                                                      *
-                   Template variables
-*                                                                      *
-********************************************************************* -}
-
-type PatVar    = Var
-type PatVarSet = Set.Set Var
-type PatKey    = BoundVarKey
-type PatKeys   = DeBruijnEnv  -- Maps PatVar :-> PatKey
-
-type PatOccs a = [(PatKey,a)]
-
-xtPatVarOcc :: PatKey -> XT a -> PatOccs a -> PatOccs a
-xtPatVarOcc key f []
-  = xtCons key (f Nothing) []
-xtPatVarOcc key f ((key1,x):prs)
-  | key == key1 = xtCons key (f (Just x)) prs
-  | otherwise   = (key1,x) : xtPatVarOcc key f prs
-
-xtCons :: PatKey -> Maybe a -> PatOccs a -> PatOccs a
-xtCons _   Nothing  tmpl_occs = tmpl_occs
-xtCons key (Just x) tmpl_occs = (key,x) : tmpl_occs
-
----------------
-data PatSubst = TS { ts_subst :: IntMap.IntMap Expr     -- Maps PatKey -> Expr
-                    , ts_next  :: PatKey }
-
-emptyPatSubst :: PatSubst
-emptyPatSubst = TS { ts_subst = IntMap.empty
-                    , ts_next  = 0 }
-
-lookupPatSubst :: PatKey -> PatSubst -> Expr
-lookupPatSubst key (TS { ts_subst = subst })
-  = case IntMap.lookup key subst of
-      Just ty -> ty
-      Nothing -> error ("lookupPatSubst " ++ show key)
-
-extendPatSubst :: Expr -> PatSubst -> PatSubst
-extendPatSubst ty (TS { ts_subst = subst, ts_next = n })
-  = TS { ts_subst = IntMap.insert n ty subst
-       , ts_next  = n+1 }
-
-
-{- *********************************************************************
-*                                                                      *
                Bound variables
 *                                                                      *
 ********************************************************************* -}
@@ -196,10 +154,10 @@ lookupBoundVarMap = IntMap.lookup
 extendBoundVarMap :: BoundVar -> a -> BoundVarMap a -> BoundVarMap a
 extendBoundVarMap = IntMap.insert
 
-lkBoundVarOcc :: BoundVar -> (PatSubst, BoundVarMap a) -> [(PatSubst, a)]
-lkBoundVarOcc var (tsubst, env) = case lookupBoundVarMap var env of
-                                     Just x  -> [(tsubst,x)]
-                                     Nothing -> []
+lkBoundVarOcc :: MonadPlus m => BoundVar -> BoundVarMap v -> Result m v
+lkBoundVarOcc var env = case lookupBoundVarMap var env of
+                          Just x  -> return x
+                          Nothing -> M.empty
 
 xtBoundVarOcc :: BoundVar -> XT a -> BoundVarMap a -> BoundVarMap a
 xtBoundVarOcc tv f tm = IntMap.alter f tv tm
@@ -225,10 +183,10 @@ extendFreeVarMap env tv val = Map.insert tv val env
 xtFreeVarOcc :: Var -> XT a -> FreeVarMap a -> FreeVarMap a
 xtFreeVarOcc tv f tm = Map.alter f tv tm
 
-lkFreeVarOcc :: Var -> (PatSubst, FreeVarMap a) -> [(PatSubst, a)]
-lkFreeVarOcc var (tsubst, env) = case Map.lookup var env of
-                                    Just x  -> [(tsubst,x)]
-                                    Nothing -> []
+lkFreeVarOcc :: MonadPlus m => Var -> FreeVarMap v -> Result m v
+lkFreeVarOcc var env = case Map.lookup var env of
+                          Just x  -> return x
+                          Nothing -> M.empty
 
 
 {- *********************************************************************
@@ -330,6 +288,50 @@ lookupSEM lookup target_key sem
 
 {- *********************************************************************
 *                                                                      *
+                   Pattern variables
+*                                                                      *
+********************************************************************* -}
+
+type PatVar    = Var
+type PatVarSet = Set.Set Var
+type PatKey    = BoundVarKey
+type PatKeyMap   = DeBruijnEnv  -- Maps PatVar :-> PatKey
+
+type PatOccs a = [(PatKey,a)]
+
+xtPatVarOcc :: PatKey -> XT a -> PatOccs a -> PatOccs a
+xtPatVarOcc key f []
+  = xtCons key (f Nothing) []
+xtPatVarOcc key f ((key1,x):prs)
+  | key == key1 = xtCons key (f (Just x)) prs
+  | otherwise   = (key1,x) : xtPatVarOcc key f prs
+
+xtCons :: PatKey -> Maybe a -> PatOccs a -> PatOccs a
+xtCons _   Nothing  tmpl_occs = tmpl_occs
+xtCons key (Just x) tmpl_occs = (key,x) : tmpl_occs
+
+---------------
+data PatSubst = TS { ts_subst :: IntMap.IntMap Expr     -- Maps PatKey -> Expr
+                    , ts_next  :: PatKey }
+
+emptyPatSubst :: PatSubst
+emptyPatSubst = TS { ts_subst = IntMap.empty
+                    , ts_next  = 0 }
+
+lookupPatSubst :: PatKey -> PatSubst -> Expr
+lookupPatSubst key (TS { ts_subst = subst })
+  = case IntMap.lookup key subst of
+      Just ty -> ty
+      Nothing -> error ("lookupPatSubst " ++ show key)
+
+extendPatSubst :: Expr -> PatSubst -> PatSubst
+extendPatSubst ty (TS { ts_subst = subst, ts_next = n })
+  = TS { ts_subst = IntMap.insert n ty subst
+       , ts_next  = n+1 }
+
+
+{- *********************************************************************
+*                                                                      *
                   ExprMap
 *                                                                      *
 ********************************************************************* -}
@@ -343,7 +345,7 @@ data ExprMap a
        , tm_fvar   :: FreeVarMap a     -- Occurrence of a completely free tyvar
 
        , tm_fun    :: ExprMap (ExprMap a)
-       , tm_tycon  :: Map.Map Lit a
+       , tm_lit  :: Map.Map Lit a
        , tm_forall :: ExprMap a
        }
   deriving( Show )
@@ -358,58 +360,85 @@ mkEmptyExprMap
        , tm_xvar   = []
        , tm_bvar   = emptyBoundVarMap
        , tm_fun    = emptyExprMap
-       , tm_tycon  = Map.empty
+       , tm_lit  = Map.empty
        , tm_forall = emptyExprMap }
 
-lkT :: DeBruijn Expr -> (PatSubst, ExprMap a) -> [(PatSubst, a)]
-lkT _ (_, EmptyEM)
-  = []
-lkT (D bv_env ty) (tsubst, EM { .. })
-  = tmpl_var_bndr ++ rest
+---------------------------------
+newtype Result m v = MkR { unR :: PatSubst -> m (PatSubst,v) }
+
+instance Monad m => Monad (Result m) where
+  (MkR r1) >>= k = MkR (\s -> r1 s >>= \(s',v) -> unR (k v) s')
+
+instance Functor m => Functor (Result m) where
+  fmap f (MkR r) = MkR (\s -> fmap (second f) (r s))
+
+instance Monad m => Applicative (Result m) where
+  pure x = MkR (\s -> pure (s,x))
+  (<*>)  = ap
+
+-- Why Monad m?
+instance (Monad m, Alternative m) => Alternative (Result m) where
+  empty = MkR (\s -> M.empty)
+  (MkR r1) <|> (MkR r2) = MkR (\s -> r1 s <|> r2 s)
+
+instance MonadPlus m => MonadPlus (Result m)
+
+bindPatVar :: MonadPlus m => v -> Expr -> Result m v
+bindPatVar v e = MkR (\s -> return (extendPatSubst e s, v))
+
+getSubst :: Monad m => Result m PatSubst
+getSubst = MkR (\s -> return (s,s))
+
+thenR :: MonadPlus m => Result m v -> Result m v -> Result m v
+-- Here is where we can choose whether to override
+thenR r1 r2 = r1 <|> r2
+
+---------------------------------
+lkT :: forall m v. MonadPlus m => DeBruijn Expr -> ExprMap v -> Result m v
+lkT _ EmptyEM
+  = M.empty
+lkT dbe@(D bv_env e) (EM { .. })
+  = (pat_var_occs <|> go e) `thenR` pat_var_bndr
   where
-     rest = tmpl_var_occs ++ go ty
+     go (Var tv)    = case lookupDBE tv bv_env of
+                         Just bv -> tm_bvar |> lkBoundVarOcc bv
+                         Nothing -> tm_fvar |> lkFreeVarOcc  tv
+     go (App t1 t2) = tm_fun    |> lkT (D bv_env t1) >=> lkT (D bv_env t2)
+     go (Lit l)     = tm_lit    |> lkLit l
+     go (Lam v e)   = tm_forall |> lkT (D (extendDBE v bv_env) e)
 
-     go (Var tv)
-       | Just bv <- lookupDBE tv bv_env = lkBoundVarOcc bv (tsubst, tm_bvar)
-       | otherwise                      = lkFreeVarOcc  tv (tsubst, tm_fvar)
-     go (App t1 t2) = concatMap (lkT (D bv_env t2)) $
-                      lkT (D bv_env t1) (tsubst, tm_fun)
-     go (Lit tc)    = lkTC tc tsubst tm_tycon
+     pat_var_bndr = case tm_tvar of
+                     Just x | noCaptured bv_env e -> bindPatVar x e
+                     otherwise                    -> M.empty
 
-     go (Lam tv ty) = lkT (D (extendDBE tv bv_env) ty) (tsubst, tm_forall)
+     pat_var_occs = tm_xvar |> foldr ((<|>) . pat_var_occ) M.empty
 
-     tmpl_var_bndr | Just x <- tm_tvar
---                   , null rest    -- This one line does overlap!
-                   , noCaptured bv_env ty
-                   = [(extendPatSubst ty tsubst, x)]
-                   | otherwise
-                   = []
+     pat_var_occ :: (PatKey, v) -> Result m v
+     pat_var_occ (pat_var, v)
+       = do { subst <- getSubst
+            ; guard (deBruijnize (lookupPatSubst pat_var subst) `eqDeBT` dbe)
+            ; return v }
 
-     tmpl_var_occs = [ (tsubst, x)
-                     | (tmpl_var, x) <- tm_xvar
-                     , deBruijnize (lookupPatSubst tmpl_var tsubst)
-                       `eqDeBT` (D bv_env ty)
-                     ]
+lkLit :: MonadPlus m => Lit -> Map.Map Lit v -> Result m v
+lkLit lit lit_map = case Map.lookup lit lit_map of
+                         Just x  -> return x
+                         Nothing -> M.empty
 
-lkTC :: Lit -> PatSubst -> Map.Map Lit a -> [(PatSubst, a)]
-lkTC tc tsubst tc_map = case Map.lookup tc tc_map of
-                           Nothing -> []
-                           Just x  -> [(tsubst,x)]
-
+{-
 xtT :: PatVarSet -> DeBruijn Expr
-    -> (PatKeys -> XT a)
-    -> PatKeys -> ExprMap a -> ExprMap a
-xtT tmpls ty f tkeys EmptyEM
- = xtT tmpls ty f tkeys mkEmptyExprMap
-xtT tmpls (D bv_env ty) f tkeys m@(EM {..})
-  = go ty
+    -> (PatKeyMap -> XT a)
+    -> PatKeyMap -> ExprMap a -> ExprMap a
+xtT pats e f tkeys EmptyEM
+ = xtT pats e f tkeys mkEmptyExprMap
+xtT pats (D bv_env e) f tkeys m@(EM {..})
+  = go e
   where
    go (Var tv)
       -- Second or subsequent occurrence of a template tyvar
       | Just xv <- lookupDBE tv tkeys  = m { tm_xvar = xtPatVarOcc xv (f tkeys) tm_xvar }
 
       -- First occurrence of a template tyvar
-      | tv `Set.member` tmpls = m { tm_tvar = f (extendDBE tv tkeys) tm_tvar  }
+      | tv `Set.member` pats = m { tm_tvar = f (extendDBE tv tkeys) tm_tvar  }
 
       -- Occurrence of a forall-bound var
       | Just bv <- lookupDBE tv bv_env = m { tm_bvar = xtBoundVarOcc bv (f tkeys) tm_bvar }
@@ -417,19 +446,19 @@ xtT tmpls (D bv_env ty) f tkeys m@(EM {..})
       -- A completely free variable
       | otherwise = m { tm_fvar = xtFreeVarOcc  tv (f tkeys) tm_fvar }
 
-   go (Lit tc)  = m { tm_tycon = xtTC tc (f tkeys) tm_tycon }
-   go (App t1 t2) = m { tm_fun   = xtT tmpls (D bv_env t1)
-                                         (liftXT (xtT tmpls (D bv_env t2) f))
+   go (Lit tc)    = m { tm_lit = xtTC tc (f tkeys) tm_lit }
+   go (App t1 t2) = m { tm_fun = xtT pats (D bv_env t1)
+                                         (liftXT (xtT pats (D bv_env t2) f))
                                          tkeys tm_fun }
-   go (Lam tv ty) = m { tm_forall = xtT tmpls (D (extendDBE tv bv_env) ty)
+   go (Lam tv e) = m { tm_forall = xtT pats (D (extendDBE tv bv_env) e)
                                              f tkeys tm_forall }
 
 
 xtTC :: Lit -> XT a -> Map.Map Lit a ->  Map.Map Lit a
 xtTC tc f m = Map.alter f tc m
 
-liftXT :: (PatKeys -> ExprMap a -> ExprMap a)
-        -> PatKeys -> Maybe (ExprMap a) -> Maybe (ExprMap a)
+liftXT :: (PatKeyMap -> ExprMap a -> ExprMap a)
+        -> PatKeyMap -> Maybe (ExprMap a) -> Maybe (ExprMap a)
 liftXT insert tkeys Nothing  = Just (insert tkeys emptyExprMap)
 liftXT insert tkeys (Just m) = Just (insert tkeys m)
 
@@ -449,18 +478,18 @@ emptyMExprMap = emptyExprMap
 insertMExprMap :: forall a. [Var]   -- Template type variables
                         -> Expr      -- Template
                         -> a -> MExprMap a -> MExprMap a
-insertMExprMap tmpl_tvs ty x tm
-  = xtT tmpl_set (deBruijnize ty) f emptyDBE tm
+insertMExprMap pat_tvs ty x tm
+  = xtT pat_set (deBruijnize ty) f emptyDBE tm
   where
-    tmpl_set = Set.fromList tmpl_tvs
+    pat_set = Set.fromList pat_tvs
 
-    f :: PatKeys -> XT (Match a)
-    f tkeys _ = Just (map inst_key tmpl_tvs, x)
+    f :: PatKeyMap -> XT (Match a)
+    f tkeys _ = Just (map inst_key pat_tvs, x)
      -- The "_" means just overwrite previous value
      where
         inst_key :: Var -> (PatVar, PatKey)
         inst_key tv = case lookupDBE tv tkeys of
-                         Nothing  -> error ("Unbound tmpl var " ++ tv)
+                         Nothing  -> error ("Unbound pat var " ++ tv)
                          Just key -> (tv, key)
 
 lookupExprMap :: Expr -> MExprMap a -> [ ([(PatVar,Expr)], a) ]
@@ -470,7 +499,7 @@ lookupExprMap ty tm
   where
     lookup :: PatSubst -> (PatVar, PatKey) -> (PatVar, Expr)
     lookup tsubst (tv, key) = (tv, lookupPatSubst key tsubst)
-
+-}
 
 {- *********************************************************************
 *                                                                      *
@@ -567,7 +596,7 @@ instance Pretty a => Pretty (ExprMap a) where
                     , text "tm_bvar =" <+> ppr tm_bvar
                     , text "tm_fvar =" <+> ppr tm_fvar
                     , text "tm_fun =" <+> ppr tm_fun
-                    , text "tm_tycon =" <+> ppr tm_tycon
+                    , text "tm_lit =" <+> ppr tm_lit
                     , text "tm_forall =" <+> ppr tm_forall ])
 
 instance Pretty PatSubst where

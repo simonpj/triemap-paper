@@ -472,7 +472,7 @@ infixr 0 |>   -- Reverse function application
 \end{figurebox}
 
 Our general task is as follows: \emph{implement an efficient finite mapping
-from keys to values, in which the key type is a tree}.
+from keys to values, in which the key is a tree}.
 For example, an |Expr| data type might be defined like this:
 %{
 %if style == newcode
@@ -486,20 +486,19 @@ data Expr = App Expr Expr | Lam  Var Expr | Var Var
 \end{code}
 Here |Var| is the type of variables; these can be compared for
 equality and used as the key of a finite map.  Its definition is not important
-for this paper. For the sake of concreteness,
+for this paper, but for the sake of concreteness,
 you may wish to imagine it is simply a string:
 \begin{code}
 type Var = String
 \end{code}
 %}
-The data type |Expr| is capable of representing expressions like |add 2 3| and
-|\lambda x. add x 3|. \rae{Well, not really, because it doesn't support literals.
-Is this worth fixing/rephrasing?} We will use this data type throughout the paper, because it
+The data type |Expr| is capable of representing expressions like |add x y| and
+|\lambda x. add x y|. We will use this data type throughout the paper, because it
 has all the features that occur in real expression data types: free variables like |add|,
 represented by a |Var| node;
 lambdas which can bind variables (|Lam|), and occurrences of those bound variables (|Var|);
 and nodes with multiple children (|App|).  A real-world expression type would have
-many more constructors.
+many more constructors, including literals, let-expressions and suchlike.
 
 \rae{A little redundant with some intro stuff.}
 A finite map keyed by such expressions is extremely useful.
@@ -511,7 +510,8 @@ expression with the variable.
 GHC also does many lookups based on \emph{types} rather than
 \emph{expressions}.  For example, when implementing type-class
 instance lookup, or doing type-family reduction, GHC needs a map whose
-key is a type.
+key is a type.  Both types and expressions are simply trees, and so are
+particular instances of the general task.
 
 \subsection{The interface of of a finite map}
 
@@ -519,16 +519,16 @@ What API might such a map have? Building on the design of widely
 used functions in Haskell (see \cref{fig:containers}), we
 seek these basic operations:
 \begin{code}
-empty   :: ExprMap v
-lookup  :: Expr -> ExprMap v -> Maybe v
-alter   :: Expr -> XT v -> ExprMap v -> ExprMap v
+emptyEM   :: ExprMap v
+lookupEM  :: Expr -> ExprMap v -> Maybe v
+alterEM   :: Expr -> XT v -> ExprMap v -> ExprMap v
 \end{code}
-The functions |empty| and |lookup| should be
+The functions |emptyEM| and |lookupEM| should be
 self-explanatory.  The function |alterTM| is a standard
-generalisation of |insert|: instead of providing just
+generalisation of |insertEM|: instead of providing just
 a new element to be inserted, the caller provides a
 \emph{transformation} |XT v|, an
-abbreviation for |Maybe v -> Maybe v|.  This function
+abbreviation for |Maybe v -> Maybe v| (see \Cref{fig:library}.  This function
 transforms the existing value associated with key, if any (hence the
 input |Maybe|), to a new value, if any (hence the output |Maybe|). 
 These fundamental operations on a finite map must obey these properties:
@@ -538,15 +538,15 @@ property propLookupAlter (e m xt)                  (lookup e (alter e xt m)    ^
 propertyImpl propWrongElt (e1 e2 m xt) (e1 /= e2)  (lookup e1 (alter e2 xt m)  ^^^^)  (lookup e1 m)
 \end{code}
 
-We can easily define |insert| and |delete| from |alter|:
+We can easily define |insertEM| and |deleteEM| from |alterEM|:
 \begin{code}
-insert :: Expr -> v -> ExprMap v -> ExprMap v
-insert e v = alter e (\_ -> Just v)
+insertEM :: Expr -> v -> ExprMap v -> ExprMap v
+insertEM e v = alterEM e (\_ -> Just v)
 
-delete :: Expr -> ExprMap v -> ExprMap v
-delete e = alter e (\_ -> Nothing)
+deleteEM :: Expr -> ExprMap v -> ExprMap v
+deleteEM e = alterEM e (\_ -> Nothing)
 \end{code}
-You might wonder if, for the purposes of this paper we could just define |insert|,
+You might wonder whether, for the purposes of this paper, we could just define |insert|,
 leaving |alter| for the Appendix, but as we will see in \Cref{sec:alter}, our
 approach using tries fundamentally requires the generality of |alter|.
 
@@ -554,7 +554,7 @@ We would also like to support other standard operations on finite maps, includin
 \begin{itemize}
 \item An efficient union operation to combine two finite maps into one:
 \begin{code}
-union :: ExprMap v -> ExprMap v -> ExprMap v
+unionEM :: ExprMap v -> ExprMap v -> ExprMap v
 \end{code}
 \item A map operation to apply a function to the range of the finite map:
 \begin{code}
@@ -590,7 +590,7 @@ the extra features we require in our finite maps.
 \subsection{Extra feature: Alpha-renaming}
 
 Recall that the type |Expr| is the \emph{key} of our |ExprMap| type.
-We do not want our programming language to discern between the expressions
+We do not want our programming language to distinguish between the expressions
 |\x -> x| and |\y -> y|, and so we would expect insertion and lookup to be insensitive to
 $\alpha$-renaming. That is, the correctness properties we list above
 must use $\alpha$-equivalence when comparing expressions for equality.
@@ -600,7 +600,9 @@ We can convert our key expression to one using de Bruijn levels or indices,
 and then work with that. However, doing so requires making a copy of the input
 key, a potentially expensive extra step.
 \rae{Remind me why hashing-modulo-alpha is hard, referring to
-\cite{alpha-hashing}.}
+  \cite{alpha-hashing}.}\simon{Not relevant here; our ``hashing modulo alpha paper
+  is only relevant if you want
+  compositional hashing of every node.}
 
 \subsection{Extra feature: Matching} \label{sec:matching-intro}
 
@@ -612,7 +614,8 @@ prag_begin RULES "map/map" forall f g xs. map f (map g xs) = map (f . g) xs prag
 \end{code}
 This rule asks the compiler to rewrite any target expression that matches the shape
 of the left-hand side (LHS) of the rule into the right-hand side
-(RHS).  We often use the term \emph{pattern} to describe the LHS.
+(RHS).  We use the term \emph{pattern} to describe the LHS, and \emph{target} to describe
+the expression we are looking up in the map.
 The pattern is explicitly quantified over the \emph{pattern variables}
 (here |f|, |g|, and |xs|) that
 can be bound during the matching process.  In other words, \emph{we seek a substitution
@@ -623,33 +626,35 @@ For example, if the program we are compiling contains the expression
 becomes |map (double . square) nums|; we would replace the former expression
 with the latter in the code under consideration.
 
+Of course, the pattern might itself have bound variables, and we would
+like to be insensitive to alpha-conversion for those. For example:
+\begin{code}
+prag_begin RULES "map/id"  map (\x -> x) = \y -> y prag_end
+\end{code}
+\simon{Can we typeset the opening and closing pragma brackets more nicely? Shorter dash for a start.}
+We want to find a successful match if we see a call |map (\y -> y)|,
+even though the bound variable has a different name.
+
 Now imagine that we have thousands of such rules.  Given a target
 expression, we want to consult the rule database to see if any
 rule matches.  One approach would be to look at the rules one at a
 time, checking for a match, but that would be slow if there are many rules.
-How could we do this more efficiently?
-
-Of course, the pattern might itself have bound variables, and we would
-like to be insensitive to alpha-conversion for those. For example:
-\begin{code}
-prag_begin RULES "map/id"  map (\x -> x) = \x -> x prag_end
-\end{code}
-We want to find a successful match if we see a call |map (\y -> y)|,
-even though the bound variable has a different name.
-
-This more flexible lookup---allowing matching as we go---is a valuable ability.
-For example, GHC's lookup for
-type-class instances and for type-family instances can again have thousands
+Similarly, GHC's lookup for
+type-class instances and for type-family instances can have thousands
 of candidates. We would like to find a matching candidate more efficiently
 than by linear search.
 
 Support for pattern variables is hard to reconcile with many standard approaches to
 implementing finite maps.  For example, representing the finite map as a binary tree,
 and performing comparisons at the nodes to determine which sub-tree holds the key,
-seems an approach that is hard or impossible to extend to support matching.
+seems an approach that is hard or impossible to extend to support matching, as does
+any approach based on hashing.
 
-We thus now present our data structure that easily accommodates all of our
-desiderata: the TrieMap.
+The theorem proving and automated reasoning community has been working with huge sets
+of rewrite rules, just as we describe, for many years.
+They have developed \emph{substitution trees} for this job \cite{lots of stuff}, which
+embody essentially the same core ideas as those we present below.  But there are many
+differences, as we dicuss later in \Cref{sec:related}.
 
 \section{Tries} \label{sec:ExprS}
 
@@ -660,7 +665,7 @@ form of expression:
 data ExprS = VarS Var | AppS ExprS ExprS
 \end{code}
 We leave lambdas out for now,
-so that all |Var| nodes represent free variables, which are constants.
+so that all |VarS| nodes represent free variables, which are constants.
 We will return to lambdas in \Cref{sec:binders}.
 
 \subsection{The basic idea} \label{sec:basic} \label{sec:alter}
@@ -681,8 +686,9 @@ Here is a trie-based implemenation for |ExprS|:
 data ExprSMap v = ESM  { esm_var  :: Map Var v
                        , esm_app  :: ExprSMap (ExprSMap v) }
 \end{code}
-Here |Map Var v| is any standard, existing finite map keyed by |Var|.
-
+Here |Map Var v| is any standard, existing finite map, such as the |containers|
+library\footnote{\url{https://hackage.haskell.org/package/containers}
+} keyed by |Var|.
 One way to understand this slightly odd data type is to study its lookup function:
 \begin{code}
 lookupExprS :: ExprS -> ExprSMap v -> Maybe v
@@ -717,7 +723,7 @@ lookupExprS (AppS e1 e2)  = esm_app  >.> lookupExprS e1 >=> lookupExprS e2
 We use some simple composition combinators, whose types are given in \Cref{fig:library}
 to chain together the component pieces.  The function |esm_var :: ExprSMap v -> Map Var v|
 is the auto-generated selector that picks |esm_var| field from an |ESM| record.
-The functions |>.>| and |>=>| are forward composition
+The functions |>.>| and |>=>| are right-associative forward composition
 operators, respectively monadic and non-monadic, that chain the individual operations together.
 Finally, we have $\eta$-reduced the definition, by omitting the |m| parameter.
 These abbreviations become quite worthwhile when we add more constructors to the key data type.
@@ -780,7 +786,7 @@ unionExprS :: ExprSMap v -> ExprSMap v -> ExprSMap v
 \end{code}
 In tree-based implementations of finite maps, such union operations can be tricky.
 The two trees, which have been built independently, might not have the same
-left-subtree/right-subtree structure, so some careful re-alignment may be requried.
+left-subtree/right-subtree structure, so some careful re-alignment may be required.
 But for tries there are no such worries --
 their structure is identical, and we can simply zip them together.  There is one
 wrinkle: just as we had to generalise |insert| to |alter|,
@@ -792,12 +798,13 @@ When a key appears on both maps, the combining function is used to
 combine the two corresponding values.
 With that generalisation, the code is as follows:
 \begin{code}
-unionWithExprS f (ESM { esm_var = m1_var, esm_app = m1_app })
-                 (ESM { esm_var = m2_var, esm_app = m2_app })
-  = ESM { esm_var = Map.unionWith f m1_var m2_var
-        , esm_app = unionWithExprS (unionWithExprS f) m1_app m2_app }
+unionWithExprS f  (ESM { esm_var = m1_var, esm_app = m1_app })
+                  (ESM { esm_var = m2_var, esm_app = m2_app })
+  = ESM  { esm_var = Map.unionWith f m1_var m2_var
+         , esm_app = unionWithExprS (unionWithExprS f) m1_app m2_app }
 \end{code}
 It could hardly be simpler. \rae{What about empty/single maps? They're missing here.}
+\simon{That is the very next sentence.  Do we need to say anything?}
 
 \subsection{Folds and the empty map} \label{sec:fold}
 
@@ -819,7 +826,7 @@ emptyExprS = ESM { esm_var = Map.empty, esm_app = emptyExprS }
 It is interesting to note that |emptyExprS| is an infinite, recursive structure:
 the |esm_app| field refers back to |emptyExprS|.
 This slightly strange definition works fine for lookup and alteration, but it fails
-fundamentally when we want to iterate over the elements of the trie.
+fundamentally when we want to \emph{iterate} over the elements of the trie.
 
 For example, suppose we wanted to count the number of elements in the finite map; in |containers|
 this is the function |Map.size| (\Cref{fig:containers}).  We might try
@@ -829,12 +836,11 @@ this is the function |Map.size| (\Cref{fig:containers}).  We might try
 %endif
 \begin{code}
 sizeExprS :: ExprSMap v -> Int
-sizeExprS (ESM { esm_var = m_var, esm_app = m_app })
-  = Map.size m_var + undefined
+sizeExprS (ESM { esm_var = m_var, esm_app = m_app }) = Map.size m_var + undefined
 \end{code}
 %}
 We seem stuck because the size of the |m_app| map is not what we want: rather,
-we want to add up the sizes of its elements, and we don't have a way to do that yet.
+we want to add up the sizes of its \emph{elements}, and we don't have a way to do that yet.
 The right thing to do is to generalise to a fold:
 \begin{code}
 foldrExprS :: (v -> r -> r) -> r -> ExprSMap v -> r
@@ -863,15 +869,15 @@ Here is one way to do it (we will see another in \Cref{sec:generalised}):
 %format esm_app = "esm_app1"
 %endif
 \begin{code}
-data ExprSMap v = EmptyESM
-                | ESM { esm_var :: Map Var v, esm_app :: ExprSMap (ExprSMap v) }
+data ExprSMap v  = EmptyESM
+                 | ESM { esm_var :: Map Var v, esm_app :: ExprSMap (ExprSMap v) }
 
 emptyExprS :: ExprSMap v
 emptyExprS = EmptyESM
 
 foldrExprS :: (v -> r -> r) -> r -> ExprSMap v -> r
 foldrExprS k z EmptyESM                                   = z
-foldrExprS k z (ESM { esm_var = m_var, esm_app = m_app }) = Map.foldr k z1 m_var
+foldrExprS k z (ESM { esm_var = m_var, esm_app = m_app })  = Map.foldr k z1 m_var
   where
     z1 = foldrExprS kapp z m_app
     kapp m1 r = foldrExprS k r m1
@@ -908,9 +914,9 @@ a rather inefficient way to represent the key.  So a simple idea is this:
 when a |ExprMap| represents a single key-value pair, represent it
 as directly a key-value pair!  Like this:
 \begin{code}
-data ExprSMap v = EmptyESM
-                | SingleESM ExprS v
-                | ESM { esm_var :: Map Var v, esm_app :: ExprSMap (ExprSMap v) }
+data ExprSMap v  = EmptyESM
+                 | SingleESM ExprS v
+                 | ESM { esm_var :: Map Var v, esm_app :: ExprSMap (ExprSMap v) }
 \end{code}
 The code for lookup practically writes itself:
 %{
@@ -930,30 +936,29 @@ lookupExprS e (ESM { esm_var = m_var, esm_app = m_app })
   = dots     -- Exactly as before
 \end{code}
 %}
+\simon{What is this |undefined| doing?}
 Notice that in the |SingleESM| case we need equality on |Expr|,
 to tell if the key being looked up, |k1| is the same as the key in
 the |SingleESM|, namely |k2|.
 
 The code for alter is more interesting, becuase it governs the shift from
-|EmptyESM| to |SingleESM| and thence for |ESM|:
+|EmptyESM| to |SingleESM| and thence to |ESM|:
 \begin{code}
 alterExprS  :: ExprS -> XT v -> ExprSMap v -> ExprSMap v
 alterExprS e xt EmptyESM
   = case xt Nothing of
-      Nothing -> EmptyESM
-      Just v  -> SingleESM e v
+        Nothing -> EmptyESM
+        Just v  -> SingleESM e v
 
 alterExprS e xt m@(SingleESM key v1)
-  | e == key
-  = case xt (Just v1) of
-      Nothing -> EmptyESM
-      Just v2  -> SingleESM e v2
-  | otherwise
-  = case xt Nothing of
-      Nothing -> m
-      Just v2 -> alterExprS key (\_ -> Just v1) $
-                 alterExprS e   (\_ -> Just v2) $
-                 ESM { esm_var = Map.empty, esm_app = EmptyESM }
+  | e == key   = case xt (Just v1) of
+                     Nothing -> EmptyESM
+                     Just v2  -> SingleESM e v2
+  | otherwise  = case xt Nothing of
+                     Nothing -> m
+                     Just v2 ->  alterExprS key (\_ -> Just v1) $
+                                 alterExprS e   (\_ -> Just v2) $
+                                 ESM { esm_var = Map.empty, esm_app = EmptyESM }
 
 alterExprS e xt m@(ESM { esm_var = m_var, esm_app = m_app })
   = case e of
@@ -966,7 +971,7 @@ liftXT f (Just m) = Just (f m)
 \end{code}
 \sg{liftXT expands Nothing to emptyExprS but doesn't contract an emptyExprS result
 from (f m) back to Nothing. So inserting and deleting a key will leave behind
-the spine of an empty map for that key.}
+the spine of an empty map for that key.} \simon{I have added a final para to \Cref{sec:generalised}.  Is it enough?}
 Although we began by speaking of a map containing only one key-value pair,
 this representation uses |ESM| while there are keys that share structure,
 but as soon as we get into a sub-treee where there is no overlap, we revert
@@ -1002,9 +1007,15 @@ lookupExprSMap = lkSEMap lookupExprS
 \end{code}
 The code for |xtSEMap|, and |alterExprSMap|, follows straightforwardly.
 
+Adding a new item to a triemap can turn |EmptyTM| into |SingleTM| and |SingleTM|
+into |MultiTM|, but you might wonder about the reverse: when deleting an item,
+can we shrink a |SingleTM| back to an |EmptyTM|, and a |MultiTM| back to a |SingleTM|?
+Yes, of course we can: the former is extremely easy, while the latter takes a bit more work.
+The Appendix has the details.
+
 \subsection{Maps of higher kinds}
 
-Suppose our expresions had multi-argument apply nodes, thus
+Suppose our expresions had multi-argument apply nodes, |AppV|, thus
 %{
 %if style == poly
 %format dots = "\ldots"
@@ -1013,12 +1024,11 @@ Suppose our expresions had multi-argument apply nodes, thus
 %format Expr = "Expr1"
 %endif
 \begin{code}
-data Expr = dots
-          | AppV Expr [Expr]
+data Expr = dots | AppV Expr [Expr]
 \end{code}
 %}
 Then we would need to built a trie keyed by a \emph{list} of |Expr|.
-Since a list is just another algebraic data type, build with nil and cons,
+Since a list is just another algebraic data type, built with nil and cons,
 we can use exactly the same approach, thus
 \begin{code}
 lookupListExpr :: [Expr] -> ListExprMap v -> Maybe v
@@ -1031,11 +1041,16 @@ want to build a trie for lists of \emph{anything}, something like this \cite{hin
 %format lookupList = "lookupList0"
 %endif
 \begin{code}
--- lookupList :: [k] -> ListMap k v -> Maybe v  \rae{The kinds don't work out there. What do we mean?}
+lookupList :: [k] -> ListMap k v -> Maybe v
 \end{code}
 %}
-But this obviously cannot work: we need some type-class constraint on the key |k|,
-saying that it can be used as the key of a trie.   That suggests
+\rae{The kinds don't work out there. What do we mean?} \simon{What do you mean the kids don't work out? We have not yet given a kind for |ListMap|.}
+But this obviously cannot work: we need some type-class constraint, |TrieKey k|, on the key |k|,
+saying that it can be used as the key of a trie, like this\footnote{
+  The alert reder may notice that |emptyTM :: TrieKey k => TrieMap k v| has an ambiguous type,
+  because |TrieMap| is a type-level function.  So to use |emptyTM| you must use \emph{visible type application},
+  to specify what the key type is, e.g. |emptyTM @Expr|.
+  }:
 %{
 %if style == newcode
 %format lookupList = "lookupList1"
@@ -1045,12 +1060,14 @@ lookupList :: TrieKey k => [k] -> TrieMap [k] v -> Maybe v
 
 class Eq k => TrieKey k where
   type TrieMap k :: Type -> Type
-  emptyTM  :: TrieMap k v    -- \rae{This type is ambiguous.}
+  emptyTM  :: TrieMap k v
   lookupTM :: k -> TrieMap k v -> Maybe v
   alterTM  :: k -> XT v -> TrieMap k v -> TrieMap k v
   foldTM   :: (v -> r -> r) -> r -> TrieMap k v -> r
 \end{code}
 %}
+\rae{The type of |emptyTM| is ambiguous.}\simon{True; we need VTA.  I think that's ok.  I am not sure whether or
+  not to draw attention to this, or if it is distracting.  I've tries with a footnote. See if you like it.}
 The class constraint |TrieKey k| says that the type |k|
 can be used as the key of a triemap.
 The class has an \emph{associated type}, |TrieMap k|,
@@ -1064,6 +1081,7 @@ used as the key of a triemap, like this:
 %format dots = "alterTM = undefined; foldTM = undefined"
 %endif
 \rae{Are there definitions for |alterTM| and |foldTM| for this, if we wanted them?}
+\simon{Yes, in GHC's code base. But we need an Appendix that sets it all out.}
 \begin{code}
 instance TrieKey ExprS where
   type TrieMap ExprS = SEMap ExprSMap ExprS
