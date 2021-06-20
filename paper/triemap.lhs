@@ -1044,35 +1044,32 @@ want to build a trie for lists of \emph{anything}, something like this \cite{hin
 lookupList :: [k] -> ListMap k v -> Maybe v
 \end{code}
 %}
-\rae{The kinds don't work out there. What do we mean?} \simon{What do you mean the kids don't work out? We have not yet given a kind for |ListMap|.}
-But this obviously cannot work: we need some type-class constraint, |TrieKey k|, on the key |k|,
-saying that it can be used as the key of a trie, like this\footnote{
-  The alert reder may notice that |emptyTM :: TrieKey k => TrieMap k v| has an ambiguous type,
-  because |TrieMap| is a type-level function.  So to use |emptyTM| you must use \emph{visible type application},
-  to specify what the key type is, e.g. |emptyTM @Expr|.
-  }:
+But this obviously cannot work, because it is too polymorphic:
+we need some type-class constraint on the key |k|,
+saying that it can be used as the key of a trie, like this:
 %{
 %if style == newcode
 %format lookupList = "lookupList1"
 %endif
 \begin{code}
 lookupList :: TrieKey k => [k] -> TrieMap [k] v -> Maybe v
-
-class Eq k => TrieKey k where
-  type TrieMap k :: Type -> Type
-  emptyTM  :: TrieMap k v
-  lookupTM :: k -> TrieMap k v -> Maybe v
-  alterTM  :: k -> XT v -> TrieMap k v -> TrieMap k v
-  foldTM   :: (v -> r -> r) -> r -> TrieMap k v -> r
+\end{code}
+However, in practice it turns out to work better to make the type class work over the
+\emph{triemap} rather than the \emph{key}:
+\begin{code}
+class TrieMap tm where
+   type TrieKey tm :: Type
+   emptyTM  :: tm a
+   lookupTM :: TrieKey tm -> tm a -> Maybe a
+   alterTM  :: TrieKey tm -> XT a -> tm a -> tm a
+   foldTM   :: (a -> b -> b) -> tm a -> b -> b
 \end{code}
 %}
-\rae{The type of |emptyTM| is ambiguous.}\simon{True; we need VTA.  I think that's ok.  I am not sure whether or
-  not to draw attention to this, or if it is distracting.  I've tries with a footnote. See if you like it.}
-The class constraint |TrieKey k| says that the type |k|
-can be used as the key of a triemap.
-The class has an \emph{associated type}, |TrieMap k|,
-a type-level function that transforms the type of the key into
-the type of a trie for that key.  Now we can witness the fact that |ExprS| can be
+The class constraint |TrieMap tm| says that the type |tm| is a triemap, with operations
+|emptyTM|, |lookupTM| etc.
+The class has an \emph{associated type}, |TrieKey tm|,
+a type-level function that transforms the type of the triemap into
+the type of \emph{keys} of that triemap.  Now we can witness the fact that |ExprS| can be
 used as the key of a triemap, like this:
 %{
 %if style == poly
@@ -1083,8 +1080,8 @@ used as the key of a triemap, like this:
 \rae{Are there definitions for |alterTM| and |foldTM| for this, if we wanted them?}
 \simon{Yes, in GHC's code base. But we need an Appendix that sets it all out.}
 \begin{code}
-instance TrieKey ExprS where
-  type TrieMap ExprS = SEMap ExprSMap ExprS
+instance TrieMap ExprSMap where
+  type TrieKey ExprSMap = ExprS
   emptyTM  = emptySEMap
   lookupTM = lkSEMap lookupExprS
   dots
@@ -1092,17 +1089,20 @@ instance TrieKey ExprS where
 
 All this puts us in a position to write the instance for lists:
 \begin{code}
-instance TrieKey k => TrieKey [k] where
-  type TrieMap [k] = SEMap (ListMap (TrieMap k)) [k]
-  emptyTM  = emptySEMap
-  lookupTM = undefined -- lkSEMap lookupList  \rae{There is a type error here. Fix.}
-  dots
+instance TrieMap tm => TrieMap (ListMap tm) where
+   type TrieKey (ListMap tm) = [TrieKey tm]
+   emptyTM  = emptyListMap
+   lookupTM = lookupListMap
+   ...
 
-data ListMap elt_m v = LM { lm_nil  :: Maybe v, lm_cons :: elt_m (ListMap elt_m  v) }
+data ListMap tm v = LM { lm_nil  :: Maybe v, lm_cons :: tm (ListMap tm  v) }
 
-lookupList :: TrieKey k => [k] -> TrieMap [k] v -> Maybe v
-lookupList []     = undefined  -- @lm_nil@  \rae{another type error}
-lookupList (x:xs) = undefined  -- @lm_cons |> lookupTM x >=> lookupList xs@  \rae{another type error}
+lookupList :: TrieMap tm => [TrieKey tm] -> ListMap tm v -> Maybe v
+lookupList _   EmptyLM = Nothing
+lookupList key (LM { .. })
+  = case key of
+      []     -> lm_nil
+      (k:ks) -> lm_cons |> lookupTM k >=> lookupList ks
 \end{code}
 %}
 The code for |alter| and |fold| is routine.
