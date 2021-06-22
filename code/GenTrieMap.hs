@@ -14,6 +14,8 @@ import Data.Maybe( isJust )
 import Text.PrettyPrint as PP
 import Debug.Trace
 import Data.Char
+import qualified Text.Read as Read
+import qualified Text.ParserCombinators.ReadP as ReadP
 
 {- *********************************************************************
 *                                                                      *
@@ -22,15 +24,15 @@ import Data.Char
 ********************************************************************* -}
 
 item1, item2, item3, item4 :: (String, [Var], Expr)
-item1 = ("item1", ["a"], read "a -> Int")
-item2 = ("item2", ["a"], read "a -> a")
-item3 = ("item3", [],    read "Int -> Int")
-item4 = ("item4", ["a", "b"], read "b -> a")
+item1 = ("item1", ["a"], read "a I")
+item2 = ("item2", ["a"], read "a a")
+item3 = ("item3", [],    read "I I")
+item4 = ("item4", ["a", "b"], read "b a")
 
 ty1, ty2, ty3 :: Expr
-ty1 = read "Int -> Int"
-ty2 = read "Char -> Char"
-ty3 = read "Char -> Int"
+ty1 = read "I I"
+ty2 = read "C C"
+ty3 = read "C I"
 
 -- ins :: MExprMap String -> (String, [Var], Expr) -> MExprMap String
 --ins m (s,tvs,ty) = insertMExprMap tvs ty s m
@@ -607,44 +609,54 @@ lookupMExprMap ty tm
 *                                                                      *
 ********************************************************************* -}
 
-piPrec :: Int
-piPrec = 1
+appPrec, lamPrec :: Read.Prec
+lamPrec = Read.minPrec
+appPrec = lamPrec+1
 
--- | Example output: @Bool -> (∀a. Int) -> (Int -> Int) -> ∀b. Char -> b@
+-- | Example output: @F (λa. G) (H I) (λb. J b)@
 instance Show Expr where
-  showsPrec _ (Var v)       = showString v
-  showsPrec _ (Lit tc)      = showString tc
-  showsPrec p (App arg res)   = showParen (p > piPrec) $
-    showsPrec (piPrec+1) arg . showString " -> " . showsPrec piPrec res
-  showsPrec p (Lam v body) = showParen (p > piPrec) $
-    showString "∀" . showString v . showString ". " . showsPrec piPrec body
+  showsPrec _ (Var v)      = showString v
+  showsPrec _ (Lit l)      = showString l
+  showsPrec p (App f arg)  = showParen (p > appPrec) $
+    showsPrec appPrec f . showString " " . showsPrec (appPrec+1) arg
+  showsPrec p (Lam b body) = showParen (p > lamPrec) $
+    showString "λ" . showString b . showString ". " . showsPrec lamPrec body
 
--- | This monster parses Exprs in the REPL etc. Accepts syntax like
--- @Bool -> (∀a. Int) -> (Int -> Int) -> ∀b. Char -> b@
+-- | The default 'ReadP.many1' function leads to ambiguity. What a terrible API.
+greedyMany, greedyMany1 :: ReadP.ReadP a -> ReadP.ReadP [a]
+greedyMany p  = greedyMany1 p ReadP.<++ pure []
+greedyMany1 p = (:) <$> p <*> greedyMany p
+
+-- | This monster parses Exprs in the REPL etc. It parses names that start
+-- with an upper-case letter as literals and lower-case names as variables.
 --
--- >>> read "Bool -> (∀a. Int) -> (Int -> Int) -> ∀b. Char -> b" :: Expr
--- Bool -> (∀a. Int) -> (Int -> Int) -> ∀b. Char -> b
+-- Accepts syntax like
+-- @F (λa. G) (H I) (λb. J b)@
+--
+-- >>> read "F (λa. G) (H I) (λb. J b)" :: Expr
+-- F (λa. G) (H I) (λb. J b)
 instance Read Expr where
-  readsPrec p s = readParen False (\s -> do
-                    (v@(_:_), r) <- lex s
-                    guard (all isAlphaNum v)
-                    pure $ if isLower (head v)
-                      then (Var v, r)
-                      else (Lit v, r)) s
-                  ++
-                  readParen (p > piPrec) (\s -> do
-                    (tok, r1) <- lex s
-                    case tok of
-                      [c] | c `elem` "∀@#%" -> do -- multiple short-hands for Lam
-                        (Var v, r2) <- readsPrec (piPrec+1) r1
-                        (".", r3) <- lex r2
-                        (body, r4) <- readsPrec piPrec r3
-                        pure (Lam v body, r4)
-                      _ -> do -- App
-                        (arg, r1) <- readsPrec (piPrec+1) s
-                        ("->", r2) <- lex r1
-                        (res, r3) <- readsPrec piPrec r2
-                        pure (App arg res, r3)) s
+  readPrec = Read.parens $ Read.choice
+    [ do
+        Read.Ident v <- Read.lexP
+        guard (all isAlphaNum v)
+        pure $ if isLower (head v)
+          then Var v
+          else Lit v
+    , Read.prec appPrec $ do
+        -- Urgh. Just ignore the code here as long as it works
+        let spaces1 = greedyMany1 (ReadP.satisfy isSpace)
+        (f:args) <- Read.readP_to_Prec $ \prec ->
+          ReadP.sepBy1 (Read.readPrec_to_P Read.readPrec (prec+1)) spaces1
+        guard $ not $ null args
+        pure (foldl' App f args)
+    , Read.prec lamPrec $ do
+        c <- Read.get
+        guard (c `elem` "λΛ@#%\\") -- multiple short-hands for Lam
+        Var v <- Read.readPrec
+        '.' <- Read.get
+        Lam v <$> Read.readPrec
+    ]
 
 class Pretty a where
   ppr :: a -> Doc
