@@ -316,9 +316,9 @@ instance Eq Expr where
 \newcommand{\rae}[1]{{\bf RAE}: {\color{dkblue} #1} {\bf End RAE}}
 \newcommand{\sg}[1]{{\bf SG}: {\color{darkbrown} #1} {\bf End SG}}
 
-\newcommand{\bv}[1]{\#_{#1}}    -- Lambda-bound variable occurrence
-\newcommand{\pv}[1]{\$_{#1}}    -- Pattern variable binder
-\newcommand{\pvo}[1]{\%_{#1}}   -- Pattern variable occurrence
+\newcommand{\bv}[1]{\#_{#1}}    % Lambda-bound variable occurrence
+\newcommand{\pv}[1]{\$_{#1}}    % Pattern variable binder
+\newcommand{\pvo}[1]{\%_{#1}}   % Pattern variable occurrence
 
 
 %% Title information
@@ -363,6 +363,14 @@ instance Eq Expr where
   \country{UK}
 }
 \email{rae@@richarde.dev}
+
+\author{Sebastian Graf}
+\affiliation{%
+  \institution{Karlsruhe Institute of Technology}
+  \city{Karlsruhe}
+  \country{Germany}
+}
+\email{sebastian.graf@@kit.edu}
 
 \author{Josef Sveningsson}
 
@@ -530,7 +538,7 @@ a new element to be inserted, the caller provides a
 \emph{transformation} |XT v|, an
 abbreviation for |Maybe v -> Maybe v| (see \Cref{fig:library}.  This function
 transforms the existing value associated with key, if any (hence the
-input |Maybe|), to a new value, if any (hence the output |Maybe|). 
+input |Maybe|), to a new value, if any (hence the output |Maybe|).
 These fundamental operations on a finite map must obey these properties:
 \begin{code}
 property propLookupEmpty (e)                       (lookup e empty             ^^^^)  (Nothing)

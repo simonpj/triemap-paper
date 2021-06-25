@@ -1,4 +1,4 @@
-module Arbitrary (Env, genEnv, boundVars, genOpenType, genClosedType, printSample) where
+module Arbitrary where
 
 import GenTrieMap
 
@@ -8,6 +8,7 @@ import Text.Show
 import Control.Arrow
 import Control.Monad.Trans.Reader
 import Control.Monad.Trans.Class
+import Debug.Trace
 
 import qualified Test.QuickCheck as QC
 
@@ -16,12 +17,12 @@ newtype Env = Env { nextFree :: Int }
 instance Show Env where
   showsPrec _ = showListWith showString . boundVars
 
-idx2TyVar :: Int -> TyVar
-idx2TyVar n | n <= 26   = [chr (ord 'a' + n)]
+idx2Var :: Int -> Var
+idx2Var n | n <= 26   = [chr (ord 'a' + n)]
             | otherwise = "t" ++ show n
 
-boundVars :: Env -> [TyVar]
-boundVars (Env n) = map idx2TyVar [0..n-1]
+boundVars :: Env -> [Var]
+boundVars (Env n) = map idx2Var [0..n-1]
 
 mkEnvWithNVars :: Int -> Env
 mkEnvWithNVars = Env
@@ -32,36 +33,70 @@ emptyEnv = mkEnvWithNVars 0
 genEnv :: QC.Gen Env
 genEnv = QC.sized $ \size -> QC.elements (map mkEnvWithNVars [0..size])
 
-genClosedType :: QC.Gen Type
-genClosedType = genOpenType emptyEnv
+newtype ClosedExpr = ClosedExpr Expr
+  deriving Show
 
-genOpenType :: Env -> QC.Gen Type
-genOpenType env = QC.sized $ \size ->
+closedToDBExpr :: ClosedExpr -> DeBruijn Expr
+closedToDBExpr (ClosedExpr e) = deBruijnize e
+
+instance Eq ClosedExpr where
+  ClosedExpr a == ClosedExpr b = deBruijnize a == deBruijnize b
+
+genClosedExpr :: QC.Gen ClosedExpr
+genClosedExpr = ClosedExpr <$> genOpenExpr emptyEnv
+
+genOpenExpr :: Env -> QC.Gen Expr
+genOpenExpr env = QC.sized $ \size ->
   QC.frequency $ concat
-    [ [ (1, genTyConTy env)     ]
-    , [ (2, genTyVarTy env)     | not $ null $ boundVars env ]
-    , [ (size, genFunTy env)    ]
-    , [ (size, genForAllTy env) ]
+    [ [ (1, genLit env)     ]
+    , [ (2, genVar env)     | not $ null $ boundVars env ]
+    , [ (size, genApp env)    ]
+    , [ (size, genLam env) ]
     ]
 
-genTyConTy, genTyVarTy, genFunTy, genForAllTy :: Env -> QC.Gen Type
-genTyConTy  _   = QC.elements (map TyConTy ["Int", "Bool", "Char", "Void", "String"])
-genTyVarTy  env = QC.elements (map TyVarTy (boundVars env))
-genFunTy    env = FunTy <$> QC.scale (subtract 1) (genOpenType env)
-                        <*> QC.scale (subtract 1) (genOpenType env)
-genForAllTy env = withBoundTyVar env $ \tv env' ->
-  ForAllTy tv <$> QC.scale (subtract 1) (genOpenType env')
+-- | This defn leads to good correlation between QC size and expr sizes
+appFactor :: Int -> Int
+appFactor n = n*16 `div` 31
 
-withBoundTyVar :: Env -> (TyVar -> Env -> QC.Gen a) -> QC.Gen a
-withBoundTyVar env f = QC.oneof $ fresh : [ shadowing | not $ null $ boundVars env ]
+genLit, genVar, genApp, genLam :: Env -> QC.Gen Expr
+genLit _   = QC.elements (map (Lit . (:[])) ['A'..'Z'])
+genVar env = QC.elements (map Var (boundVars env))
+genApp env = App <$> QC.scale appFactor (genOpenExpr env)
+                 <*> QC.scale appFactor (genOpenExpr env)
+genLam env = withBoundVar env $ \v env' ->
+  Lam v <$> QC.scale (subtract 1) (genOpenExpr env')
+
+withBoundVar :: Env -> (Var -> Env -> QC.Gen a) -> QC.Gen a
+withBoundVar env f = QC.oneof $ fresh : [ shadowing | not $ null $ boundVars env ]
   where
     fresh = do
-      let tv   = idx2TyVar (nextFree env)
+      let tv   = idx2Var (nextFree env)
           env' = env { nextFree = nextFree env + 1 }
       f tv env'
     shadowing = do
       tv <- QC.elements (boundVars env)
       f tv env
 
+isqrt :: Int -> Int
+isqrt = floor . sqrt . fromIntegral
+
+genExprMap :: QC.Gen (ExprMap Int)
+genExprMap = do
+  sz <- QC.getSize
+  traceM (show sz)
+  QC.resize (isqrt sz) $ foldr (\(v,k) m -> insertTM (closedToDBExpr k) v m) emptyExprMap . zip [0..] <$> QC.vectorOf (isqrt sz) genClosedExpr
+
+exprDepth :: Expr -> Int
+exprDepth (Lit _) = 0
+exprDepth (Var _) = 0
+exprDepth (App f a) = 1 + max (exprDepth f) (exprDepth a)
+exprDepth (Lam _ e) = 1 + exprDepth e
+
+exprSize :: Expr -> Int
+exprSize (Lit _) = 1
+exprSize (Var _) = 1
+exprSize (App f a) = 1 + exprSize f + exprSize a
+exprSize (Lam _ e) = 1 + exprSize e
+
 -- Just for prototyping
-printSample = QC.sample genClosedType
+printSample = QC.sample genClosedExpr

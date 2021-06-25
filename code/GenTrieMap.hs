@@ -139,6 +139,9 @@ eqDBExpr (D env1 (Lam tv1 t1)) (D env2 (Lam tv2 t2))
 
 eqDBExpr _ _ = False
 
+instance Show (DeBruijn Expr) where
+  show (D _ e) = show e
+
 
 {- *********************************************************************
 *                                                                      *
@@ -261,6 +264,9 @@ class Eq (TrieKey tm) => TrieMap tm where
 --   filterTM :: (a -> Bool) -> tm a -> tm a
 --   unionTM  ::  tm a -> tm a -> tm a
 
+insertTM :: TrieMap tm => TrieKey tm -> v -> tm v -> tm v
+insertTM k v = alterTM k (const $ Just v)
+
 type XT v = Maybe v -> Maybe v  -- How to alter a non-existent elt (Nothing)
                                 --               or an existing elt (Just)
 
@@ -290,7 +296,6 @@ deMaybe (Just m) = m
 foldMaybe :: (v -> a -> a) -> Maybe v -> a -> a
 foldMaybe f Nothing  z = z
 foldMaybe f (Just v) z = f v z
-
 
 {- *********************************************************************
 *                                                                      *

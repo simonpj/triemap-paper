@@ -11,10 +11,35 @@ import System.Exit
 
 import Test.QuickCheck
 
-insertUC :: forall a. (Env, Type, a) -> TypeMap a -> TypeMap a
-insertUC (env, ty, a) = insertTypeMap (boundVars env) ty a
+-- Properties for non-matching ExprMap
 
-applyMatches :: Eq a => [ ([(TmplVar,Type)], a) ] -> [(Env, Type, a)] -> [Type]
+prop_ExprMap_empty =
+  forAll genClosedExpr $ \e ->
+    isNothing $ lookupTM (closedToDBExpr e) (emptyExprMap :: ExprMap Int)
+
+prop_ExprMap_alter_hit =
+  forAll genClosedExpr $ \e ->
+  forAll genExprMap $ \m -> do
+    let xt = fmap (+1)
+    let de = closedToDBExpr e
+    lookupTM de (alterTM de xt m) == xt (lookupTM de m)
+
+prop_ExprMap_alter_nonhit =
+  forAll genClosedExpr $ \e1 ->
+  forAll (genClosedExpr `suchThat` (/= e1)) $ \e2 ->
+  forAll genExprMap $ \m -> do
+    let xt = fmap (+1)
+    let de1 = closedToDBExpr e1
+    let de2 = closedToDBExpr e2
+    lookupTM de1 (alterTM de2 xt m) == xt (lookupTM de1 m)
+
+{-
+Commented out until we can do matching again
+
+insertUC :: forall a. (Env, Expr, a) -> ExprMap a -> ExprMap a
+insertUC (env, ty, a) = insertMExprMap (boundVars env) ty a
+
+applyMatches :: Eq a => [ ([(PatVar,Expr)], a) ] -> [(Env, Expr, a)] -> [Expr]
 applyMatches matches inputs = [ applySubst subst ty | (subst, a)  <- matches, (env, ty, b) <- inputs, a == b ]
 
 -- This property ensures that if we get any matches, that they substitute to the actual type that
@@ -22,20 +47,20 @@ applyMatches matches inputs = [ applySubst subst ty | (subst, a)  <- matches, (e
 -- This property can be trivially fulfilled by not returning any matches.
 prop_match
   = forAll genInputs $ \inputs ->
-    forAll genClosedType $ \ty ->
+    forAll genClosedExpr $ \ty ->
     distinctValues inputs ==>
-    let trie = foldr insertUC emptyTypeMap inputs
-        matches = lookupTypeMap ty trie
+    let trie = foldr insertUC emptyExprMap inputs
+        matches = lookupTM ty trie
     in counterexample (show trie) $
-       all (ty `alphaEq`) (applyMatches matches inputs)
+       all (ty `eqDBExpr`) (applyMatches matches inputs)
 
 
 -- This property ensures that we actually can find things in the trie
 prop_find =
-  forAll genClosedType $ \ty ->
+  forAll genClosedExpr $ \ty ->
   forAll (generalization ty) $ \(tvs, typ) ->
-  let [(subst, ())] = lookupTypeMap ty (insertTypeMap tvs typ () emptyTypeMap)
-  in ty `alphaEq` applySubst subst typ
+  let [(subst, ())] = lookupTM ty (insertTM tvs typ () emptyTM)
+  in ty `eqDBExpr` applySubst subst typ
 
 
 --distinctValues :: Eq a => [(x,y,a)] -> Bool
@@ -46,26 +71,24 @@ distinctValues ((_,_,a):xs) = notIn a xs && distinctValues xs
   where
     notIn a [] = True
     notIn a ((_,_,b):xs) = a /= b && notIn a xs
+-}
 
-alphaEq :: Type -> Type -> Bool
-alphaEq ty1 ty2 = eqDeBT (deBruijnize ty1) (deBruijnize ty2)
-
-applySubst :: [(TmplVar, Type)] -> Type -> Type
-applySubst subst ty@TyConTy{}    = ty
-applySubst subst ty@(TyVarTy tv) = fromMaybe ty $ lookup tv subst
-applySubst subst (FunTy arg res) = FunTy (applySubst subst arg) (applySubst subst res)
-applySubst subst (ForAllTy tv body) = ForAllTy tv (applySubst (del tv subst) body)
+applySubst :: [(PatVar, Expr)] -> Expr -> Expr
+applySubst subst e@Lit{}   = e
+applySubst subst e@(Var v) = fromMaybe e $ lookup v subst
+applySubst subst (App arg res) = App (applySubst subst arg) (applySubst subst res)
+applySubst subst (Lam v body) = Lam v (applySubst (del v subst) body)
   where
     del k' = filter (\(k,_v) -> k /= k')
 
-genInputs :: Gen [(Env, Type, Int)]
+genInputs :: Gen [(Env, Expr, Int)]
 genInputs = listOf $ do
   env <- genEnv
-  ty <- genOpenType env
+  ty <- genOpenExpr env
   val <- arbitrary
   pure (env, ty, val)
 
-generalization :: Type -> Gen ([TyVar], Type)
+generalization :: Expr -> Gen ([Var], Expr)
 generalization = undefined
 
 return []
