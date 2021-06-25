@@ -19,7 +19,7 @@ prop_ExprMap_empty =
 
 prop_ExprMap_alter_hit =
   forAll genClosedExpr $ \e ->
-  forAll genExprMap $ \m -> do
+  forAll genClosedExprMap $ \m -> do
     let xt = fmap (+1)
     let de = closedToDBExpr e
     lookupTM de (alterTM de xt m) == xt (lookupTM de m)
@@ -27,7 +27,7 @@ prop_ExprMap_alter_hit =
 prop_ExprMap_alter_nonhit =
   forAll genClosedExpr $ \e1 ->
   forAll (genClosedExpr `suchThat` (/= e1)) $ \e2 ->
-  forAll genExprMap $ \m -> do
+  forAll genClosedExprMap $ \m -> do
     let xt = fmap (+1)
     let de1 = closedToDBExpr e1
     let de2 = closedToDBExpr e2
