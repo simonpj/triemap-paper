@@ -102,8 +102,8 @@ main = defaultMain
     lookup_all = bgroup "lookup_all" $ flip map [100, 300, 500, 1000] $ \n ->
       env (pure (runGenDet n $ vectorOf n genClosedExpr)) $ \exprs ->
       env (pure ((mapFromList $ zip exprs [0..]) :: m)) $ \(em :: m) ->
-      -- bench (show n) $ nf (map (`lookupMap` em)) exprs
-      bench (show n) $ nf (`lookupMap` em) (head exprs)
+      bench (show n) $ nf (map (`lookupMap` em)) exprs
+      -- bench (show n) $ nf (`lookupMap` em) (head exprs)
 
 m :: MapAPI m => Int -> m
 m n = mapFromList $ zip (runGenDet n $ vectorOf n genClosedExpr) [0..]
