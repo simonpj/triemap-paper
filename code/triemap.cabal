@@ -47,6 +47,8 @@ benchmark gauge
   build-depends:       triemap
                      , base >=4 && <5
                      , containers >=0.6 && <0.7
+                     , hashable
+                     , unordered-containers
                      , transformers
                      , QuickCheck
                      , deepseq

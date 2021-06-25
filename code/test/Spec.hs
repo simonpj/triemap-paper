@@ -1,8 +1,6 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TemplateHaskell #-}
 
--- module Spec where -- because it's also our main file
-
 import GenTrieMap
 import Arbitrary
 
@@ -15,22 +13,22 @@ import Test.QuickCheck
 
 prop_ExprMap_empty =
   forAll genClosedExpr $ \e ->
-    isNothing $ lookupTM (closedToDBExpr e) (emptyExprMap :: ExprMap Int)
+    isNothing $ lookupTM (deBruijnize e) (emptyExprMap :: ExprMap Int)
 
 prop_ExprMap_alter_hit =
   forAll genClosedExpr $ \e ->
   forAll genClosedExprMap $ \m -> do
     let xt = fmap (+1)
-    let de = closedToDBExpr e
+    let de = deBruijnize e
     lookupTM de (alterTM de xt m) == xt (lookupTM de m)
 
-prop_ExprMap_alter_nonhit =
+prop_ExprMap_alter_miss =
   forAll genClosedExpr $ \e1 ->
   forAll (genClosedExpr `suchThat` (/= e1)) $ \e2 ->
   forAll genClosedExprMap $ \m -> do
     let xt = fmap (+1)
-    let de1 = closedToDBExpr e1
-    let de2 = closedToDBExpr e2
+    let de1 = deBruijnize e1
+    let de2 = deBruijnize e2
     lookupTM de1 (alterTM de2 xt m) == xt (lookupTM de1 m)
 
 {-

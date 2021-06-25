@@ -142,6 +142,41 @@ eqDBExpr _ _ = False
 instance Show (DeBruijn Expr) where
   show (D _ e) = show e
 
+--
+-- Ord Expr instance for benchmarks:
+--
+
+instance Eq Expr where
+  a == b = deBruijnize a == deBruijnize b
+
+exprTag :: Expr -> Int
+exprTag Var{} = 0
+exprTag App{} = 1
+exprTag Lam{} = 2
+exprTag Lit{} = 3
+{-# INLINE exprTag #-}
+
+cmpDBExpr :: DeBruijn Expr -> DeBruijn Expr -> Ordering
+cmpDBExpr (D _ (Lit l1))       (D _ (Lit l2))
+  = compare l1 l2
+
+cmpDBExpr (D env1 (App f1 a1)) (D env2 (App f2 a2))
+  = cmpDBExpr (D env1 f1) (D env2 f2) Prelude.<> cmpDBExpr (D env1 a1) (D env2 a2)
+
+cmpDBExpr (D env1 (Lam v1 e1)) (D env2 (Lam v2 e2))
+  = cmpDBExpr (D (extendDBE v1 env1) e1) (D (extendDBE v2 env2) e2)
+
+cmpDBExpr (D env1 (Var v1))    (D env2 (Var v2))
+  = case (lookupDBE v1 env1, lookupDBE v2 env2) of
+      (Just bvi1, Just bvi2) -> compare bvi1 bvi2
+      (Nothing,   Nothing)   -> compare v1 v2
+      (Just _,    Nothing)   -> GT
+      (Nothing,   Just _)    -> LT
+cmpDBExpr (D _ e1) (D _ e2)
+  = compare (exprTag e1) (exprTag e2)
+
+instance Ord Expr where
+  compare a b = cmpDBExpr (deBruijnize a) (deBruijnize b)
 
 {- *********************************************************************
 *                                                                      *

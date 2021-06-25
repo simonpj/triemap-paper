@@ -33,17 +33,8 @@ emptyEnv = mkEnvWithNVars 0
 genEnv :: QC.Gen Env
 genEnv = QC.sized $ \size -> QC.elements (map mkEnvWithNVars [0..size])
 
-newtype ClosedExpr = ClosedExpr { getClosedExpr :: Expr }
-  deriving Show
-
-closedToDBExpr :: ClosedExpr -> DeBruijn Expr
-closedToDBExpr (ClosedExpr e) = deBruijnize e
-
-instance Eq ClosedExpr where
-  ClosedExpr a == ClosedExpr b = deBruijnize a == deBruijnize b
-
-genClosedExpr :: QC.Gen ClosedExpr
-genClosedExpr = ClosedExpr <$> genOpenExpr emptyEnv
+genClosedExpr :: QC.Gen Expr
+genClosedExpr = genOpenExpr emptyEnv
 
 genOpenExpr :: Env -> QC.Gen Expr
 genOpenExpr env = QC.sized $ \size ->
@@ -80,14 +71,14 @@ withBoundVar env f = QC.oneof $ fresh : [ shadowing | not $ null $ boundVars env
 isqrt :: Int -> Int
 isqrt = floor . sqrt . fromIntegral
 
-mkClosedExprMap :: [ClosedExpr] -> ExprMap Int
-mkClosedExprMap = foldr (\(v, k) -> insertTM (closedToDBExpr k) v) emptyExprMap . zip [0..]
+mkExprMap :: [Expr] -> ExprMap Int
+mkExprMap = foldr (\(v, k) -> insertTM (deBruijnize k) v) emptyExprMap . zip [0..]
 
 genClosedExprMap :: QC.Gen (ExprMap Int)
 genClosedExprMap = do
   sz <- QC.getSize
   traceM (show sz)
-  QC.resize (isqrt sz) $ mkClosedExprMap <$> QC.vectorOf (isqrt sz) genClosedExpr
+  QC.resize (isqrt sz) $ mkExprMap <$> QC.vectorOf (isqrt sz) genClosedExpr
 
 exprDepth :: Expr -> Int
 exprDepth (Lit _) = 0

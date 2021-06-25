@@ -4,29 +4,36 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE RankNTypes #-}
 
 import GenTrieMap
 import Arbitrary
+
 import Test.QuickCheck.Gen
 import Test.QuickCheck.Random
 import Control.DeepSeq
 import Gauge
+
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 
+import Data.Hashable
+import Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as HashMap
 
---
--- NFData orphans
---
+
+{- *********************************************************************
+*                                                                      *
+               NFData orphans
+*                                                                      *
+********************************************************************* -}
+
 
 instance NFData Expr where
   rnf (Lit l) = rnf l
   rnf (Var v) = rnf v
   rnf (App f a) = rnf f `seq` rnf a
   rnf (Lam v e) = rnf v `seq` rnf e
-
-instance NFData ClosedExpr where
-  rnf (ClosedExpr e) = rnf e
 
 instance NFData a => NFData (DeBruijn a) where
   rnf (D env a) = rnf env `seq` rnf a
@@ -42,30 +49,30 @@ instance (TrieMap tm, NFData (TrieKey tm), NFData (tm v), NFData v) => NFData (S
 instance NFData v => NFData (ExprMap' v) where
   rnf em = rnf [rnf (em_bvar em), rnf (em_fvar em), rnf (em_app em), rnf (em_lit em), rnf (em_lam em) ]
 
---
--- Ord orphans
---
 
-exprTag :: Expr -> Int
-exprTag Var{} = 0
-exprTag App{} = 1
-exprTag Lam{} = 2
-exprTag Lit{} = 3
-{-# INLINE exprTag #-}
+{- *********************************************************************
+*                                                                      *
+               Hashable orophan
+*                                                                      *
+********************************************************************* -}
 
--- | Yuck
-instance Ord ClosedExpr where
-  compare (ClosedExpr a) (ClosedExpr b) = go (deBruijnize a) (deBruijnize b)
+
+instance Hashable Expr where
+  hashWithSalt salt e = go salt (deBruijnize e)
     where
-      go (D _ (Lit l1))       (D _ (Lit l2))       = compare l1 l2
-      go (D env1 (App f1 a1)) (D env2 (App f2 a2)) = go (D env1 f1) (D env2 f2) <> go (D env1 a1) (D env2 a2)
-      go (D env1 (Lam v1 e1)) (D env2 (Lam v2 e2)) = go (D (extendDBE v1 env1) e1) (D (extendDBE v2 env2) e2)
-      go (D env1 (Var v1))    (D env2 (Var v2))    = case (lookupDBE v1 env1, lookupDBE v2 env2) of
-        (Just bvi1, Just bvi2) -> compare bvi1 bvi2
-        (Nothing,   Nothing)   -> compare v1 v2
-        (Just _,    Nothing)   -> GT
-        (Nothing,   Just _)    -> LT
-      go (D _ e1) (D _ e2) = compare (exprTag e1) (exprTag e2)
+      go salt (D _ (Lit l))     = salt `hashWithSalt` (0::Int) `hashWithSalt` l
+      go salt (D env (App f a)) = salt `hashWithSalt` (1::Int) `go` D env f `go` D env a
+      go salt (D env (Lam v e)) = salt `hashWithSalt` (2::Int) `go` D (extendDBE v env) e
+      go salt (D env (Var v))   = salt `hashWithSalt` case lookupDBE v env of
+        Nothing -> (3::Int) `hashWithSalt` v
+        Just bv -> (4::Int) `hashWithSalt` bv
+
+{- *********************************************************************
+*                                                                      *
+               Map API
+*                                                                      *
+********************************************************************* -}
+
 
 -- | Run the given 'Gen' starting from a deterministic, fixed seed and the given size parameter.
 runGenDet :: Int -> Gen a -> a
@@ -73,37 +80,64 @@ runGenDet size gen = unGen gen (mkQCGen 42) size
 
 class NFData m => MapAPI m where
   emptyMap :: m
-  lookupMap :: ClosedExpr -> m -> Maybe Int
-  insertMap :: ClosedExpr -> Int -> m -> m
+  lookupMap :: Expr -> m -> Maybe Int
+  insertMap :: Expr -> Int -> m -> m
 
 instance MapAPI (ExprMap Int) where
   emptyMap = emptyExprMap
-  lookupMap e = lookupTM (closedToDBExpr e)
-  insertMap e = insertTM (closedToDBExpr e)
+  lookupMap e = lookupTM (deBruijnize e)
+  insertMap e = insertTM (deBruijnize e)
 
-instance MapAPI (Map ClosedExpr Int) where
+instance MapAPI (Map Expr Int) where
   emptyMap = Map.empty
   lookupMap = Map.lookup
   insertMap = Map.insert
 
-mapFromList :: MapAPI m => [(ClosedExpr, Int)] -> m
+instance MapAPI (HashMap Expr Int) where
+  emptyMap = HashMap.empty
+  lookupMap = HashMap.lookup
+  insertMap = HashMap.insert
+
+mapFromList :: MapAPI m => [(Expr, Int)] -> m
 mapFromList = foldr (uncurry insertMap) emptyMap
 
+
+{- *********************************************************************
+*                                                                      *
+               Benchmarks
+*                                                                      *
+********************************************************************* -}
+
+sizes :: [Int]
+sizes = [100, 500, 1000]
+
 main = defaultMain
-  [ bgroup "ExprMap"
-     [ lookup_all @(ExprMap Int)
-     ]
-  , bgroup "Map"
-     [ lookup_all @(Map ClosedExpr Int)
-     ]
+  [ lookup_all
+  , lookup_one
   ]
   where
-    lookup_all :: forall m. MapAPI m => Benchmark
-    lookup_all = bgroup "lookup_all" $ flip map [100, 300, 500, 1000] $ \n ->
+    with_map_of_exprs :: forall m. MapAPI m => Int -> ([Expr] -> m -> Benchmark) -> Benchmark
+    with_map_of_exprs n k =
       env (pure (runGenDet n $ vectorOf n genClosedExpr)) $ \exprs ->
       env (pure ((mapFromList $ zip exprs [0..]) :: m)) $ \(em :: m) ->
-      bench (show n) $ nf (map (`lookupMap` em)) exprs
-      -- bench (show n) $ nf (`lookupMap` em) (head exprs)
+      k exprs em
+
+    bench_all_variants :: String -> [Int] -> (forall m. MapAPI m => m -> Int -> Benchmark) -> Benchmark
+    bench_all_variants name sizes f = bgroup name $ flip map sizes $ \n -> bgroup (show n)
+      [ bgroup "ExprMap" [f (emptyMap :: ExprMap Int)      n]
+      , bgroup "Map"     [f (emptyMap :: Map Expr Int)     n]
+      , bgroup "HashMap" [f (emptyMap :: HashMap Expr Int) n]
+      ]
+
+    lookup_all :: Benchmark
+    lookup_all = bench_all_variants "lookup_all" sizes $ \(_ :: m) n ->
+      with_map_of_exprs @m n $ \exprs expr_map ->
+      bench "" $ nf (map (`lookupMap` expr_map)) exprs
+
+    lookup_one :: Benchmark
+    lookup_one = bench_all_variants "lookup_one" sizes $ \(_ :: m) n ->
+      with_map_of_exprs @m n $ \exprs expr_map ->
+      bench "" $ nf (`lookupMap` expr_map) (head exprs) -- exprs is random, so head is as good as any
 
 m :: MapAPI m => Int -> m
 m n = mapFromList $ zip (runGenDet n $ vectorOf n genClosedExpr) [0..]
