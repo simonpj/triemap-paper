@@ -46,8 +46,11 @@ instance (TrieMap tm, NFData (TrieKey tm), NFData (tm v), NFData v) => NFData (S
   rnf (SingleSEM k v) = rnf k `seq` rnf v
   rnf (MultiSEM tm) = rnf tm
 
+instance (NFData (tm (ListMap tm v)), NFData v) => NFData (ListMap' tm v) where
+  rnf lm = rnf [rnf (lm_nil lm), rnf (lm_cons lm)]
+
 instance NFData v => NFData (ExprMap' v) where
-  rnf em = rnf [rnf (em_bvar em), rnf (em_fvar em), rnf (em_app em), rnf (em_lit em), rnf (em_lam em) ]
+  rnf em = rnf [rnf (em_bvar em), rnf (em_fvar em), rnf (em_lit em), rnf (em_lam em) ]
 
 
 {- *********************************************************************
@@ -112,15 +115,18 @@ sizes :: [Int]
 sizes = [100, 500, 1000]
 
 main = defaultMain
-  [ lookup_all
+  [ bgroup "filler, so that the first line begins with a leading comma" []
+  , lookup_all_w_prefix
+  , insert_lookup_one
+  , lookup_all
   , lookup_one
   ]
   where
     with_map_of_exprs :: forall m. MapAPI m => Int -> ([Expr] -> m -> Benchmark) -> Benchmark
     with_map_of_exprs n k =
       env (pure (runGenDet n $ vectorOf n genClosedExpr)) $ \exprs ->
-      env (pure ((mapFromList $ zip exprs [0..]) :: m)) $ \(em :: m) ->
-      k exprs em
+      env (pure ((mapFromList $ zip exprs [0..]) :: m)) $ \(expr_map :: m) ->
+      k exprs expr_map
 
     bench_all_variants :: String -> [Int] -> (forall m. MapAPI m => m -> Int -> Benchmark) -> Benchmark
     bench_all_variants name sizes f = bgroup name $ flip map sizes $ \n -> bgroup (show n)
@@ -138,6 +144,18 @@ main = defaultMain
     lookup_one = bench_all_variants "lookup_one" sizes $ \(_ :: m) n ->
       with_map_of_exprs @m n $ \exprs expr_map ->
       bench "" $ nf (`lookupMap` expr_map) (head exprs) -- exprs is random, so head is as good as any
+
+    insert_lookup_one :: Benchmark
+    insert_lookup_one = bench_all_variants "insert_lookup_one" sizes $ \(_ :: m) n ->
+      with_map_of_exprs @m n $ \_exprs expr_map ->
+      env (pure (runGenDet (2*n) genClosedExpr)) $ \e ->
+      bench "" $ nf (\e' -> lookupMap e' (insertMap e' (n+1) expr_map)) e
+
+    lookup_all_w_prefix :: Benchmark
+    lookup_all_w_prefix = bench_all_variants "lookup_all_w_prefix" sizes $ \(_ :: m) n ->
+      env (pure (map (\e -> iterate (Lam "$") e !! n) $ runGenDet n $ vectorOf n genClosedExpr)) $ \exprs ->
+      env (pure ((mapFromList $ zip exprs [0..]) :: m)) $ \(expr_map :: m) ->
+      bench "" $ nf (map (`lookupMap` expr_map)) exprs
 
 m :: MapAPI m => Int -> m
 m n = mapFromList $ zip (runGenDet n $ vectorOf n genClosedExpr) [0..]

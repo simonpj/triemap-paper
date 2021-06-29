@@ -338,36 +338,39 @@ foldMaybe f (Just v) z = f v z
 *                                                                      *
 ********************************************************************* -}
 
-data ListMap tm a
-  = EmptyLM
-  | LM { lm_nil  :: Maybe a
+type ListMap tm = SEMap (ListMap' tm)
+
+data ListMap' tm a
+  = LM { lm_nil  :: Maybe a
        , lm_cons :: tm (ListMap tm a) }
 
-instance TrieMap tm => TrieMap (ListMap tm) where
-   type TrieKey (ListMap tm) = [TrieKey tm]
+deriving instance (Show (tm (ListMap tm v)), Show v)
+               => Show (ListMap' tm v)
+
+instance TrieMap tm => TrieMap (ListMap' tm) where
+   type TrieKey (ListMap' tm) = [TrieKey tm]
    emptyTM  = emptyList
    lookupTM = lookupList
    alterTM  = alterList
    foldTM   = foldList
 
-emptyList :: ListMap m a
-emptyList = EmptyLM
+emptyList :: TrieMap tm => ListMap' tm a
+emptyList = LM { lm_nil = Nothing, lm_cons = emptyTM }
 
-lookupList :: TrieMap tm => [TrieKey tm] -> ListMap tm v -> Maybe v
-lookupList _   EmptyLM = Nothing
+lookupList :: TrieMap tm => [TrieKey tm] -> ListMap' tm v -> Maybe v
 lookupList key (LM {..})
   = case key of
       []     -> lm_nil
       (k:ks) -> lm_cons |> lookupTM k >=> lookupTM ks
 
-alterList :: TrieMap tm => [TrieKey tm] -> XT v -> ListMap tm v -> ListMap tm v
+alterList :: TrieMap tm => [TrieKey tm] -> XT v -> ListMap' tm v -> ListMap' tm v
 alterList ks xt tm@(LM {..})
   = case ks of
       []      -> tm { lm_nil  = lm_nil |> xt }
       (k:ks') -> tm { lm_cons = lm_cons |> alterTM k |>> alterTM ks' xt }
 
-foldList :: TrieMap tm => (v -> a -> a) -> ListMap tm v -> a -> a
-foldList f (LM {..}) = foldMaybe f lm_nil . foldTM (foldList f) lm_cons
+foldList :: TrieMap tm => (v -> a -> a) -> ListMap' tm v -> a -> a
+foldList f (LM {..}) = foldMaybe f lm_nil . foldTM (foldSEM f) lm_cons
 
 
 {- *********************************************************************
@@ -439,12 +442,11 @@ foldSEM f (MultiSEM tm)   z = foldTM f tm z
 type ExprMap = SEMap ExprMap'
 
 data ExprMap' a
-  = EM { em_bvar :: BoundVarMap a    -- Occurrence of a forall-bound tyvar
-       , em_fvar :: FreeVarMap a     -- Occurrence of a completely free tyvar
+  = EM { em_bvar :: BoundVarMap (ListMap ExprMap a)    -- Occurrence of a forall-bound tyvar
+       , em_fvar :: FreeVarMap (ListMap ExprMap a)     -- Occurrence of a completely free tyvar
 
-       , em_app  :: ExprMap (ExprMap a)
-       , em_lit  :: Map.Map Lit a
-       , em_lam  :: ExprMap a
+       , em_lit  :: Map.Map Lit (ListMap ExprMap a)
+       , em_lam  :: ExprMap (ListMap ExprMap a)
        }
 
 deriving instance (Show (TrieKey ExprMap'), Show v)
@@ -464,39 +466,53 @@ mkEmptyExprMap :: ExprMap' a
 mkEmptyExprMap
   = EM { em_fvar = emptyFVM
        , em_bvar = emptyBVM
-       , em_app  = emptyExprMap
        , em_lit  = Map.empty
        , em_lam  = emptyExprMap }
 
+collectArgs :: Expr -> (Expr, [Expr])
+collectArgs e = go [] e
+  where
+    go args (App fn arg) = go (arg:args) fn
+    go args e            = (e, args)
+
 lookupExpr :: DeBruijn Expr -> ExprMap' v -> Maybe v
 lookupExpr (D bv_env e) (EM { .. })
-  = case e of
+  = case hd of
       Var x     -> case lookupDBE x bv_env of
-                     Just bv -> em_bvar |> lookupBVM bv
-                     Nothing -> em_fvar |> Map.lookup x
-      App e1 e2 -> em_app |>  lookupTM (D bv_env e1)
-                          >=> lookupTM (D bv_env e2)
-      Lit lit   -> em_lit |> Map.lookup lit
-      Lam x e   -> em_lam |> lookupTM (D (extendDBE x bv_env) e)
+                     Just bv -> em_bvar |> lookupBVM bv >=> lk_args
+                     Nothing -> em_fvar |> Map.lookup x >=> lk_args
+      Lit lit   -> em_lit |> Map.lookup lit >=> lk_args
+      Lam x e   -> em_lam |> lookupTM (D (extendDBE x bv_env) e) >=> lk_args
+      App _ _   -> error "App in collectArgs's Head"
+  where
+    (hd, args) = collectArgs e
+    lk_args :: ListMap ExprMap v -> Maybe v
+    lk_args = lookupSEM (map (D bv_env) args)
 
 alterExpr :: DeBruijn Expr -> XT v -> ExprMap' v -> ExprMap' v
 alterExpr (D bv_env e) xt m@(EM {..})
-  = case e of
+  = case hd of
       Var x -> case lookupDBE x bv_env of
-                  Just bv -> m { em_bvar = alterBoundVarOcc bv xt em_bvar }
-                  Nothing -> m { em_fvar = alterFreeVarOcc  x  xt em_fvar }
+                  Just bv -> m { em_bvar = alterBoundVarOcc bv xt_args em_bvar }
+                  Nothing -> m { em_fvar = alterFreeVarOcc  x  xt_args em_fvar }
 
-      Lit lit   -> m { em_lit = em_lit |> Map.alter xt lit }
-      App e1 e2 -> m { em_app = em_app |> alterTM (D bv_env e1) |>> alterTM (D bv_env e2) xt }
-      Lam x e   -> m { em_lam = em_lam |> alterTM (D (extendDBE x bv_env) e) xt }
+      Lit lit   -> m { em_lit = em_lit |> Map.alter xt_args lit }
+      Lam x e   -> m { em_lam = em_lam |> alterTM (D (extendDBE x bv_env) e) xt_args }
+      App _ _ -> error "App in collectArgs's Head"
+  where
+    (hd, args) = collectArgs e
+    -- xt_args :: XT (ListMap ExprMap v) -- with ScopedTypeVariables
+    xt_args Nothing   = nothing_if_empty $ alterSEM (map (D bv_env) args) xt emptyTM
+    xt_args (Just lm) = nothing_if_empty $ alterSEM (map (D bv_env) args) xt lm
+    nothing_if_empty EmptySEM = Nothing
+    nothing_if_empty lm       = Just lm
 
 foldExpr :: (v -> a -> a) -> ExprMap' v -> a -> a
 foldExpr f (EM {..})
-  = foldBVM f em_bvar .
-    foldFVM f em_fvar .
-    foldTM (foldTM f) em_app .
-    (\z -> foldr f z em_lit) .
-    foldTM f em_lam
+  = foldBVM (foldSEM f) em_bvar .
+    foldFVM (foldSEM f) em_fvar .
+    (\z -> foldr (foldSEM f) z em_lit) .
+    foldTM (foldSEM f) em_lam
 
 {- *********************************************************************
 *                                                                      *
@@ -755,11 +771,15 @@ instance (Pretty v, Pretty (tm v), Pretty (TrieKey tm))
   ppr (SingleSEM k v) = text "SingleSEM" <+> ppr k <+> ppr v
   ppr (MultiSEM tm)   = ppr tm
 
+instance (Pretty (tm (ListMap tm a)), Pretty a) => Pretty (ListMap' tm a) where
+  ppr (LM {..}) = text "LM" <+> braces (vcat
+                    [ text "lm_nil =" <+> ppr lm_nil
+                    , text "lm_cons =" <+> ppr lm_cons ])
+
 instance Pretty a => Pretty (ExprMap' a) where
   ppr (EM {..}) = text "EM" <+> braces (vcat
                     [ text "em_bvar =" <+> ppr em_bvar
                     , text "em_fvar =" <+> ppr em_fvar
-                    , text "em_app ="  <+> ppr em_app
                     , text "em_lit ="  <+> ppr em_lit
                     , text "em_lam ="  <+> ppr em_lam ])
 

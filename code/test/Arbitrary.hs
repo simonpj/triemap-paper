@@ -93,4 +93,4 @@ exprSize (App f a) = 1 + exprSize f + exprSize a
 exprSize (Lam _ e) = 1 + exprSize e
 
 -- Just for prototyping
-printSample = QC.sample genClosedExpr
+printSample = QC.sample genClosedExprMap
