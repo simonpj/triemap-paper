@@ -25,7 +25,7 @@ import qualified Data.HashMap.Strict as HashMap
 
 {- *********************************************************************
 *                                                                      *
-               NFData orphans
+               orphans
 *                                                                      *
 ********************************************************************* -}
 
@@ -53,14 +53,6 @@ instance (NFData (tm (ListMap tm v)), NFData v) => NFData (ListMap tm v) where
 instance NFData v => NFData (ExprMap' v) where
   rnf EM{..} = rnf [rnf em_bvar, rnf em_fvar, rnf em_app, rnf em_lit, rnf em_lam ]
 
-
-{- *********************************************************************
-*                                                                      *
-               Hashable orophan
-*                                                                      *
-********************************************************************* -}
-
-
 instance Hashable Expr where
   hashWithSalt salt e = go salt (deBruijnize e)
     where
@@ -70,6 +62,7 @@ instance Hashable Expr where
       go salt (D env (Var v))   = salt `hashWithSalt` case lookupDBE v env of
         Nothing -> (3::Int) `hashWithSalt` v
         Just bv -> (4::Int) `hashWithSalt` bv
+
 
 {- *********************************************************************
 *                                                                      *
@@ -116,11 +109,13 @@ sizes :: [Int]
 sizes = [100, 500, 1000]
 
 main = defaultMain
-  [ bgroup "filler, so that the first line begins with a leading comma" []
-  , lookup_all_w_prefix
-  , insert_lookup_one
-  , lookup_all
-  , lookup_one
+  [ bgroup "random"
+      [ bgroup "filler, so that the first line begins with a leading comma" []
+      , rnd_lookup_all_w_prefix
+      , rnd_insert_lookup_one
+      , rnd_lookup_all
+      , rnd_lookup_one
+      ]
   ]
   where
     with_map_of_exprs :: forall m. MapAPI m => Int -> ([Expr] -> m -> Benchmark) -> Benchmark
@@ -136,27 +131,34 @@ main = defaultMain
       , bgroup "HashMap" [f (emptyMap :: HashMap Expr Int) n]
       ]
 
-    lookup_all :: Benchmark
-    lookup_all = bench_all_variants "lookup_all" sizes $ \(_ :: m) n ->
+    rnd_lookup_all :: Benchmark
+    rnd_lookup_all = bench_all_variants "lookup_all" sizes $ \(_ :: m) n ->
       with_map_of_exprs @m n $ \exprs expr_map ->
       bench "" $ nf (map (`lookupMap` expr_map)) exprs
 
-    lookup_one :: Benchmark
-    lookup_one = bench_all_variants "lookup_one" sizes $ \(_ :: m) n ->
+    rnd_lookup_one :: Benchmark
+    rnd_lookup_one = bench_all_variants "lookup_one" sizes $ \(_ :: m) n ->
       with_map_of_exprs @m n $ \exprs expr_map ->
       bench "" $ nf (`lookupMap` expr_map) (head exprs) -- exprs is random, so head is as good as any
 
-    insert_lookup_one :: Benchmark
-    insert_lookup_one = bench_all_variants "insert_lookup_one" sizes $ \(_ :: m) n ->
+    rnd_insert_lookup_one :: Benchmark
+    rnd_insert_lookup_one = bench_all_variants "insert_lookup_one" sizes $ \(_ :: m) n ->
       with_map_of_exprs @m n $ \_exprs expr_map ->
       env (pure (runGenDet (2*n) genClosedExpr)) $ \e ->
       bench "" $ nf (\e' -> lookupMap e' (insertMap e' (n+1) expr_map)) e
 
-    lookup_all_w_prefix :: Benchmark
-    lookup_all_w_prefix = bench_all_variants "lookup_all_w_prefix" sizes $ \(_ :: m) n ->
+    rnd_lookup_all_w_prefix :: Benchmark
+    rnd_lookup_all_w_prefix = bench_all_variants "lookup_all_w_prefix" sizes $ \(_ :: m) n ->
       env (pure (map (\e -> iterate (Lam "$") e !! n) $ runGenDet n $ vectorOf n genClosedExpr)) $ \exprs ->
       env (pure ((mapFromList $ zip exprs [0..]) :: m)) $ \(expr_map :: m) ->
       bench "" $ nf (map (`lookupMap` expr_map)) exprs
+
+-- No unionTM yet...
+--    rnd_union :: Benchmark
+--    rnd_union = bench_all_variants "rnd_union" sizes $ \(_ :: m) n ->
+--      with_map_of_exprs @m n $ \_exprs1 expr_map1 ->
+--      with_map_of_exprs @m (n+1) $ \_exprs2 expr_map2 ->
+--      bench "" $ nf (map (`union` expr_map)) exprs
 
 m :: MapAPI m => Int -> m
 m n = mapFromList $ zip (runGenDet n $ vectorOf n genClosedExpr) [0..]

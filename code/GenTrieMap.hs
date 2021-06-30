@@ -81,7 +81,7 @@ anyFreeVarsOfExpr p ty
 type BoundVarKey = Int
 
 data DeBruijnEnv = DBE { dbe_next :: !BoundVarKey
-                       , dbe_env  :: Map.Map Var BoundVarKey }
+                       , dbe_env  :: !(Map.Map Var BoundVarKey) }
 
 emptyDBE :: DeBruijnEnv
 emptyDBE = DBE { dbe_next = 0, dbe_env = Map.empty }
