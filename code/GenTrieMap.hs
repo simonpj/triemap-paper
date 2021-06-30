@@ -1,6 +1,7 @@
 {-# LANGUAGE TypeFamilies, RankNTypes, FlexibleInstances, FlexibleContexts,
              RecordWildCards, ScopedTypeVariables,
-             StandaloneDeriving, UndecidableInstances #-}
+             StandaloneDeriving, UndecidableInstances,
+             BangPatterns #-}
 
 {-# OPTIONS_GHC -Wincomplete-patterns #-}
 
@@ -364,7 +365,7 @@ instance TrieMap tm => TrieMap (SEMap tm) where
   foldTM   = foldSEM
 
 lookupSEM :: TrieMap tm => TrieKey tm -> SEMap tm v -> Maybe v
-lookupSEM _  EmptySEM = Nothing
+lookupSEM !_  EmptySEM = Nothing
 lookupSEM tk (SingleSEM pk v) | tk == pk  = Just v
                               | otherwise = Nothing
 lookupSEM tk (MultiSEM tm) = lookupTM tk tm
