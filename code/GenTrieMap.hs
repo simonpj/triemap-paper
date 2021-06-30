@@ -503,11 +503,32 @@ foldExpr f (EM {..})
 
 -- | For debugging purposes. Draw with 'containers:Data.Tree.drawTree' or
 -- 'tree-view:Data.Tree.View.showTree'. The latter uses much less screen space.
+-- Random example output (with 'Data.Tree.showTree'):
+--
+-- > .
+-- > └╴@
+-- >    ├╴λ
+-- >    │  └╴sing(Q)
+-- >    │     └╴sing(K)
+-- >    │        └╴0
+-- >    └╴@
+-- >       └╴sing(W)
+-- >          └╴sing(F)
+-- >             └╴sing(λa. a)
+-- >                └╴1
+--
+-- Compare that to showing it:
+--
+-- > MultiSEM (EM {em_bvar = fromList [], em_fvar = fromList [], em_app = MultiSEM (EM {em_bvar = fromList [], em_fvar = fromList [], em_app = SingleSEM W (SingleSEM F (SingleSEM λa. a 1)), em_lit = fromList [], em_lam = SingleSEM Q (SingleSEM K 0)}), em_lit = fromList [], em_lam = EmptySEM})
+--
 exprMapToTree :: Show v => ExprMap v -> Tree String
 exprMapToTree = Node "." . go_sem (\v -> [ Node (show v) [] ])
   where
+    mk_node_nonempty lbl []       = []
+    mk_node_nonempty lbl children = [ Node lbl children ]
+
     go_sem go_val EmptySEM = []
-    go_sem go_val (SingleSEM k v) = [ Node (show k) (go_val v)]
+    go_sem go_val (SingleSEM k v) = mk_node_nonempty ("sing(" ++ show k ++ ")") (go_val v)
     go_sem go_val (MultiSEM em) = go_em go_val em
 
     go_em go_val EM{..} = concat
@@ -521,9 +542,9 @@ exprMapToTree = Node "." . go_sem (\v -> [ Node (show v) [] ])
     go_bvar go_val bvm = [ Node ("bvar(" ++ show k ++ ")") (go_val v) | (k,v) <- IntMap.toList bvm ]
     go_fvar go_val m   = [ Node ("fvar(" ++ k      ++ ")") (go_val v) | (k,v) <- Map.toList m ]
     go_lit  go_val m   = [ Node ("lit("  ++ k      ++ ")") (go_val v) | (k,v) <- Map.toList m ]
-    go_lam  go_val em  = [ Node "λ" (go_sem go_val em) ]
+    go_lam  go_val em  = mk_node_nonempty "λ" (go_sem go_val em)
     go_app :: (v -> Forest String) -> ExprMap (ExprMap v) -> Forest String
-    go_app  go_val em  = [ Node "@" (go_sem (go_sem go_val) em) ]
+    go_app  go_val em  = mk_node_nonempty "@" (go_sem (go_sem go_val) em)
 
 {- *********************************************************************
 *                                                                      *
