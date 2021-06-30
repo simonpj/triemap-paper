@@ -18,6 +18,7 @@ import Debug.Trace
 import Data.Char
 import qualified Text.Read as Read
 import qualified Text.ParserCombinators.ReadP as ReadP
+import Data.Tree
 
 {- *********************************************************************
 *                                                                      *
@@ -499,6 +500,30 @@ foldExpr f (EM {..})
     foldTM (foldTM f) em_app .
     (\z -> foldr f z em_lit) .
     foldTM f em_lam
+
+-- | For debugging purposes. Draw with 'containers:Data.Tree.drawTree' or
+-- 'tree-view:Data.Tree.View.showTree'. The latter uses much less screen space.
+exprMapToTree :: Show v => ExprMap v -> Tree String
+exprMapToTree = Node "." . go_sem (\v -> [ Node (show v) [] ])
+  where
+    go_sem go_val EmptySEM = []
+    go_sem go_val (SingleSEM k v) = [ Node (show k) (go_val v)]
+    go_sem go_val (MultiSEM em) = go_em go_val em
+
+    go_em go_val EM{..} = concat
+      [ go_lit  go_val em_lit
+      , go_fvar go_val em_fvar
+      , go_bvar go_val em_bvar
+      , go_lam  go_val em_lam
+      , go_app  go_val em_app
+      ]
+
+    go_bvar go_val bvm = [ Node ("bvar(" ++ show k ++ ")") (go_val v) | (k,v) <- IntMap.toList bvm ]
+    go_fvar go_val m   = [ Node ("fvar(" ++ k      ++ ")") (go_val v) | (k,v) <- Map.toList m ]
+    go_lit  go_val m   = [ Node ("lit("  ++ k      ++ ")") (go_val v) | (k,v) <- Map.toList m ]
+    go_lam  go_val em  = [ Node "λ" (go_sem go_val em) ]
+    go_app :: (v -> Forest String) -> ExprMap (ExprMap v) -> Forest String
+    go_app  go_val em  = [ Node "@" (go_sem (go_sem go_val) em) ]
 
 {- *********************************************************************
 *                                                                      *

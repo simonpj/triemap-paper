@@ -3,6 +3,7 @@ module Arbitrary where
 import GenTrieMap
 
 import qualified Data.Set as Set
+import qualified Data.Tree.View
 import Data.Char
 import Text.Show
 import Control.Arrow
@@ -94,3 +95,6 @@ exprSize (Lam _ e) = 1 + exprSize e
 
 -- Just for prototyping
 printSample = QC.sample genClosedExpr
+printSampleMap = do
+  maps <- QC.sample' genClosedExprMap
+  mapM_ (Data.Tree.View.drawTree . exprMapToTree) maps
