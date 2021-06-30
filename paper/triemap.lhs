@@ -521,6 +521,46 @@ instance lookup, or doing type-family reduction, GHC needs a map whose
 key is a type.  Both types and expressions are simply trees, and so are
 particular instances of the general task.
 
+\subsection{Extra feature: Matching} \label{sec:matching-intro}
+
+Beyond just the basic finite maps we have described, our practical setting
+in GHC demands more: we want to a lookup that does \emph{matching}.  GHC supports
+so-called \emph{rewrite rules} \cite{rewrite-rule-paper}, which the user can specify like this:
+\begin{code}
+prag_begin RULES "map/map" forall f g xs. map f (map g xs) = map (f . g) xs prag_end
+\end{code}
+This rule asks the compiler to rewrite any target expression that matches the shape
+of the left-hand side (LHS) of the rule into the right-hand side
+(RHS).  We use the term \emph{pattern} to describe the LHS, and \emph{target} to describe
+the expression we are looking up in the map.
+The pattern is explicitly quantified over the \emph{pattern variables}
+(here |f|, |g|, and |xs|) that
+can be bound during the matching process.  In other words, \emph{we seek a substitution
+for the pattern variables that makes the pattern equal to the target expression}.
+For example, if the program we are compiling contains the expression
+|map double (map square nums)|, we would like to produce a substitution
+|f ||-> double, g ||-> square, xs ||-> nums| so that the substituted RHS
+becomes |map (double . square) nums|; we would replace the former expression
+with the latter in the code under consideration.
+
+Of course, the pattern might itself have bound variables, and we would
+like to be insensitive to alpha-conversion for those. For example:
+\begin{code}
+prag_begin RULES "map/id"  map (\x -> x) = \y -> y prag_end
+\end{code}
+\simon{Can we typeset the opening and closing pragma brackets more nicely? Shorter dash for a start.}
+We want to find a successful match if we see a call |map (\y -> y)|,
+even though the bound variable has a different name.
+
+Now imagine that we have thousands of such rules.  Given a target
+expression, we want to consult the rule database to see if any
+rule matches.  One approach would be to look at the rules one at a
+time, checking for a match, but that would be slow if there are many rules.
+Similarly, GHC's lookup for
+type-class instances and for type-family instances can have thousands
+of candidates. We would like to find a matching candidate more efficiently
+than by linear search.
+
 \subsection{The interface of of a finite map}
 
 What API might such a map have? Building on the design of widely
@@ -574,10 +614,27 @@ foldEM :: (a -> b -> b) -> ExprMap a -> b -> b
 \end{code}
 \end{itemize}
 
+\subsection{Extra feature: Alpha-renaming}
+
+Recall that the type |Expr| is the \emph{key} of our |ExprMap| type.
+We do not want our programming language to distinguish between the expressions
+|\x -> x| and |\y -> y|, and so we would expect insertion and lookup to be insensitive to
+$\alpha$-renaming. That is, the correctness properties we list above
+must use $\alpha$-equivalence when comparing expressions for equality.
+
+Making insert and lookup work modulo $\alpha$-equivalence is not difficult
+in priciple; for example, we the key expression to one using de Bruijn levels or indices,
+and then work with that. However, doing so requires making a copy of the input
+key, a potentially expensive extra step. We will see that it can be accommodated
+with a simple on-the-fly indexing.
+\rae{Remind me why hashing-modulo-alpha is hard, referring to
+  \cite{alpha-hashing}.}\simon{Not relevant here; our ``hashing modulo alpha paper
+  is only relevant if you want
+  compositional hashing of every node.}
+
 \subsection{Non-solutions} \label{sec:ord}
 
-At first sight, our task can be done easily: define a total order on
-|Expr|
+At first sight, our task can be done easily: define a total order on |Expr|
 and use a standard finite map library.
 Indeed that works, but it is terribly slow.  A finite map is
 implemented as a binary search tree; at every node of this tree,
@@ -595,78 +652,19 @@ While this double-check is not so terrible, we will see that
 the naive approach described here does not extend well to support
 the extra features we require in our finite maps.
 
-\subsection{Extra feature: Alpha-renaming}
+Finally, neither binary search trees nor hashing is compatible
+with matching lookup.  For our purposes they are non-starters.
 
-Recall that the type |Expr| is the \emph{key} of our |ExprMap| type.
-We do not want our programming language to distinguish between the expressions
-|\x -> x| and |\y -> y|, and so we would expect insertion and lookup to be insensitive to
-$\alpha$-renaming. That is, the correctness properties we list above
-must use $\alpha$-equivalence when comparing expressions for equality.
-
-The naive approach can, with a small amount of effort, accommodate $\alpha$-equivalence.
-We can convert our key expression to one using de Bruijn levels or indices,
-and then work with that. However, doing so requires making a copy of the input
-key, a potentially expensive extra step.
-\rae{Remind me why hashing-modulo-alpha is hard, referring to
-  \cite{alpha-hashing}.}\simon{Not relevant here; our ``hashing modulo alpha paper
-  is only relevant if you want
-  compositional hashing of every node.}
-
-\subsection{Extra feature: Matching} \label{sec:matching-intro}
-
-Beyond just the basic finite maps we have described, our practical setting
-in GHC demands more: we want to a lookup that does \emph{matching}.  GHC supports
-so-called \emph{rewrite rules} \cite{rewrite-rule-paper}, which the user can specify like this:
-\begin{code}
-prag_begin RULES "map/map" forall f g xs. map f (map g xs) = map (f . g) xs prag_end
-\end{code}
-This rule asks the compiler to rewrite any target expression that matches the shape
-of the left-hand side (LHS) of the rule into the right-hand side
-(RHS).  We use the term \emph{pattern} to describe the LHS, and \emph{target} to describe
-the expression we are looking up in the map.
-The pattern is explicitly quantified over the \emph{pattern variables}
-(here |f|, |g|, and |xs|) that
-can be bound during the matching process.  In other words, \emph{we seek a substitution
-for the pattern variables that makes the pattern equal to the target expression}.
-For example, if the program we are compiling contains the expression
-|map double (map square nums)|, we would like to produce a substitution
-|f ||-> double, g ||-> square, xs ||-> nums| so that the substituted RHS
-becomes |map (double . square) nums|; we would replace the former expression
-with the latter in the code under consideration.
-
-Of course, the pattern might itself have bound variables, and we would
-like to be insensitive to alpha-conversion for those. For example:
-\begin{code}
-prag_begin RULES "map/id"  map (\x -> x) = \y -> y prag_end
-\end{code}
-\simon{Can we typeset the opening and closing pragma brackets more nicely? Shorter dash for a start.}
-We want to find a successful match if we see a call |map (\y -> y)|,
-even though the bound variable has a different name.
-
-Now imagine that we have thousands of such rules.  Given a target
-expression, we want to consult the rule database to see if any
-rule matches.  One approach would be to look at the rules one at a
-time, checking for a match, but that would be slow if there are many rules.
-Similarly, GHC's lookup for
-type-class instances and for type-family instances can have thousands
-of candidates. We would like to find a matching candidate more efficiently
-than by linear search.
-
-Support for pattern variables is hard to reconcile with many standard approaches to
-implementing finite maps.  For example, representing the finite map as a binary tree,
-and performing comparisons at the nodes to determine which sub-tree holds the key,
-seems an approach that is hard or impossible to extend to support matching, as does
-any approach based on hashing.
-
+What other standard solutions are there, apart from linear search?
 The theorem proving and automated reasoning community has been working with huge sets
 of rewrite rules, just as we describe, for many years.
-They have developed \emph{substitution trees} for this job \cite{lots of stuff}, which
+They have developed \emph{discriminator trees} for this job \cite{lots of stuff}, which
 embody essentially the same core ideas as those we present below.  But there are many
 differences, as we dicuss later in \Cref{sec:related}.
 
 \section{Tries} \label{sec:ExprS}
 
-A rather standard approach to a finite map in which the key has internal structure
+A standard approach to a finite map in which the key has internal structure
 is to use a \emph{trie} \cite{trie}.  Let us consider a simplified
 form of expression:
 \begin{code}
@@ -676,7 +674,7 @@ We leave lambdas out for now,
 so that all |VarS| nodes represent free variables, which are constants.
 We will return to lambdas in \Cref{sec:binders}.
 
-\subsection{The basic idea} \label{sec:basic} \label{sec:alter}
+\subsection{The basic idea} \label{sec:basic}
 
 Here is a trie-based implemenation for |ExprS|:
 %{
@@ -747,10 +745,29 @@ instantiates |v| to a different type than the parent function definition.
 Haskell supports polymorphic recurision readily, provided you give type signature to
 |lookupExprS|, but not all languages do.
 
-\subsection{Modifying tries} \label{sec:alter}
+\subsection{Modifying tries} \label{sec:alter} \label{sec:empty-infinite}
 
 It is not enough to look up in a trie -- we need to \emph{build} them too!
-Here is the code for |alter|:
+First, we need an empty trie. Here is one way to define it:
+%{
+%if style == newcode
+%format emptyExprS = "emptyExprS0"
+%format foldrExprS = "foldrExprS0"
+%format sizeExprS = "sizeExprS0"
+%format ExprSMap = "ExprSMap0"
+%format esm_var = "esm_var0"
+%format esm_app = "esm_app0"
+%format ESM = "ESM0"
+%endif
+\begin{code}
+emptyExprS :: ExprSMap v
+emptyExprS = ESM { esm_var = Map.empty, esm_app = emptyExprS }
+\end{code}
+It is interesting to note that |emptyExprS| is an infinite, recursive structure:
+the |esm_app| field refers back to |emptyExprS|.  We will change this
+definition in \Cref{sec:empty}, but it works perfectly well for now.
+
+Next, we need to |alter| a triemap:
 \begin{code}
 alterExprS :: ExprS -> XT v -> ExprSMap v -> ExprSMap v
 alterExprS e xt m@(ESM { esm_var = m_var, esm_app = m_app })
@@ -816,26 +833,9 @@ It could hardly be simpler. \rae{What about empty/single maps? They're missing h
 
 \subsection{Folds and the empty map} \label{sec:fold}
 
-Of course, we need an empty trie. Here is one way to define such a thing:
-%{
-%if style == newcode
-%format emptyExprS = "emptyExprS0"
-%format foldrExprS = "foldrExprS0"
-%format sizeExprS = "sizeExprS0"
-%format ExprSMap = "ExprSMap0"
-%format esm_var = "esm_var0"
-%format esm_app = "esm_app0"
-%format ESM = "ESM0"
-%endif
-\begin{code}
-emptyExprS :: ExprSMap v
-emptyExprS = ESM { esm_var = Map.empty, esm_app = emptyExprS }
-\end{code}
-It is interesting to note that |emptyExprS| is an infinite, recursive structure:
-the |esm_app| field refers back to |emptyExprS|.
-This slightly strange definition works fine for lookup and alteration, but it fails
+This strange, infinite definition of |emptyExprS| given in \Cref{sec:empty-infinite}
+works fine for lookup, alteration, and union, but it fails
 fundamentally when we want to \emph{iterate} over the elements of the trie.
-
 For example, suppose we wanted to count the number of elements in the finite map; in |containers|
 this is the function |Map.size| (\Cref{fig:containers}).  We might try
 %{
@@ -900,7 +900,98 @@ elemsExprS :: ExprSMap v -> [v]
 elemsExprS = foldrExprS (:) []
 \end{code}
 %}
-\subsection{Singleton maps} \label{sec:singleton}
+
+\subsection{A type class for triemaps} \label{sec:generalised} \label{sec:class}
+
+Since all our triemaps share a common interface, it is useful to define
+a type class for them:
+%{
+%if style == poly
+%format dots = "\ldots"
+%else
+%format dots = ""
+%endif
+\begin{code}
+class Eq (TrieKey tm) => TrieMap tm where
+   type TrieKey tm :: Type
+   emptyTM   :: tm a
+   lookupTM  :: TrieKey tm -> tm a -> Maybe a
+   alterTM   :: TrieKey tm -> XT a -> tm a -> tm a
+   foldTM    :: (a -> b -> b) -> tm a -> b -> b
+   unionTM   :: tm a -> tm a -> tm a
+   dots
+\end{code}
+%}
+The class constraint |TrieMap tm| says that the type |tm| is a triemap, with operations
+|emptyTM|, |lookupTM| etc.
+The class has an \emph{associated type}, |TrieKey tm|,
+a type-level function that transforms the type of the triemap into
+the type of \emph{keys} of that triemap.
+
+Now we can witness the fact that |ExprSMap| is a |TrieMap|, like this:
+\rae{Are there definitions for |alterTM| and |foldTM| for this, if we wanted them?}
+\simon{Yes, in GenTrieMap.hs. But we need an Appendix that sets it all out.}
+%{
+%if style == poly
+%format dots = "\ldots"
+%else
+%format dots = "foldTM = undefined"
+%endif
+\begin{code}
+instance TrieMap ExprSMap where
+  type TrieKey ExprSMap = ExprS
+  emptyTM   = emptyExprS
+  lookupTM  = lookupExprS
+  alterTM   = alterExprS
+  dots
+\end{code}
+%}
+Having a type class allows us to write functions that are polymorphic in triemaps.
+To see how useful this is,
+suppose our expressions had multi-argument apply nodes, |AppV|, thus
+%{
+%if style == poly
+%format dots = "\ldots"
+%else
+%format dots = "Ctor"
+%format Expr = "Expr1"
+%endif
+\begin{code}
+data Expr = dots | AppV Expr [Expr]
+\end{code}
+%}
+Then we would need to built a trie keyed by a \emph{list} of |Expr|.
+A list is just another algebraic data type, built with nil and cons,
+so we \emph{could} use exactly the same approach, thus
+\begin{code}
+lookupListExpr :: [Expr] -> ListExprMap v -> Maybe v
+\end{code}
+But rather than define a |ListExprMap| for keys of type |[Expr]|,
+and a |ListDeclMap| for keys of type |[Decl]|, etc, we would obviously prefer
+to build a trie for lists of \emph{any type}, like this \cite{hinze}:
+\begin{code}
+data ListMap tm v = LM { lm_nil  :: Maybe v, lm_cons :: tm (ListMap tm  v) }
+
+emptyList :: TrieMap tm => ListMap tm
+emptyList = LM { lm_nil = Nothing, lm_cons = emptyTM }
+
+lookupList :: TrieMap tm => [TrieKey tm] -> ListMap tm v -> Maybe v
+lookupList []      = lm_nil
+lookupList (k:ks)  = lm_cons >.> lookupTM k >=> lookupList ks
+\end{code}
+%}
+The code for |alterList| and |foldList| is routine. Notice that all of
+these functions are polymorphic in |tm|, the triemap for the list elements.
+Of course, a |ListMap tm| is itself a triemap:
+\begin{code}
+instance TrieMap tm => TrieMap (ListMap tm) where
+   type TrieKey (ListMap tm) = [TrieKey tm]
+   emptyTM  = emptyList
+   lookupTM = lookupList
+   ...
+\end{code}
+
+\subsection{Singleton maps, and empty maps revisited} \label{sec:singleton}
 
 Suppose we start with an empty map, and insert a value
 with a key (an |Expr|) that is large, say
@@ -920,200 +1011,83 @@ This is great when there are a lot of keys with shared structure, but
 once we are in a sub-tree that represents a single key-value pair it is
 a rather inefficient way to represent the key.  So a simple idea is this:
 when a |ExprMap| represents a single key-value pair, represent it
-as directly a key-value pair!  Like this:
+as directly a key-value pair, like this:
 \begin{code}
 data ExprSMap v  = EmptyESM
                  | SingleESM ExprS v
                  | ESM { esm_var :: Map Var v, esm_app :: ExprSMap (ExprSMap v) }
 \end{code}
-The code for lookup practically writes itself:
-%{
-%if style = poly
-%format dots = "\ldots"
-%else
-%format dots = undefined
-%endif
+But we will have to tiresomely repeat these extra data constructors, |EmptyX| and |SingleX|
+for each new data type |X| for which we want a triemap.
+For example we would have to add |EmptyList| and |SingleList| to the |ListMap| data type
+of \Cref{sec:class}.
+It is better instead to abstract over the enclosed triemap, like this:
 \begin{code}
-lookupExprS :: ExprS -> ExprSMap v -> Maybe v
-lookupExprS e EmptyESM
-  = Nothing
-lookupExprS e1 (SingleESM e2 v2)
-  = if e1 == e2 then Just v2
-              else Nothing
-lookupExprS e (ESM { esm_var = m_var, esm_app = m_app })
-  = dots     -- Exactly as before
+data SEMap tm v  = EmptySEM
+                 | SingleSEM (TrieKey tm) v
+                 | MultiSEM  (tm v)
 \end{code}
-%}
-\simon{What is this |undefined| doing?}
-Notice that in the |SingleESM| case we need equality on |Expr|,
-to tell if the key being looked up, |k1| is the same as the key in
-the |SingleESM|, namely |k2|.
+The code for lookup practically writes itself:
+\begin{code}
+lookupSEMap :: TrieMap tm => TrieKey tm -> SEMap tm v -> Maybe v
+lookupSEMap _   EmptySEM          = Nothing
+lookupSEMap tk  (SingleSEM pk v)  | tk == pk  = Just v
+                                  | otherwise = Nothing
+lookupSEMap tk  (MultiSEM tm)     = lookupTM tk tm
+\end{code}
+Notice that in the |SingleSEM| case we need equality on the key type |TrieKey tm|,
+to tell if the key being looked up, |tk| is the same as the key in
+the |SingleESM|, namely |pk|.
+That is why we made |Eq (TrieKey tm)| a superclass of |TrieMap tm|
+in the |class| declaration in \Cref{sec:class}.
 
 The code for alter is more interesting, becuase it governs the shift from
-|EmptyESM| to |SingleESM| and thence to |ESM|:
+|EmptySEM| to |SingleSEM| and thence to |MultiSEM|:
 \begin{code}
-alterExprS  :: ExprS -> XT v -> ExprSMap v -> ExprSMap v
-alterExprS e xt EmptyESM
+alterSEM :: TrieMap tm => TrieKey tm -> XT v -> SEMap tm v -> SEMap tm v
+alterSEM k xt EmptySEM
   = case xt Nothing of
-        Nothing -> EmptyESM
-        Just v  -> SingleESM e v
-
-alterExprS e xt m@(SingleESM key v1)
-  | e == key   = case xt (Just v1) of
-                     Nothing -> EmptyESM
-                     Just v2  -> SingleESM e v2
+      Nothing  -> EmptySEM
+      Just v   -> SingleSEM k v
+alterSEM k1 xt (SingleSEM k2 v2)
+  | k1 == k2   = case xt (Just v2) of
+                   Nothing  -> EmptySEM
+                   Just v'  -> SingleSEM k2 v'
   | otherwise  = case xt Nothing of
-                     Nothing -> m
-                     Just v2 ->  alterExprS key (\_ -> Just v1) $
-                                 alterExprS e   (\_ -> Just v2) $
-                                 ESM { esm_var = Map.empty, esm_app = EmptyESM }
-
-alterExprS e xt m@(ESM { esm_var = m_var, esm_app = m_app })
-  = case e of
-      VarS x     -> m { esm_var = Map.alter xt x m_var }
-      AppS e1 e2 -> m { esm_app = alterExprS e1 (liftXT (alterExprS e2 xt)) m_app }
-
-liftXT :: (ExprSMap v -> ExprSMap v) -> XT (ExprSMap v)
-liftXT f Nothing  = Just (f EmptyESM)
-liftXT f (Just m) = Just (f m)
+                   Nothing  -> SingleSEM k2 v2
+                   Just v1  -> MultiSEM  $ alterTM k1 (\_ -> Just v1)
+                                         $ alterTM k2 (\_ -> Just v2)
+                                         $ emptyTM
+alterSEM k xt (MultiSEM tm) = MultiSEM (alterTM k xt tm)
 \end{code}
-\sg{liftXT expands Nothing to emptyExprS but doesn't contract an emptyExprS result
-from (f m) back to Nothing. So inserting and deleting a key will leave behind
-the spine of an empty map for that key.} \simon{I have added a final para to \Cref{sec:generalised}.  Is it enough?}
-Although we began by speaking of a map containing only one key-value pair,
-this representation uses |ESM| while there are keys that share structure,
-but as soon as we get into a sub-treee where there is no overlap, we revert
-to |SingleESM|.
-
-This optimisation makes a big difference in practice: see \Cref{sec:results}.
-
-\subsection{Generalised singleton and empty maps} \label{sec:generalised}
-
-Rather than implement the code for singleton maps and empty maps in every trie,
-we can do it once and for all, like this:
+Now, of course, we can make |SEMap| itself an instance of |TrieMap|:
 \begin{code}
-data SEMap m k v  -- Wrapper for singleton and empty map
-  = EmptyTM | SingleTM k v | MultiTM (m v)
-
-emptySEMap :: SEMap m k v
-emptySEMap = EmptyTM
-
-lkSEMap :: Eq k => (k -> m v -> Maybe v) -> k -> SEMap m k v -> Maybe v
-lkSEMap _  _  EmptyTM                    = Nothing
-lkSEMap _  tk (SingleTM k v) | tk == k   = Just v
-                             | otherwise = Nothing
-lkSEMap lk tk (MultiTM m)                = lk tk m
+instance TrieMap tm => TrieMap (SEMap tm) where
+  type TrieKey (SEMap tm) = TrieKey tm
+  emptyTM  = EmptySEM
+  lookupTM = lookupSEM
+  alterTM  = alterSEM
+  foldTM   = foldSEM
 \end{code}
-Here |lkSEMap| is responsible for the empty and singleton
-cases, and delegates to the arugment function |lk| in all other cases.
-Now we can return to the simpler code in \Cref{sec:basic}, and define
+Adding a new item to a triemap can turn |EmptySEM| into |SingleSEM| and |SingleSEM|
+into |MultiSEM|; and deleting an item from a |SingleSEM| turns it back into |EmptySEM|.
+But you might wonder whether we can shrink a |MultiSEM| back to a |SingleSEM| when it has
+only one remaining element?
+Yes, of course we can, but it takes a bit of work; the Appendix has the details.
+
+Finally, we need to re-define |ExprSMap| and |ListMap| using |SEMap|:
 \begin{code}
-type GExprSMap v = SEMap ExprSMap ExprS v
+  type ExprSMap       = SEMap ExprSMap'
+  data ExprSMap' v    = ESM  { esm_var  :: Map Var v, esm_app  :: ExprSMap (ExprSMap v) }
 
-lookupExprSMap :: ExprS -> GExprSMap v -> Maybe v
-lookupExprSMap = lkSEMap lookupExprS
+  type ListMap        = SEMap ListMap'
+  data ListMap' tm v  = LM { lm_nil  :: Maybe v, lm_cons :: tm (ListMap tm v) }
 \end{code}
-The code for |xtSEMap|, and |alterExprSMap|, follows straightforwardly.
+The auxiliary data types |ExprSMap'| and |ListMap'| have only a single constructor, because
+the empty and singleton cases are dealt with by |SEMap|.  We reserve the original,
+un-primed, names for the user-visible |ExprSMap| and |ListMap| constructors.
 
-Adding a new item to a triemap can turn |EmptyTM| into |SingleTM| and |SingleTM|
-into |MultiTM|, but you might wonder about the reverse: when deleting an item,
-can we shrink a |SingleTM| back to an |EmptyTM|, and a |MultiTM| back to a |SingleTM|?
-Yes, of course we can: the former is extremely easy, while the latter takes a bit more work.
-The Appendix has the details.
-
-\subsection{Maps of higher kinds}
-
-Suppose our expresions had multi-argument apply nodes, |AppV|, thus
-%{
-%if style == poly
-%format dots = "\ldots"
-%else
-%format dots = "Ctor"
-%format Expr = "Expr1"
-%endif
-\begin{code}
-data Expr = dots | AppV Expr [Expr]
-\end{code}
-%}
-Then we would need to built a trie keyed by a \emph{list} of |Expr|.
-Since a list is just another algebraic data type, built with nil and cons,
-we can use exactly the same approach, thus
-\begin{code}
-lookupListExpr :: [Expr] -> ListExprMap v -> Maybe v
-\end{code}
-But rather than build an implementation
-for |[Expr]|, and then another for |[Decl]|, etc, we obviously
-want to build a trie for lists of \emph{anything}, something like this \cite{hinze}:
-%{
-%if style == newcode
-%format lookupList = "lookupList0"
-%endif
-\begin{code}
-lookupList :: [k] -> ListMap k v -> Maybe v
-\end{code}
-%}
-But this obviously cannot work, because it is too polymorphic:
-we need some type-class constraint on the key |k|,
-saying that it can be used as the key of a trie, like this:
-%{
-%if style == newcode
-%format lookupList = "lookupList1"
-%endif
-\begin{code}
-lookupList :: TrieKey k => [k] -> TrieMap [k] v -> Maybe v
-\end{code}
-However, in practice it turns out to work better to make the type class work over the
-\emph{triemap} rather than the \emph{key}:
-\begin{code}
-class TrieMap tm where
-   type TrieKey tm :: Type
-   emptyTM  :: tm a
-   lookupTM :: TrieKey tm -> tm a -> Maybe a
-   alterTM  :: TrieKey tm -> XT a -> tm a -> tm a
-   foldTM   :: (a -> b -> b) -> tm a -> b -> b
-\end{code}
-%}
-The class constraint |TrieMap tm| says that the type |tm| is a triemap, with operations
-|emptyTM|, |lookupTM| etc.
-The class has an \emph{associated type}, |TrieKey tm|,
-a type-level function that transforms the type of the triemap into
-the type of \emph{keys} of that triemap.  Now we can witness the fact that |ExprS| can be
-used as the key of a triemap, like this:
-%{
-%if style == poly
-%format dots = "\ldots"
-%else
-%format dots = "alterTM = undefined; foldTM = undefined"
-%endif
-\rae{Are there definitions for |alterTM| and |foldTM| for this, if we wanted them?}
-\simon{Yes, in GHC's code base. But we need an Appendix that sets it all out.}
-\begin{code}
-instance TrieMap ExprSMap where
-  type TrieKey ExprSMap = ExprS
-  emptyTM  = emptySEMap
-  lookupTM = lkSEMap lookupExprS
-  dots
-\end{code}
-
-All this puts us in a position to write the instance for lists:
-\begin{code}
-instance TrieMap tm => TrieMap (ListMap tm) where
-   type TrieKey (ListMap tm) = [TrieKey tm]
-   emptyTM  = emptyListMap
-   lookupTM = lookupListMap
-   ...
-
-data ListMap tm v = LM { lm_nil  :: Maybe v, lm_cons :: tm (ListMap tm  v) }
-
-lookupList :: TrieMap tm => [TrieKey tm] -> ListMap tm v -> Maybe v
-lookupList _   EmptyLM = Nothing
-lookupList key (LM { .. })
-  = case key of
-      []     -> lm_nil
-      (k:ks) -> lm_cons |> lookupTM k >=> lookupList ks
-\end{code}
-%}
-The code for |alter| and |fold| is routine.
+The singleton-map optimisation makes a big difference in practice: see \Cref{sec:results}.
 
 \section{Keys with binders} \label{sec:binders}
 

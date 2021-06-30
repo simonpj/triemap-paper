@@ -337,44 +337,6 @@ foldMaybe f (Just v) z = f v z
 
 {- *********************************************************************
 *                                                                      *
-                  ListMap
-*                                                                      *
-********************************************************************* -}
-
-data ListMap tm a
-  = EmptyLM
-  | LM { lm_nil  :: Maybe a
-       , lm_cons :: tm (ListMap tm a) }
-
-instance TrieMap tm => TrieMap (ListMap tm) where
-   type TrieKey (ListMap tm) = [TrieKey tm]
-   emptyTM  = emptyList
-   lookupTM = lookupList
-   alterTM  = alterList
-   foldTM   = foldList
-
-emptyList :: ListMap m a
-emptyList = EmptyLM
-
-lookupList :: TrieMap tm => [TrieKey tm] -> ListMap tm v -> Maybe v
-lookupList _   EmptyLM = Nothing
-lookupList key (LM {..})
-  = case key of
-      []     -> lm_nil
-      (k:ks) -> lm_cons |> lookupTM k >=> lookupTM ks
-
-alterList :: TrieMap tm => [TrieKey tm] -> XT v -> ListMap tm v -> ListMap tm v
-alterList ks xt tm@(LM {..})
-  = case ks of
-      []      -> tm { lm_nil  = lm_nil |> xt }
-      (k:ks') -> tm { lm_cons = lm_cons |> alterTM k |>> alterTM ks' xt }
-
-foldList :: TrieMap tm => (v -> a -> a) -> ListMap tm v -> a -> a
-foldList f (LM {..}) = foldMaybe f lm_nil . foldTM (foldList f) lm_cons
-
-
-{- *********************************************************************
-*                                                                      *
                   Singleton and empty map
 *                                                                      *
 ********************************************************************* -}
@@ -398,14 +360,8 @@ instance TrieMap tm => TrieMap (SEMap tm) where
 lookupSEM :: TrieMap tm => TrieKey tm -> SEMap tm v -> Maybe v
 lookupSEM _  EmptySEM = Nothing
 lookupSEM tk (SingleSEM pk v) | tk == pk  = Just v
-                                | otherwise = Nothing
-lookupSEM target_key sem
-  = case sem of
-      EmptySEM    -> Nothing
-      MultiSEM tm -> lookupTM target_key tm
-      SingleSEM pat_key val
-         | target_key == pat_key -> Just val
-         | otherwise             -> Nothing
+                              | otherwise = Nothing
+lookupSEM tk (MultiSEM tm) = lookupTM tk tm
 
 
 alterSEM :: TrieMap tm => TrieKey tm -> XT v -> SEMap tm v -> SEMap tm v
@@ -430,6 +386,45 @@ foldSEM :: TrieMap tm => (v -> a -> a) -> SEMap tm v -> a -> a
 foldSEM _ EmptySEM        z = z
 foldSEM f (SingleSEM _ v) z = f v z
 foldSEM f (MultiSEM tm)   z = foldTM f tm z
+
+
+{- *********************************************************************
+*                                                                      *
+                  ListMap
+*                                                                      *
+********************************************************************* -}
+
+type ListMap tm = SEMap (ListMap' tm)
+
+data ListMap' tm a
+  = LM { lm_nil  :: Maybe a
+       , lm_cons :: tm (ListMap tm a) }
+
+instance TrieMap tm => TrieMap (ListMap' tm) where
+   type TrieKey (ListMap' tm) = [TrieKey tm]
+   emptyTM  = emptyList
+   lookupTM = lookupList
+   alterTM  = alterList
+   foldTM   = foldList
+
+emptyList :: ListMap m a
+emptyList = LM { lm_nil = Nothing, lm_cons = emptyList }
+
+lookupList :: TrieMap tm => [TrieKey tm] -> ListMap tm v -> Maybe v
+lookupList _   EmptyLM = Nothing
+lookupList key (LM {..})
+  = case key of
+      []     -> lm_nil
+      (k:ks) -> lm_cons |> lookupTM k >=> lookupTM ks
+
+alterList :: TrieMap tm => [TrieKey tm] -> XT v -> ListMap tm v -> ListMap tm v
+alterList ks xt tm@(LM {..})
+  = case ks of
+      []      -> tm { lm_nil  = lm_nil |> xt }
+      (k:ks') -> tm { lm_cons = lm_cons |> alterTM k |>> alterTM ks' xt }
+
+foldList :: TrieMap tm => (v -> a -> a) -> ListMap tm v -> a -> a
+foldList f (LM {..}) = foldMaybe f lm_nil . foldTM (foldList f) lm_cons
 
 
 {- *********************************************************************
