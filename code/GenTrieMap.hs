@@ -99,7 +99,7 @@ lookupDBE v (DBE { dbe_env = env }) = Map.lookup v env
 -- if this was not (easily) possible for @a@.  Note: we purposely don't
 -- export the constructor.  Make a helper function if you find yourself
 -- needing it.
-data DeBruijn a = D DeBruijnEnv a
+data DeBruijn a = D !DeBruijnEnv a
 
 -- | Synthesizes a @DeBruijn a@ from an @a@, by assuming that there are no
 -- bound binders (an empty 'DeBruijnEnv').  This is usually what you want if there
