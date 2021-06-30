@@ -2,6 +2,8 @@
              RecordWildCards, ScopedTypeVariables,
              StandaloneDeriving, UndecidableInstances #-}
 
+{-# OPTIONS_GHC -Wincomplete-patterns #-}
+
 module GenTrieMap where
 
 import Data.List( foldl' )
