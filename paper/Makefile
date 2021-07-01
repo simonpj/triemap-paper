@@ -13,7 +13,7 @@ code: $(PAPER).o
 	lhs2TeX -o $@ $<
 
 %.pdf: %.tex refs.bib
-	pdflatex $<
+	latexmk -pdf $<
 
 $(PAPER).o: $(HS_MODULES:%=%.o)
 
