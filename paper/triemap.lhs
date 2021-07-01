@@ -311,7 +311,7 @@ instance Eq Expr where
 
 \begin{document}
 
-\newcommand{\simon}[1]{{\bf SLPJ}: {\color{dkcyan} #1} {\bf End SLPJ}}
+\newcommand{\simon}[1]{[{\bf SLPJ}: {\color{red} #1}]}
 \newcommand{\js}[1]{{\bf JS}: {\color{olive} #1} {\bf End JS}}
 \newcommand{\rae}[1]{{\bf RAE}: {\color{dkblue} #1} {\bf End RAE}}
 \newcommand{\sg}[1]{{\bf SG}: {\color{darkbrown} #1} {\bf End SG}}
@@ -464,6 +464,12 @@ checktype(Map.alter      :: Ord k => XT v -> k -> Map k v -> Map k v)
 checktype(Map.unionWith  :: Ord k => (v->v->v) -> Map k v -> Map k v -> Map k v)
 checktype(Map.size       :: Map k v -> Int)
 checktype(Map.foldr      :: (v -> r -> r) -> r -> Map k v -> r)
+
+data Bag v  -- An unordered collection of values |v|
+checktype(Bag.empty      :: Bag v)
+checktype(Bag.single     :: v -> Bag v)
+checktype(Bag.union      :: Bag v -> Bag v -> Bag v)
+checktype(Bag.map        :: (v1 -> v2) -> Bag v1 -> Bag v2)
 
 infixr 1 >=>  -- Kleisli composition
 (>=>) :: Monad m => (a -> m b) -> (b -> m c) -> a -> m c
@@ -1148,15 +1154,21 @@ lookupBVM :: Var -> BoundVarMap -> Maybe BoundVarKey
 lookupBVM v (BVM {bvm_map = bvm }) = Map.lookup v bvm
 \end{code}
 We maintain a |BoundVarMap|
-that maps each lambda-bound variable to its de-Bruijn index, of type |BoundVarKey|.
-\sg{We are using de Bruijn \emph{levels}, not \emph{indices}. A Var occurrence
-with De Bruijn indices would count the number of lambdas between the occ and
-its binding site. Levels, on the other hand, count the number of lambdas from
-the root of the expr to the binding site. So within the const function
-$\lambda x. \lambda y. y$, the occ of $y$ has DB index 0, but DB level 1.
-Indices are favorable when doing subsitution which I presume we don't. See
-also \url{https://randall-holmes.github.io/Watson/babydocs/node26.html} and
-\url{https://mail.haskell.org/pipermail/haskell-cafe/2007-May/025424.html}.}
+that maps each lambda-bound variable to its de-Bruijn level\footnote{
+  The de-Bruijn \emph{index} of the occurrence of a variable $v$ counts the number
+  of lambdas between the occurrence of $v$ and its binding site.  The de-Bruijn \emph{level}
+  of $v$ counts the number of lambdas between the root of the expression and $v$'s binding site.
+  It is convenient for us to use \emph{levels}.
+  \simon{What can we cite?  Sebastian had a couple of suggestions, but both are informal.}
+  }, of type |BoundVarKey|.
+% \sg{We are using de Bruijn \emph{levels}, not \emph{indices}. A Var occurrence
+% with De Bruijn indices would count the number of lambdas between the occ and
+% its binding site. Levels, on the other hand, count the number of lambdas from
+% the root of the expr to the binding site. So within the const function
+% $\lambda x. \lambda y. y$, the occ of $y$ has DB index 0, but DB level 1.
+% Indices are favorable when doing subsitution which I presume we don't. See
+% also \url{https://randall-holmes.github.io/Watson/babydocs/node26.html} and
+% \url{https://mail.haskell.org/pipermail/haskell-cafe/2007-May/025424.html}.}
 The key we look up --- the first argument of |lkExprL| --- becomes
 a |DBExprL|, which is a pair of a |BoundVarMap| and an
 |ExprL|.
@@ -1168,15 +1180,14 @@ The code for |alter| and |fold| holds no new surprises.
 The construction of \Cref{sec:generalised}, to handle empty and singleton maps,
 applies without difficulty to this generalised map.
 
-And that is really all there is to it.  We regard this as a non-obvious merit
-of the entire trie approach: it is quite remarkably easy to extend the basic
+And that is really all there is to it: it is remarkably easy to extend the basic
 trie idea to be insensitive to alpha-conversion.
 
 \section{Tries that match}
 
-Next, we extend our tries to accomodate \emph{matching}, as we
-sketched in \Cref{sec:matching-intro}.  A key advantage of tries over other representations is
-that they can naturally extend to support matching.
+A key advantage of tries over hash-maps and balanced trees is
+that they can naturally extend to support \emph{matching} (\Cref{sec:matching-intro}).
+In this section we explain how.
 
 \subsection{What ``matching'' means} \label{sec:matching-spec}
 
@@ -1186,14 +1197,15 @@ Our overall goal is to build a \emph{matching trie} into which we can:
 \item \emph{Insert} (pattern, value) pairs
 \item \emph{Look up} a target expression, and return all the values whose pattern \emph{matches} that expression.
 \end{itemize}
-Semantically, then, a matching trie can be thought of as a set of (pattern, value) pairs.
+Semantically, then, a matching trie can be thought of as a set of \emph{entries},
+each of which is a (pattern, value) pair.
 What is a pattern? It is a pair $(vs,p)$ where
 \begin{itemize}
 \item $vs$ is a set of \emph{pattern variables}, such as $[a,b,c]$.
 \item $p$ is a \emph{pattern expression}, such as $f\, a\, (g\, b\, c)$.
 \end{itemize}
 A pattern may of course contain free variables (not bound by the pattern), such as $f$ and $g$
-in the above example. \sg{Which are regarded the same as constants by the algorithm. Correct?}
+in the above example, which are regarded as constants by the algorithm.
 A pattern $(vs, p)$ \emph{matches} a target expression $e$ iff there is a unique substitution
 $S$ whose domain is $vs$, such that $S(p) = e$.
 
@@ -1210,19 +1222,21 @@ prag_begin RULES "foo" forall x. f x x = f2 x prag_end
 %}
 Here the pattern $([x], f~ x~ x)$ has a repeated variable $x$,
 and should match targets like $(f~ 1~ 1)$ or $(f ~(g~ v)~ (g ~v))$,
-but not $(f~ 1~ (g~ v))$.  This ability important if we are to use matching tries
+but not $(f~ 1~ (g~ v))$.  This ability is important if we are to use matching tries
 to implement class or type-family look in GHC.
 
-It is sometimes desirable to be able to look up the \emph{most specific match} in the matching trie.  For example, suppose the matching trie contains
+It is sometimes desirable to be able to look up the \emph{most specific match} in the matching trie.
+For example, suppose the matching trie contains the following two (pattern,value) pairs:
 $$
-\{ ([a],\, f\, a), ([p,q],\, f\,(p+q)) \}
+\{ ([a],\, f\, a),\;\; ([p,q],\, f\,(p+q)) \}
 $$
-and suppose we look up $(f\,(2+x))$ in the trie.  The first entry matches, but the second also matches (with $S = [p \mapsto 2, q \mapsto x]$), and \emph{the second pattern is a substitution instance of the first}.  So we may want to return just the second match.  We call this \emph{most-specific matching}.
+and suppose we look up $(f\,(2+x))$ in the trie.  The first entry matches, but the second also matches (with $S = [p \mapsto 2, q \mapsto x]$), and \emph{the second pattern is a substitution instance of the first}.  In some applications
+we may want to return just the second match.  We call this \emph{most-specific matching}.
 
 \subsection{The API of a matching trie} \label{sec:match-api}
 
 Here are the signatures of the lookup and insertion\footnote{We begin with |insert|
-  because it is simpler than |alter|} functions:
+  because it is simpler than |alter|} functions for our new matching triemap, |MExprMap|:
 \begin{code}
 type ExprPat = ([PatVar], Expr)
 type PatVar  = Var
@@ -1232,7 +1246,7 @@ insertMExpr :: ExprPat -> v -> MExprMap v -> MExprMap v
 lookupMExpr :: Expr -> MExprMap v -> Bag (Match v)
 \end{code}
 \rae{What is the actual definition of |MExprMap|?}
-A |MExprMap| is a trie, keyed by |Expr| \emph{patterns}.
+A |MExprMap| is a trie, keyed by |ExprPat| \emph{patterns}.
 A pattern variable, of type |PatVar| is just a |Var|; we
 use the type synonym just for documentation purposes. When inserting into a
 |MExprMap| we supply a pattern expression paired with the |[PatVar]|
@@ -1242,16 +1256,22 @@ a |Match| that includes the |(PatVar, Expr)| pairs obtained by
 matching the pattern, plus the value in the map (which presumably mentions those
 pattern variables).
 
+A |Bag| is a standard un-ordered collection of values, with a union operation;
+see \Cref{fig:library}. We need to be able to return a bag because there may
+be multiple matches. Even if we are returning the most-specific matches,
+there may be multiple incomparable ones.
+
 \sg{Why does lookupMExpr return a Bag? I thought we care for most-specific
 matches? Shouldn't it then return a DAG of matches, or a tree, or at least a
 list? Bag means no order at all... Later code assumes we can call map on Bags,
 but Bag isn't defined anywhere. Maybe just return a list?
 (A long time later, after I read 5.7) Ah, so it really is unordered. Fair
 enough, but it would help to say as much.}
+\simon{Any better now?}
 
 \subsection{Canonical patterns and pattern keys}
 
-In \Cref{sec:binders} we saw how we could use de-Bruijn numbers to
+In \Cref{sec:binders} we saw how we could use de-Bruijn levels to
 make two lambda expressions that differ only superficially (in the
 name of their bound variable) look the same.  Clearly, we want to do
 the same for pattern variables.  After all, consider these two patterns:
@@ -1325,26 +1345,28 @@ suppose we start with the pattern $([x,y], f \,x\, y\, y\, x)$ from the
 end of the last section. Its canonical form is $(f \,\pv{}\, \pv{}\, \pvo{2}\, \pvo{1})$.
 If we match that against a target $(f\,e_1\,e_2\,e_2\,e_1)$ we will produce a substitution $[\pvo{1} \mapsto e_1, \pvo{2} \mapsto e_2]$.
 But  what we \emph{want} is a |Match| (\Cref{sec:match-api}),
-that gives a list of (pattern-variable, value) pairs $[(x, e_1), (y,e_2)]$.
+that gives a list of (pattern-variable, expression) pairs $[(x, e_1), (y,e_2)]$.
 \sg{What is the difference between ,,expression'' and ,,value''
 here? I think for a Match, you have to give the value in addition to the list of
-pairs.}
+pairs.}\simon{True, we should say ``expression'' here; fixed.  And indeed a Match includes the value
+as well as the substitution, see 5.2. I'm not sure what to say to make this clearer.}
 
 Somehow we must accumulate a \emph{pattern-key map} that, for each
-individual entry, maps its pattern keys back to its corresponding
-pattern variables.  The pattern-key map is just a list of (pattern-variable, pattern-key) pairs.
+individual entry in triemap, maps its pattern keys back to the corresponding
+pattern variables for that entry.  The pattern-key map is just a list of (pattern-variable, pattern-key) pairs.
 For our example the pattern key map would be
 $[(x, \pv{1}), (y,\pv{2})]$.  We can store the pattern key
-map paired with the value, so that once we find a successful match we can use the pattern
+map paired with the value, in the triemap itself,
+so that once we find a successful match we can use the pattern
 key map and the pattern-key substitution to recover the pattern-variable substition that we want.
 
-To summrise, suppose we want to build a matching trie for the following (pattern, value) pairs:
+To summarise, suppose we want to build a matching trie for the following (pattern, value) pairs:
 $$
 (([x,y],\; f\;y\;(g\;y\;x)),\; v_1) \qquad and \qquad (([a],\; f\;a\;True),\;v_2)
 $$
-Then we will build a trie for the followng key-value pairs
+Then we will build a trie withe the following entries (key-value pairs):
 $$
-( (f \;\pv{}\;(g\;\pvo{1}\;\pv{})),\; (([(x,\pv{2}),(y,\pv{1})]), v_1) )
+( (f \;\pv{}\;(g\;\pvo{1}\;\pv{})),\; ([(x,\pv{2}),(y,\pv{1})], v_1) )
   \qquad and \qquad
 ( (f \;\pv{}\;True),\; ([(a,\pv{1})],\;v_2) )
 $$
@@ -1357,22 +1379,21 @@ We begin with |Expr| (defined in \Cref{sec:Expr}) as our key type;
 that is we will not deal with lambdas and lambda-bound variables for now.
 \Cref{sec:binders} will apply with no difficulty, but we can add that back
 in after we have dealt with matching.
-
 With these thoughts in mind, our matching trie has this definition:
 \begin{code}
 type PatKeys     = [(PatVar,PatKey)]
 type MExprMap v = MExprMapX (PatKeys, v)
 
 data MExprMapX v
-    = MM { mm_app  :: MExprMap (MExprMap v)
-         , mm_fvar :: Map Var v
-         , mm_pvar :: Maybe v     -- First occurrence of a pattern var
-         , mm_xvar :: PatOccs v   -- Subsequent occurrence of a pattern var
-             -- SG: I propose to combine |mm_pvar, mm_xvar| and have a single
-             -- |mm_pvar :: PatKeyMap v|. We can resolve first (flex) and second
-             -- or subseq (rigid) occs as we go.
-       }
-     | EmptyMM
+    = MM  {  mm_app   :: MExprMap (MExprMap v)
+          ,  mm_fvar  :: Map Var v
+          ,  mm_pvar  :: Maybe v     -- First occurrence of a pattern var
+          ,  mm_xvar  :: PatOccs v   -- Subsequent occurrence of a pattern var
+               -- SG: I propose to combine |mm_pvar, mm_xvar| and have a single
+               -- |mm_pvar :: PatKeyMap v|. We can resolve first (flex) and second
+               -- or subseq (rigid) occs as we go.
+           }
+    | EmptyMM
 type PatOccs v = [(PatKey,v)]
 \end{code}
 The client-visible |MExprMap| with values of type |v|
@@ -1401,23 +1422,31 @@ The core lookup function looks like this:
 %endif
 \begin{code}
 lkMExpr :: forall v. Expr -> (PatSubst, MExprMapX v) -> Bag (PatSubst, v)
-
-type PatKey = Int
+\end{code}
+As well as the target expression |Expr| and the trie, the lookup function also takes
+a |PatSubst| that gives the bindings for pattern variable bound so far.
+It returns a bag of results, since more than one entry in the trie may match,
+each paired with the |PatSubst| that binds the pattern variables.
+A |PatSubst| carries not only the current substition, but also (like a |BoundVarMap|, \Cref{sec:binders})
+the next free pattern key:
+\begin{code}
 data PatSubst = PS { ps_next  :: PatKey, ps_subst :: Map PatKey Expr }
+type PatKey = Int
 
--- \rae{describe? omit?}
 emptyPatSubst :: PatSubst
 emptyPatSubst = PS { ps_next = 0, ps_subst = Map.empty }
 
 extendPatSubst :: Expr -> PatSubst -> PatSubst
 extendPatSubst e (PS { ps_next = next, ps_subst = subst })
   = PS { ps_next = next + 1, ps_subst = Map.insert next e subst }
+
+lookupPatSubst :: PatKey -> PatSubst -> Expr
+lookupPatSubst pat_key (PS { ps_subst = subst })
+  = case Map.lookup pat_key subst of
+      Just expr -> expr
+      Nothing   -> error "Unbound key"
 \end{code}
 %}
-As well as the target expression |Expr| and the trie, the lookup function also takes
-a |PatSubst| that gives the bindings for pattern variable bound so far.
-It returns a bag of results, since more than one entry in the trie may match,
-each paired with the |PatSubst| that binds the pattern variables.
 
 Given |lkMExpr| we can write |lookupMExpr|,
 the externally-callable lookup function:
@@ -1430,12 +1459,6 @@ lookupMExpr e m = fmap rejig (lkMExpr e (emptyPatSubst, m))
 
 lookupPatKey :: PatSubst -> (PatVar,PatKey) -> (PatVar,Expr)
 lookupPatKey subst (pat_var, pat_key) = (pat_var, lookupPatSubst pat_key subst)
-
-lookupPatSubst :: PatKey -> PatSubst -> Expr
-lookupPatSubst pat_key (PS { ps_subst = subst })
-  = case Map.lookup pat_key subst of
-      Just expr -> expr
-      Nothing   -> error "Unbound key"
 \end{code}
 Here |lookupMExpr| is just an impedence-matching shim around
 a call to |lkMExpr| that does all the work.  Notice that the
@@ -1476,7 +1499,8 @@ lkMExpr e (psubst, mt)
         Var x     -> case Map.lookup x (mm_fvar mt) of
                         Just v  -> Bag.single (psubst,v)
                         Nothing -> Bag.empty
-        App e1 e2 -> undefined -- @(psubst, mm_app mt) |> lkMExpr e1 >=> lkMExpr e2@  \rae{type error here}
+        App e1 e2 -> Bag.concatMap (lkT (D dbe t2)) $
+                     lkT (D dbe t1) (tsubst, mem_fun mt)
 \end{code}
 The bag of results is the union of three possibilities, as follows. (Keep in mind that a |MExprMap| represents \emph{many} patterns simultaneously.)
 \begin{itemize}
