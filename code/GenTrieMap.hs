@@ -14,6 +14,8 @@ import qualified Data.Set as Set
 import qualified Data.IntMap as IntMap
 import Data.Kind
 import Control.Monad
+import Control.Applicative
+import Control.Monad.Logic as Logic
 import Data.Maybe( isJust )
 import Text.PrettyPrint as PP
 import Debug.Trace
@@ -21,7 +23,6 @@ import Data.Char
 import qualified Text.Read as Read
 import qualified Text.ParserCombinators.ReadP as ReadP
 import Data.Tree
-import Bag
 
 {- *********************************************************************
 *                                                                      *
@@ -253,10 +254,10 @@ extendBVM = IntMap.insert
 foldBVM :: (v -> a -> a) -> BoundVarMap v -> a -> a
 foldBVM k m z = foldr k z m
 
-lkBoundVarOcc :: BoundVar -> (PatSubst, BoundVarMap a) -> Bag (PatSubst, a)
+lkBoundVarOcc :: MonadPlus m => BoundVar -> (PatSubst, BoundVarMap a) -> m (PatSubst, a)
 lkBoundVarOcc var (tsubst, env) = case lookupBVM var env of
-                                     Just x  -> Bag.single (tsubst,x)
-                                     Nothing -> Bag.empty
+                                     Just x  -> return (tsubst,x)
+                                     Nothing -> mzero
 
 alterBoundVarOcc :: BoundVar -> XT a -> BoundVarMap a -> BoundVarMap a
 alterBoundVarOcc tv xt tm = IntMap.alter xt tv tm
@@ -286,10 +287,10 @@ foldFVM k m z = foldr k z m
 alterFreeVarOcc :: Var -> XT a -> FreeVarMap a -> FreeVarMap a
 alterFreeVarOcc tv xt tm = Map.alter xt tv tm
 
-lkFreeVarOcc :: Var -> (PatSubst, FreeVarMap a) -> Bag (PatSubst, a)
+lkFreeVarOcc :: MonadPlus m => Var -> (PatSubst, FreeVarMap a) -> m (PatSubst, a)
 lkFreeVarOcc var (tsubst, env) = case Map.lookup var env of
-                                    Just x  -> Bag.single (tsubst,x)
-                                    Nothing -> Bag.empty
+                                    Just x  -> return (tsubst,x)
+                                    Nothing -> mzero
 
 
 {- *********************************************************************
@@ -582,21 +583,20 @@ mkEmptyMExprMapX
         , mem_tycon  = Map.empty
         , mem_lam    = emptyMExprMapX }
 
-lkT :: DeBruijn Expr -> (PatSubst, MExprMapX a) -> Bag (PatSubst, a)
+lkT :: DeBruijn Expr -> (PatSubst, MExprMapX a) -> Logic (PatSubst, a)
 lkT (D dbe ty) (psubst, EmptyMEM)
-  = Bag.empty
+  = mzero
 lkT (D dbe ty) (psubst, MEM { .. })
-  = tmpl_var_bndr `Bag.union` rest
+  = tmpl_var_bndr <|> rest
   where
-     rest = tmpl_var_occs `Bag.union` go ty
-     no_more_specific_matches = not (Bag.any is_more_specific rest)
+     rest = tmpl_var_occs <|> go ty
+     no_more_specific_matches = not (any is_more_specific rest)
      is_more_specific (psubst', _) = ts_next psubst' > ts_next psubst
 
      go (Var tv)
        | Just bv <- lookupDBE tv dbe = lkBoundVarOcc bv (psubst, mem_bvar)
        | otherwise                   = lkFreeVarOcc  tv (psubst, mem_fvar)
-     go (App t1 t2) = Bag.concatMap (lkT (D dbe t2)) $
-                      lkT (D dbe t1) (psubst, mem_fun)
+     go (App t1 t2) = (psubst, mem_fun) |> lkT (D dbe t1) >=> lkT (D dbe t2)
      go (Lit tc)    = lkTC tc psubst mem_tycon
 
      go (Lam tv ty) = lkT (D (extendDBE tv dbe) ty) (psubst, mem_lam)
@@ -604,20 +604,20 @@ lkT (D dbe ty) (psubst, MEM { .. })
      tmpl_var_bndr | Just x <- mem_tvar
                    , no_more_specific_matches    -- This one line does overlap!
                    , noCaptured dbe ty
-                   = Bag.single (extendPatSubst ty psubst, x)
+                   = return (extendPatSubst ty psubst, x)
                    | otherwise
-                   = Bag.empty
+                   = mzero
 
-     tmpl_var_occs = Bag.fromList [ (psubst, x)
-                                  | (tmpl_var, x) <- mem_xvar
-                                  , deBruijnize (lookupPatSubst tmpl_var psubst)
-                                    `eqDBExpr` (D dbe ty)
-                                  ]
+     tmpl_var_occs = do
+       (tmpl_var, x) <- msum (map return mem_xvar)
+       guard $ eqDBExpr (deBruijnize (lookupPatSubst tmpl_var psubst))
+                        (D dbe ty)
+       return (psubst, x)
 
-lkTC :: Lit -> PatSubst -> Map.Map Lit a -> Bag (PatSubst, a)
+lkTC :: Lit -> PatSubst -> Map.Map Lit a -> Logic (PatSubst, a)
 lkTC tc psubst tc_map = case Map.lookup tc tc_map of
-                           Nothing -> Bag.empty
-                           Just x  -> Bag.single (psubst,x)
+                           Nothing -> mzero
+                           Just x  -> return (psubst,x)
 
 xtT :: PatVarSet -> DeBruijn Expr
     -> (PatKeys -> XT a)
@@ -690,7 +690,7 @@ insertMExprMap tmpl_tvs ty x tm
 lookupMExprMap :: Expr -> MExprMap a -> [ ([(PatVar,Expr)], a) ]
 lookupMExprMap ty tm
   = [ (map (lookup psubst) prs, x)
-    | (psubst, (prs, x)) <- Bag.toList $ lkT (deBruijnize ty) (emptyPatSubst, tm) ]
+    | (psubst, (prs, x)) <- Logic.observeAll $ lkT (deBruijnize ty) (emptyPatSubst, tm) ]
   where
     lookup :: PatSubst -> (PatVar, PatKey) -> (PatVar, Expr)
     lookup psubst (tv, key) = (tv, lookupPatSubst key psubst)
