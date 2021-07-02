@@ -566,7 +566,7 @@ data MExprMapX a
         , mem_lam    :: MExprMapX a
         }
 
-deriving instance (Show (TrieKey MExprMapX), Show v)
+deriving instance (Show v)
                => Show (MExprMapX v)
 
 emptyMExprMapX :: MExprMapX a

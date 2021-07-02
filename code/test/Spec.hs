@@ -29,36 +29,33 @@ prop_ExprMap_alter_miss =
     let xt = fmap (+1)
     let de1 = deBruijnize e1
     let de2 = deBruijnize e2
-    lookupTM de1 (alterTM de2 xt m) == xt (lookupTM de1 m)
+    lookupTM de1 (alterTM de2 xt m) == lookupTM de1 m
 
-{-
-Commented out until we can do matching again
-
-insertUC :: forall a. (Env, Expr, a) -> ExprMap a -> ExprMap a
+insertUC :: forall a. (Env, Expr, a) -> MExprMap a -> MExprMap a
 insertUC (env, ty, a) = insertMExprMap (boundVars env) ty a
 
 applyMatches :: Eq a => [ ([(PatVar,Expr)], a) ] -> [(Env, Expr, a)] -> [Expr]
-applyMatches matches inputs = [ applySubst subst ty | (subst, a)  <- matches, (env, ty, b) <- inputs, a == b ]
+applyMatches matches inputs = [ applySubst subst ty | (subst, a) <- matches, (env, ty, b) <- inputs, a == b ]
 
 -- This property ensures that if we get any matches, that they substitute to the actual type that
 -- that we're looking up.
 -- This property can be trivially fulfilled by not returning any matches.
 prop_match
   = forAll genInputs $ \inputs ->
-    forAll genClosedExpr $ \ty ->
+    forAll genClosedExpr $ \e ->
     distinctValues inputs ==>
-    let trie = foldr insertUC emptyExprMap inputs
-        matches = lookupTM ty trie
+    let trie = foldr insertUC emptyMExprMap inputs
+        matches = lookupMExprMap e trie
     in counterexample (show trie) $
-       all (ty `eqDBExpr`) (applyMatches matches inputs)
+       all (e ==) (applyMatches matches inputs)
 
 
 -- This property ensures that we actually can find things in the trie
 prop_find =
-  forAll genClosedExpr $ \ty ->
-  forAll (generalization ty) $ \(tvs, typ) ->
-  let [(subst, ())] = lookupTM ty (insertTM tvs typ () emptyTM)
-  in ty `eqDBExpr` applySubst subst typ
+  forAll genClosedExpr $ \e ->
+  forAll (generalization e) $ \(tvs, typ) ->
+  let [(subst, ())] = lookupMExprMap e (insertMExprMap tvs typ () emptyMExprMap)
+  in e == applySubst subst typ
 
 
 --distinctValues :: Eq a => [(x,y,a)] -> Bool
@@ -69,7 +66,6 @@ distinctValues ((_,_,a):xs) = notIn a xs && distinctValues xs
   where
     notIn a [] = True
     notIn a ((_,_,b):xs) = a /= b && notIn a xs
--}
 
 applySubst :: [(PatVar, Expr)] -> Expr -> Expr
 applySubst subst e@Lit{}   = e
