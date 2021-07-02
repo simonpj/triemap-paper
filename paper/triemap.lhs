@@ -1180,6 +1180,9 @@ that maps each lambda-bound variable to its de-Bruijn level\footnote{
   of $v$ counts the number of lambdas between the root of the expression and $v$'s binding site.
   It is convenient for us to use \emph{levels}.
   \simon{What can we cite?  Sebastian had a couple of suggestions, but both are informal.}
+  \sg{We should cite the original deBruijn paper. See Figure 1 here, which is explained just below:
+      \url{http://alexandria.tue.nl/repository/freearticles/597619.pdf}
+      reference depth corresponds to DB index. But it appears that the DB level is defined entirely different.}
   }, of type |BoundVarKey|.
 % \sg{We are using de Bruijn \emph{levels}, not \emph{indices}. A Var occurrence
 % with De Bruijn indices would count the number of lambdas between the occ and
@@ -1281,13 +1284,14 @@ see \Cref{fig:library}. We need to be able to return a bag because there may
 be multiple matches. Even if we are returning the most-specific matches,
 there may be multiple incomparable ones.
 
-\sg{Why does lookupMExpr return a Bag? I thought we care for most-specific
-matches? Shouldn't it then return a DAG of matches, or a tree, or at least a
-list? Bag means no order at all... Later code assumes we can call map on Bags,
-but Bag isn't defined anywhere. Maybe just return a list?
-(A long time later, after I read 5.7) Ah, so it really is unordered. Fair
-enough, but it would help to say as much.}
-\simon{Any better now?}
+% \sg{Why does lookupMExpr return a Bag? I thought we care for most-specific
+% matches? Shouldn't it then return a DAG of matches, or a tree, or at least a
+% list? Bag means no order at all... Later code assumes we can call map on Bags,
+% but Bag isn't defined anywhere. Maybe just return a list?
+% (A long time later, after I read 5.7) Ah, so it really is unordered. Fair
+% enough, but it would help to say as much.}
+% \simon{Any better now?}
+% Yes.
 
 \subsection{Canonical patterns and pattern keys}
 
@@ -1672,6 +1676,10 @@ further and try to save work when keys have common \emph{sub-trees};
 but the extra complexity does not seem to pay its way in practice, and
 substitution trees do not appear to be used in production applications.
 \simon{Leonardo, is that true; I think it's what you said.}
+\sg{Is that so? I see it is used in Z3:
+\url{https://github.com/Z3Prover/z3/blob/master/src/ast/substitution/substitution_tree.h}
+But it only has a single use site, in
+\url{https://github.com/Z3Prover/z3/blob/21e59f7c6e5033006265fc6bc16e2c9f023db0e8/src/muz/transforms/dl_mk_rule_inliner.h}.}
 
 Seen from a sufficient distance, our work is very close to discrimination trees -- we
 have simply re-presented discrimination trees in Haskell.
