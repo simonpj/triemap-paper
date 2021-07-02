@@ -426,11 +426,8 @@ emptyList :: TrieMap tm => ListMap' tm a
 emptyList = LM { lm_nil = Nothing, lm_cons = emptyTM }
 
 alterList :: (TrieMap tm, Functor f) => [TrieKey tm] -> XT f v -> XF f (ListMap' tm v)
-alterList ks xt
-  = case ks of
-      []      -> upd_nil  xt
-      (k:ks') -> upd_cons (alterTM k |>> alterTM ks' xt)
-
+alterList []      xt = upd_nil  xt
+alterList (k:ks') xt = upd_cons (alterTM k |>> alterTM ks' xt)
 
 foldList :: TrieMap tm => (v -> a -> a) -> ListMap' tm v -> a -> a
 foldList f (LM {..}) = foldMaybe f lm_nil . foldTM (foldTM f) lm_cons

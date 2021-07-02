@@ -671,7 +671,8 @@ differences, as we discuss later in \Cref{sec:related}.
 \section{Tries} \label{sec:Expr}
 
 A standard approach to a finite map in which the key has internal structure
-is to use a \emph{trie} \cite{trie}.  Let us consider a simplified
+is to use a \emph{trie}\footnote{\url{https://en.wikipedia.org/wiki/Trie}}.
+Let us consider a simplified
 form of expression:
 \begin{code}
 data Expr = Var Var | App Expr Expr
@@ -686,25 +687,24 @@ Here is a trie-based implemenation for |Expr|:
 %{
 %if style == newcode
 %format ExprMap = "ExprMap0"
-%format ESM = "ESM0"
-%format esm_var = "esm_var0"
-%format esm_app = "esm_app0"
+%format EM = "EM0"
+%format em_var = "em_var0"
+%format em_app = "em_app0"
 %format lookupExpr = "lookupExpr0"
 %format alterExpr = "alterExpr0"
 %format liftXT = "liftXT0"
 %format emptyExpr = "emptyExpr0"
 %endif
 \begin{code}
-data ExprMap v = ESM  { esm_var  :: Map Var v
-                      , esm_app  :: ExprMap (ExprMap v) }
+data ExprMap v = EM  { em_var  :: Map Var v, em_app  :: ExprMap (ExprMap v) }
 \end{code}
 Here |Map Var v| is any standard, existing finite map, such as the |containers|
 library\footnote{\url{https://hackage.haskell.org/package/containers}
-} keyed by |Var|.
+} keyed by |Var|, with values |v|.
 One way to understand this slightly odd data type is to study its lookup function:
 \begin{code}
 lookupExpr :: Expr -> ExprMap v -> Maybe v
-lookupExpr e (ESM { esm_var = m_var, esm_app = m_app })
+lookupExpr e (EM { em_var = m_var, em_app = m_app })
   =  case e of
       Var x      -> Map.lookup x m_var
       App e1 e2  ->  case lookupExpr e1 m_app of
@@ -713,10 +713,10 @@ lookupExpr e (ESM { esm_var = m_var, esm_app = m_app })
 \end{code}
 This function pattern-matches on the target |e|.  The |Var| alternative
 says that to look up a variable occurrence, just look that variable up in the
-|esm_var| field.
+|em_var| field.
 But if the expression is an |App e1 e2| node, we first look up |e1|
-in the |esm_app| field, \emph{which returns a finite map}.  We then look up |e2|
-in that map.  Each distinct |e1| yields a different map in which to look up |e2|.
+in the |em_app| field, \emph{which returns an |ExprMap|}.  We then look up |e2|
+in that map.  Each distinct |e1| yields a different |ExprMap| in which to look up |e2|.
 
 We can substantially abbreviate this code, at the expense of making it more cryptic, thus:
 %{
@@ -728,18 +728,18 @@ lookupExpr :: Expr -> ExprMap v -> Maybe v
 \end{code}
 %endif
 \begin{code}
-lookupExpr (Var x)      = esm_var  >.> Map.lookup x
-lookupExpr (App e1 e2)  = esm_app  >.> lookupExpr e1 >=> lookupExpr e2
+lookupExpr (Var x)      = em_var  >.> Map.lookup x
+lookupExpr (App e1 e2)  = em_app  >.> lookupExpr e1 >=> lookupExpr e2
 \end{code}
 %}
-We use some simple composition combinators to chain together the component pieces.
-The function |esm_var :: ExprMap v -> Map Var v|
-is the auto-generated selector that picks |esm_var| field from an |ESM| record.
+The function |em_var :: ExprMap v -> Map Var v|
+is the auto-generated selector that picks |em_var| field from an |EM| record, and similarly |em_app|.
 The functions |(>.>)| and |(>=>)| are right-associative forward composition
 operators, respectively monadic and non-monadic,
 that chain the individual operations together (see Cref{fig:library}).
 Finally, we have $\eta$-reduced the definition, by omitting the |m| parameter.
-These abbreviations become quite worthwhile when we add more constructors to the key data type.
+These abbreviations become quite worthwhile when we add more constructors, each with more fields,
+to the key data type.
 
 Notice that in contrast to the approach of \Cref{sec:ord}, \emph{we never compare two expressions
 for equality or ordering}.  We simply walk down the |ExprMap| structure, guided
@@ -762,32 +762,32 @@ First, we need an empty trie. Here is one way to define it:
 %format foldrExpr = "foldrExpr0"
 %format sizeExpr = "sizeExpr0"
 %format ExprMap = "ExprMap0"
-%format esm_var = "esm_var0"
-%format esm_app = "esm_app0"
-%format ESM = "ESM0"
+%format em_var = "em_var0"
+%format em_app = "em_app0"
+%format EM = "EM0"
 %endif
 \begin{code}
 emptyExpr :: ExprMap v
-emptyExpr = ESM { esm_var = Map.empty, esm_app = emptyExpr }
+emptyExpr = EM { em_var = Map.empty, em_app = emptyExpr }
 \end{code}
 It is interesting to note that |emptyExpr| is an infinite, recursive structure:
-the |esm_app| field refers back to |emptyExpr|.  We will change this
+the |em_app| field refers back to |emptyExpr|.  We will change this
 definition in \Cref{sec:empty}, but it works perfectly well for now.
 
 Next, we need to |alter| a triemap:
 \begin{code}
 alterExpr :: Expr -> XT v -> ExprMap v -> ExprMap v
-alterExpr e xt m@(ESM { esm_var = m_var, esm_app = m_app })
+alterExpr e xt m@(EM { em_var = m_var, em_app = m_app })
   =  case e of
-       Var x      -> m { esm_var  = Map.alter xt x m_var }
-       App e1 e2  -> m { esm_app  = alterExpr e1 (liftXT (alterExpr e2 xt)) m_app }
+       Var x      -> m { em_var  = Map.alter xt x m_var }
+       App e1 e2  -> m { em_app  = alterExpr e1 (liftXT (alterExpr e2 xt)) m_app }
 
 liftXT :: (ExprMap v -> ExprMap v) -> XT (ExprMap v)
 liftXT f Nothing    = Just (f emptyExpr)
 liftXT f (Just m)   = Just (f m)
 \end{code}
 %}
-In the |Var| case, we must just update the map stored in the |esm_var| field,
+In the |Var| case, we must just update the map stored in the |em_var| field,
 using the |Map.alter| function from \Cref{fig:containers};
 in Haskell the notation ``|m { fld = e }|'' means the result
 of updating the |fld| field of record |m| with new value |e|.
@@ -822,7 +822,7 @@ left-subtree/right-subtree structure, so some careful re-alignment may be requir
 But for tries there are no such worries --
 their structure is identical, and we can simply zip them together.  There is one
 wrinkle: just as we had to generalise |insert| to |alter|,
-to accomodate the nested map in |esm_app|, so we need to generalise |union| to |unionWith|:
+to accomodate the nested map in |em_app|, so we need to generalise |union| to |unionWith|:
 \begin{code}
 unionWithExpr :: (v -> v -> v) -> ExprMap v -> ExprMap v -> ExprMap v
 \end{code}
@@ -830,27 +830,27 @@ When a key appears on both maps, the combining function is used to
 combine the two corresponding values.
 With that generalisation, the code is as follows:
 \begin{code}
-unionWithExpr f  (ESM { esm_var = m1_var, esm_app = m1_app })
-                 (ESM { esm_var = m2_var, esm_app = m2_app })
-  = ESM  { esm_var = Map.unionWith f m1_var m2_var
-         , esm_app = unionWithExpr (unionWithExpr f) m1_app m2_app }
+unionWithExpr f  (EM { em_var = m1_var, em_app = m1_app })
+                 (EM { em_var = m2_var, em_app = m2_app })
+  = EM  { em_var = Map.unionWith f m1_var m2_var
+         , em_app = unionWithExpr (unionWithExpr f) m1_app m2_app }
 \end{code}
 It could hardly be simpler.
 
-\subsection{Folds and the empty map} \label{sec:fold}
+\subsection{Folds and the empty map} \label{sec:fold} \label{sec:empty}
 
 This strange, infinite definition of |emptyExpr| given in \Cref{sec:empty-infinite}
-works fine (in a lazy language) for lookup, alteration, and union, but it fails
+works fine (in a lazy language at least) for lookup, alteration, and union, but it fails
 fundamentally when we want to \emph{iterate} over the elements of the trie.
 For example, suppose we wanted to count the number of elements in the finite map; in |containers|
-this is the function |Map.size| (\Cref{fig:containers}).  We might try
+this is the function |Map.size| (\Cref{fig:containers}).  We might attempt:
 %{
 %if style == poly
 %format undefined = "???"
 %endif
 \begin{code}
 sizeExpr :: ExprMap v -> Int
-sizeExpr (ESM { esm_var = m_var, esm_app = m_app }) = Map.size m_var + undefined
+sizeExpr (EM { em_var = m_var, em_app = m_app }) = Map.size m_var + undefined
 \end{code}
 %}
 We seem stuck because the size of the |m_app| map is not what we want: rather,
@@ -858,7 +858,7 @@ we want to add up the sizes of its \emph{elements}, and we don't have a way to d
 The right thing to do is to generalise to a fold:
 \begin{code}
 foldrExpr :: (v -> r -> r) -> r -> ExprMap v -> r
-foldrExpr k z (ESM { esm_var = m_var, esm_app = m_app })
+foldrExpr k z (EM { em_var = m_var, em_app = m_app })
   = Map.foldr k z1 m_var
   where
     z1 = foldrExpr kapp z m_app
@@ -877,21 +877,21 @@ Here is one way to do it (we will see another in \Cref{sec:generalised}):
 %{
 %if style == newcode
 %format ExprMap = "ExprMap1"
-%format EmptyESM = "EmptyESM1"
-%format ESM = "ESM1"
-%format esm_var = "esm_var1"
-%format esm_app = "esm_app1"
+%format EmptyEM = "EmptyEM1"
+%format EM = "EM1"
+%format em_var = "em_var1"
+%format em_app = "em_app1"
 %endif
 \begin{code}
-data ExprMap v  = EmptyESM
-                | ESM { esm_var :: Map Var v, esm_app :: ExprMap (ExprMap v) }
+data ExprMap v  = EmptyEM
+                | EM { em_var :: Map Var v, em_app :: ExprMap (ExprMap v) }
 
 emptyExpr :: ExprMap v
-emptyExpr = EmptyESM
+emptyExpr = EmptyEM
 
 foldrExpr :: (v -> r -> r) -> r -> ExprMap v -> r
-foldrExpr k z EmptyESM                                   = z
-foldrExpr k z (ESM { esm_var = m_var, esm_app = m_app })  = Map.foldr k z1 m_var
+foldrExpr k z EmptyEM                                   = z
+foldrExpr k z (EM { em_var = m_var, em_app = m_app })  = Map.foldr k z1 m_var
   where
     z1 = foldrExpr kapp z m_app
     kapp m1 r = foldrExpr k r m1
@@ -984,18 +984,19 @@ But rather than define a |ListExprMap| for keys of type |[Expr]|,
 and a |ListDeclMap| for keys of type |[Decl]|, etc, we would obviously prefer
 to build a trie for lists of \emph{any type}, like this \cite{hinze}:
 \begin{code}
-data ListMap tm v = LM { lm_nil  :: Maybe v, lm_cons :: tm (ListMap tm  v) }
+lookupList :: TrieMap tm => [TrieKey tm] -> ListMap tm v -> Maybe v
+lookupList []      = lm_nil
+lookupList (k:ks)  = lm_cons >.> lookupTM k >=> lookupList ks
 
 emptyList :: TrieMap tm => ListMap tm
 emptyList = LM { lm_nil = Nothing, lm_cons = emptyTM }
 
-lookupList :: TrieMap tm => [TrieKey tm] -> ListMap tm v -> Maybe v
-lookupList []      = lm_nil
-lookupList (k:ks)  = lm_cons >.> lookupTM k >=> lookupList ks
+data ListMap tm v = LM { lm_nil  :: Maybe v, lm_cons :: tm (ListMap tm  v) }
 \end{code}
 The code for |alterList| and |foldList| is routine. Notice that all of
 these functions are polymorphic in |tm|, the triemap for the list elements.
-Of course, a |ListMap tm| is itself a triemap:
+So |ListMap| is a \emph{triemap-transformer}; and if |tm| is a |TrieMap| then
+so is |ListMap tm|:
 \begin{code}
 instance TrieMap tm => TrieMap (ListMap tm) where
    type TrieKey (ListMap tm) = [TrieKey tm]
@@ -1014,21 +1015,21 @@ with a key (an |Expr|) that is large, say
 Looking at the code
 for |alterExpr| in \Cref{sec:alter}, you can see that
 because there is an |App| at the root, we will build an
-|ESM| record with an empty |esm_var|, and an
-|esm_app| field that is... another |ESM|
-record.  Again the |esm_var| field will contain an
-empty map, while the |esm_app| field is a further |ESM| record.
+|EM| record with an empty |em_var|, and an
+|em_app| field that is... another |EM|
+record.  Again the |em_var| field will contain an
+empty map, while the |em_app| field is a further |EM| record.
 
-In effect, the key is linearised into a chain of |ESM| records.
+In effect, the key is linearised into a chain of |EM| records.
 This is great when there are a lot of keys with shared structure, but
 once we are in a sub-tree that represents a single key-value pair it is
 a rather inefficient way to represent the key.  So a simple idea is this:
 when a |ExprMap| represents a single key-value pair, represent it
 as directly a key-value pair, like this:
 \begin{code}
-data ExprMap v  = EmptyESM
-                 | SingleESM Expr v   -- A single key/value pair
-                 | ESM { esm_var :: Map Var v, esm_app :: ExprMap (ExprMap v) }
+data ExprMap v  = EmptyEM
+                | SingleEM Expr v   -- A single key/value pair
+                | EM { em_var :: Map Var v, em_app :: ExprMap (ExprMap v) }
 \end{code}
 But we will have to tiresomely repeat these extra data constructors, |EmptyX| and |SingleX|
 for each new data type |X| for which we want a triemap.
@@ -1050,7 +1051,7 @@ lookupSEMap tk  (MultiSEM tm)                  = lookupTM tk tm
 \end{code}
 Notice that in the |SingleSEM| case we need equality on the key type |TrieKey tm|,
 to tell if the key being looked up, |tk| is the same as the key in
-the |SingleESM|, namely |pk|.
+the |SingleEM|, namely |pk|.
 That is why we made |Eq (TrieKey tm)| a superclass of |TrieMap tm|
 in the |class| declaration in \Cref{sec:class}.
 
@@ -1087,7 +1088,7 @@ Yes, of course we can, but it takes a bit of work; the Appendix has the details.
 Finally, we need to re-define |ExprMap| and |ListMap| using |SEMap|:
 \begin{code}
   type ExprMap       = SEMap ExprMap'
-  data ExprMap' v    = ESM  { esm_var  :: Map Var v, esm_app  :: ExprMap (ExprMap v) }
+  data ExprMap' v    = EM { em_var  :: Map Var v, em_app  :: ExprMap (ExprMap v) }
 
   type ListMap        = SEMap ListMap'
   data ListMap' tm v  = LM { lm_nil  :: Maybe v, lm_cons :: tm (ListMap tm v) }
@@ -1097,6 +1098,27 @@ the empty and singleton cases are dealt with by |SEMap|.  We reserve the origina
 un-primed, names for the user-visible |ExprMap| and |ListMap| constructors.
 
 The singleton-map optimisation makes a big difference in practice: see \Cref{sec:results}.
+
+\subsection{Generic programming}
+
+We have not described a triemap \emph{library}; rather we have described a \emph{design pattern}.
+More precisely, given a new algebraic data type |X|, we have described a systematic way
+of defining a triemap, |XMap|, keyed by values of type |X|.
+Such a triemap is represented by a record:
+\begin{itemize}
+\item Each \emph{constructor} |K| of |X| becomes a \emph{field} |x_k| in |XMap|.
+\item Each \emph{field} of a constructor |K| becomes a \emph{nested triemap} in the type of the field |x_k|.
+\item If |X| is polymorphic then |XMap| becomes a triemap transformer, like
+  |ListMap| above.
+\end{itemize}
+Actually writing out all this boilerplate code is tiresome, and it can of course be automated.
+One way to do so would be to
+use generic or polytypic programming, and Hinze describes precisely this \cite{hinze:generalized}.
+Another approach would be to use Template Haskell.
+
+We do not develop either of these approaches here, because our focus is only the
+functionality and expressiveness of the triemaps.  However, everything we do is compatible
+with an automated approach to generating boilerplate code.
 
 \section{Keys with binders} \label{sec:binders}
 
@@ -1123,10 +1145,10 @@ variables. We will not actually build a value of type |Expr'| and look
 that up in a trie keyed by |Expr'|; rather,
 we are going to \emph{behave as if we did}. Here is the code
 \begin{code}
-data ExprLMap v = EM  {  em_app  :: ExprLMap (ExprLMap v)
-                      ,  em_lam  :: ExprLMap v
-                      ,  em_fv   :: Map Var v            -- Free variables
-                      ,  em_bv   :: Map BoundVarKey v }  -- Lambda-bound variables
+data ExprLMap v = ELM  {  elm_app  :: ExprLMap (ExprLMap v)
+                       ,  elm_lam  :: ExprLMap v
+                       ,  elm_fv   :: Map Var v            -- Free variables
+                       ,  elm_bv   :: Map BoundVarKey v }  -- Lambda-bound variables
 
 lookupExprL :: ExprL -> ExprLMap v -> Maybe v
 lookupExprL e = lkExprL (DB emptyBVM e)
@@ -1134,11 +1156,11 @@ lookupExprL e = lkExprL (DB emptyBVM e)
 data DBExprL = DB { edb_bvm :: BoundVarMap, edb_expr :: ExprL }
 
 lkExprL :: DBExprL -> ExprLMap v -> Maybe v
-lkExprL (DB bvm (AppL e1 e2)) = em_app >.> lkExprL (DB bvm e1) >=> lkExprL (DB bvm e2)
-lkExprL (DB bvm (Lam v e))   = em_lam >.> lkExprL (DB (extendBVM v bvm) e)
+lkExprL (DB bvm (AppL e1 e2)) = elm_app >.> lkExprL (DB bvm e1) >=> lkExprL (DB bvm e2)
+lkExprL (DB bvm (Lam v e))   = elm_lam >.> lkExprL (DB (extendBVM v bvm) e)
 lkExprL (DB bvm (VarL v))     = case lookupBVM v bvm of
-                                Nothing -> em_fv  >.> Map.lookup v   -- Free
-                                Just bv -> em_bv  >.> Map.lookup bv  -- Lambda-bound
+                                Nothing -> elm_fv  >.> Map.lookup v   -- Free
+                                Just bv -> elm_bv  >.> Map.lookup bv  -- Lambda-bound
 
 data BoundVarMap = BVM { bvm_next :: BoundVarKey, bvm_map :: Map Var BoundVarKey }
 type BoundVarKey = Int
