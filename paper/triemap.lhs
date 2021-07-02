@@ -372,8 +372,6 @@ instance Eq Expr where
 }
 \email{sebastian.graf@@kit.edu}
 
-\author{Josef Sveningsson}
-
 %% Abstract
 %% Note: \begin{abstract}...\end{abstract} environment must come
 %% before \maketitle command
