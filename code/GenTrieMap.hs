@@ -215,6 +215,7 @@ xtCons key (Just x) tmpl_occs = (key,x) : tmpl_occs
 ---------------
 data PatSubst = TS { ts_subst :: IntMap.IntMap Expr     -- Maps PatKey -> Expr
                    , ts_next  :: PatKey }
+                   deriving Show
 
 emptyPatSubst :: PatSubst
 emptyPatSubst = TS { ts_subst = IntMap.empty
@@ -695,6 +696,11 @@ lookupMExprMap ty tm
     lookup :: PatSubst -> (PatVar, PatKey) -> (PatVar, Expr)
     lookup psubst (tv, key) = (tv, lookupPatSubst key psubst)
 
+mkMExprMap :: [([Var], Expr, a)] -> MExprMap a
+mkMExprMap = foldr (\(tmpl_vs, e, a) -> insertMExprMap tmpl_vs e a) emptyMExprMap
+
+mkMExprSet :: [([Var], Expr)] -> MExprMap Expr
+mkMExprSet = mkMExprMap . map (\(tmpl_vs, e) -> (tmpl_vs, e, e))
 
 {- *********************************************************************
 *                                                                      *

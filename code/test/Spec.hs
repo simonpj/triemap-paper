@@ -40,7 +40,7 @@ applyMatches matches inputs = [ applySubst subst ty | (subst, a) <- matches, (en
 -- This property ensures that if we get any matches, that they substitute to the actual type that
 -- that we're looking up.
 -- This property can be trivially fulfilled by not returning any matches.
-prop_match
+_prop_match
   = forAll genInputs $ \inputs ->
     forAll genClosedExpr $ \e ->
     distinctValues inputs ==>
@@ -51,12 +51,18 @@ prop_match
 
 
 -- This property ensures that we actually can find things in the trie
-prop_find =
+_prop_find =
   forAll genClosedExpr $ \e ->
   forAll (generalization e) $ \(tvs, typ) ->
   let [(subst, ())] = lookupMExprMap e (insertMExprMap tvs typ () emptyMExprMap)
   in e == applySubst subst typ
 
+-- | A regression test exemplifying that is_more_specific is broken:
+prop_too_specific = do
+  let m = mkMExprSet [(["a", "b", "c"], read "F (a b) c"), (["ab"], read "F ab C")]
+      matches = lookupMExprMap (read "F (A B) C") m
+  counterexample ("Matching on `F (A B) C` returned wrong number of matches:\n" ++ show matches) $
+    length matches == 2
 
 --distinctValues :: Eq a => [(x,y,a)] -> Bool
 -- Assume that values are Ints to avoid ambiguous types
