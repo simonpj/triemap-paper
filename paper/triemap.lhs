@@ -1700,6 +1700,10 @@ a single built-in data type of terms.
   over polymorphic types like lists (\Cref{sec:class}).
 \end{itemize}
 
+\sg{Maybe talk about section 14 of the handbook, where different ways (such as delayed
+equality constraints) are proposed to deal with non-linearity instead of
+numbering all pattern variable occurrences, which loses sharing.}
+
 \subsection{Haskell triemaps}
 
 \subsection{Notes from Sebastian}
