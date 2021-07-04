@@ -43,7 +43,7 @@ genOpenExpr env = QC.sized $ \size ->
     [ [ (1, genLit env)     ]
     , [ (2, genVar env)     | not $ null $ boundVars env ]
     , [ (size, genApp env)    ]
-    , [ (size, genLam env) ]
+    , [ (size `div` 4, genLam env) ]
     ]
 
 -- | This defn leads to good correlation between QC size and expr sizes

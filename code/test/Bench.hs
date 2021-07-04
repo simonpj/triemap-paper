@@ -7,6 +7,8 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 
+module Bench ( gauge, weigh ) where
+
 import GenTrieMap
 import Arbitrary
 
@@ -14,6 +16,7 @@ import Test.QuickCheck.Gen
 import Test.QuickCheck.Random
 import Control.DeepSeq
 import Gauge
+import DataSize
 
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -47,7 +50,7 @@ instance (TrieMap tm, NFData (TrieKey tm), NFData (tm v), NFData v) => NFData (S
   rnf (SingleSEM k v) = rnf k `seq` rnf v
   rnf (MultiSEM tm) = rnf tm
 
-instance (NFData (tm (ListMap tm v)), NFData v) => NFData (ListMap tm v) where
+instance (NFData (tm (ListMap tm v)), NFData v) => NFData (ListMap' tm v) where
   rnf lm = rnf [rnf (lm_nil lm), rnf (lm_cons lm)]
 
 instance NFData v => NFData (ExprMap' v) where
@@ -79,24 +82,34 @@ class NFData m => MapAPI m where
   emptyMap :: m
   lookupMap :: Expr -> m -> Maybe Int
   insertMap :: Expr -> Int -> m -> m
+  fold :: (Int -> b -> b) -> m -> b -> b
+  mapFromList :: [(Expr, Int)] -> m
 
 instance MapAPI (ExprMap Int) where
   emptyMap = emptyExprMap
   lookupMap e = lookupTM (deBruijnize e)
   insertMap e = insertTM (deBruijnize e)
+  fold = foldTM
+  mapFromList = foldr (uncurry insertMap) emptyMap
 
 instance MapAPI (Map Expr Int) where
   emptyMap = Map.empty
   lookupMap = Map.lookup
   insertMap = Map.insert
+  fold f m z = foldr f z m
+  mapFromList = Map.fromList
 
 instance MapAPI (HashMap Expr Int) where
   emptyMap = HashMap.empty
   lookupMap = HashMap.lookup
   insertMap = HashMap.insert
+  fold f m z = foldr f z m
+  mapFromList = HashMap.fromList
 
-mapFromList :: MapAPI m => [(Expr, Int)] -> m
-mapFromList = foldr (uncurry insertMap) emptyMap
+mkNExprs :: Int -> [Expr]
+mkNExprs n = runGenDet 100 $ vectorOf n genClosedExpr
+mkNExprsWithPrefix :: Int -> (Expr -> Expr) -> [Expr]
+mkNExprsWithPrefix n f = map (\e -> iterate f e !! n) (mkNExprs n)
 
 
 {- *********************************************************************
@@ -105,22 +118,30 @@ mapFromList = foldr (uncurry insertMap) emptyMap
 *                                                                      *
 ********************************************************************* -}
 
-sizes :: [Int]
-sizes = [100, 500, 1000]
+gaugeSizes :: [Int]
+-- gaugeSizes = [100, 1000]
+gaugeSizes = [10, 100, 1000]
+-- gaugeSizes = [10, 100, 1000, 10000]
 
-main = defaultMain
+gauge :: [Benchmark]
+gauge =
   [ bgroup "random"
       [ bgroup "filler, so that the first line begins with a leading comma" []
-      , rnd_lookup_all_w_prefix
-      , rnd_insert_lookup_one
       , rnd_lookup_all
+      , rnd_lookup_all_w_app1_prefix
+      , rnd_lookup_all_w_app2_prefix
+      , rnd_lookup_all_w_lam_prefix
       , rnd_lookup_one
+      , rnd_insert_lookup_one
+      , rnd_fromList_w_app1_prefix
+      , rnd_fromList
+      , rnd_fold
       ]
   ]
   where
     with_map_of_exprs :: forall m. MapAPI m => Int -> ([Expr] -> m -> Benchmark) -> Benchmark
     with_map_of_exprs n k =
-      env (pure (runGenDet n $ vectorOf n genClosedExpr)) $ \exprs ->
+      env (pure (mkNExprs n)) $ \exprs ->
       env (pure ((mapFromList $ zip exprs [0..]) :: m)) $ \(expr_map :: m) ->
       k exprs expr_map
 
@@ -130,35 +151,108 @@ main = defaultMain
       , bgroup "Map"     [f (emptyMap :: Map Expr Int)     n]
       , bgroup "HashMap" [f (emptyMap :: HashMap Expr Int) n]
       ]
+    {-# INLINE bench_all_variants #-}
 
     rnd_lookup_all :: Benchmark
-    rnd_lookup_all = bench_all_variants "lookup_all" sizes $ \(_ :: m) n ->
+    rnd_lookup_all = bench_all_variants "lookup_all" gaugeSizes $ \(_ :: m) n ->
       with_map_of_exprs @m n $ \exprs expr_map ->
       bench "" $ nf (map (`lookupMap` expr_map)) exprs
 
     rnd_lookup_one :: Benchmark
-    rnd_lookup_one = bench_all_variants "lookup_one" sizes $ \(_ :: m) n ->
+    rnd_lookup_one = bench_all_variants "lookup_one" gaugeSizes $ \(_ :: m) n ->
       with_map_of_exprs @m n $ \exprs expr_map ->
       bench "" $ nf (`lookupMap` expr_map) (head exprs) -- exprs is random, so head is as good as any
 
     rnd_insert_lookup_one :: Benchmark
-    rnd_insert_lookup_one = bench_all_variants "insert_lookup_one" sizes $ \(_ :: m) n ->
+    rnd_insert_lookup_one = bench_all_variants "insert_lookup_one" gaugeSizes $ \(_ :: m) n ->
       with_map_of_exprs @m n $ \_exprs expr_map ->
       env (pure (runGenDet (2*n) genClosedExpr)) $ \e ->
       bench "" $ nf (\e' -> lookupMap e' (insertMap e' (n+1) expr_map)) e
 
-    rnd_lookup_all_w_prefix :: Benchmark
-    rnd_lookup_all_w_prefix = bench_all_variants "lookup_all_w_prefix" sizes $ \(_ :: m) n ->
-      env (pure (map (\e -> iterate (Lam "$") e !! n) $ runGenDet n $ vectorOf n genClosedExpr)) $ \exprs ->
+    rnd_lookup_all_w_lam_prefix :: Benchmark
+    rnd_lookup_all_w_lam_prefix = bench_all_variants "lookup_all_w_lam_prefix" gaugeSizes $ \(_ :: m) n ->
+      env (pure (mkNExprsWithPrefix n (Lam "$"))) $ \exprs ->
       env (pure ((mapFromList $ zip exprs [0..]) :: m)) $ \(expr_map :: m) ->
       bench "" $ nf (map (`lookupMap` expr_map)) exprs
 
+    rnd_lookup_all_w_app1_prefix :: Benchmark
+    rnd_lookup_all_w_app1_prefix = bench_all_variants "lookup_all_w_app1_prefix" gaugeSizes $ \(_ :: m) n ->
+      env (pure (mkNExprsWithPrefix n (Lit "$" `App`))) $ \exprs ->
+      env (pure ((mapFromList $ zip exprs [0..]) :: m)) $ \(expr_map :: m) ->
+      bench "" $ nf (map (`lookupMap` expr_map)) exprs
+
+    rnd_lookup_all_w_app2_prefix :: Benchmark
+    rnd_lookup_all_w_app2_prefix = bench_all_variants "lookup_all_w_app2_prefix" gaugeSizes $ \(_ :: m) n ->
+      env (pure (mkNExprsWithPrefix n (`App` Lit "$"))) $ \exprs ->
+      env (pure ((mapFromList $ zip exprs [0..]) :: m)) $ \(expr_map :: m) ->
+      bench "" $ nf (map (`lookupMap` expr_map)) exprs
+
+    rnd_fromList :: Benchmark
+    rnd_fromList = bench_all_variants "fromList" gaugeSizes $ \(_ :: m) n ->
+      env (pure (flip zip [0..] $ mkNExprs n)) $ \pairs ->
+      bench "" $ nf (mapFromList :: [(Expr, Int)] -> m) pairs
+
+    rnd_fromList_w_app1_prefix :: Benchmark
+    rnd_fromList_w_app1_prefix = bench_all_variants "fromList_w_app1_prefix" gaugeSizes $ \(_ :: m) n ->
+      env (pure (flip zip [0..] $ mkNExprsWithPrefix n (Lit "$" `App`))) $ \pairs ->
+      bench "" $ nf (mapFromList :: [(Expr, Int)] -> m) pairs
+
+    rnd_fold :: Benchmark
+    rnd_fold = bench_all_variants "fold" gaugeSizes $ \(_ :: m) n ->
+      with_map_of_exprs @m n $ \_exprs expr_map ->
+      bench "" $ whnf (\em -> fold (+) em 0) expr_map
+
 -- No unionTM yet...
 --    rnd_union :: Benchmark
---    rnd_union = bench_all_variants "rnd_union" sizes $ \(_ :: m) n ->
+--    rnd_union = bench_all_variants "rnd_union" gaugeSizes $ \(_ :: m) n ->
 --      with_map_of_exprs @m n $ \_exprs1 expr_map1 ->
 --      with_map_of_exprs @m (n+1) $ \_exprs2 expr_map2 ->
 --      bench "" $ nf (map (`union` expr_map)) exprs
 
+weighSizes :: [Int]
+weighSizes = [10, 100, 1000]
+-- weighSizes = [10, 100, 1000, 5000]
+
+-- Called weigh, because I started out by using the Weigh benchmark framework,
+-- but it delivered incorrect results. Still like the name
+weigh :: IO ()
+weigh = do
+  rnd
+  rnd_w_lam_prefix
+  rnd_w_app1_prefix
+  rnd_w_app2_prefix
+  where
+    weigh_all_variants :: String -> [Int] -> (forall m. MapAPI m => String -> m -> Int -> IO ()) -> IO ()
+    weigh_all_variants pref sizes f = flip mapM_ sizes $ \n -> do
+      f (pref ++ "/ExprMap") (emptyMap :: ExprMap Int)      n
+      f (pref ++ "/Map")     (emptyMap :: Map Expr Int)     n
+      f (pref ++ "/HashMap") (emptyMap :: HashMap Expr Int) n
+
+    rnd :: IO ()
+    rnd = weigh_all_variants "rnd" weighSizes $ \pref (_ :: m) n -> do
+      let map = mapFromList (flip zip [0..] $ mkNExprs n) :: m
+      s <- recursiveSize $!! map
+      putStrLn (pref ++ "/" ++ show n ++ ": " ++ show s)
+
+    rnd_w_lam_prefix :: IO ()
+    rnd_w_lam_prefix = weigh_all_variants "rnd_w_lam_prefix" weighSizes $ \pref (_ :: m) n -> do
+      let map = mapFromList (flip zip [0..] $ mkNExprsWithPrefix n (Lam "$")) :: m
+      s <- recursiveSize $!! map
+      putStrLn (pref ++ "/" ++ show n ++ ": " ++ show s)
+
+    rnd_w_app1_prefix :: IO ()
+    rnd_w_app1_prefix = weigh_all_variants "rnd_w_app1_prefix" weighSizes $ \pref (_ :: m) n -> do
+      let map = mapFromList (flip zip [0..] $ mkNExprsWithPrefix n (Lit "$" `App`)) :: m
+      s <- recursiveSize $!! map
+      putStrLn (pref ++ "/" ++ show n ++ ": " ++ show s)
+
+    rnd_w_app2_prefix :: IO ()
+    rnd_w_app2_prefix = weigh_all_variants "rnd_w_app2_prefix" weighSizes $ \pref (_ :: m) n -> do
+      let map = mapFromList (flip zip [0..] $ mkNExprsWithPrefix n (`App` Lit "$")) :: m
+      s <- recursiveSize $!! map
+      putStrLn (pref ++ "/" ++ show n ++ ": " ++ show s)
+
 m :: MapAPI m => Int -> m
 m n = mapFromList $ zip (runGenDet n $ vectorOf n genClosedExpr) [0..]
+
+

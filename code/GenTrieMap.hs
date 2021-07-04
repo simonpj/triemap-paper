@@ -1,7 +1,9 @@
 {-# LANGUAGE TypeFamilies, RankNTypes, FlexibleInstances, FlexibleContexts,
              RecordWildCards, ScopedTypeVariables,
              StandaloneDeriving, UndecidableInstances,
-             BangPatterns, LambdaCase #-}
+             LambdaCase #-}
+
+{-# LANGUAGE BangPatterns, StrictData #-} -- for benchmarks
 
 {-# OPTIONS_GHC -Wincomplete-patterns #-}
 
