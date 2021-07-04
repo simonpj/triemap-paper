@@ -1,7 +1,7 @@
 {-# LANGUAGE TypeFamilies, RankNTypes, FlexibleInstances, FlexibleContexts,
              RecordWildCards, ScopedTypeVariables,
              StandaloneDeriving, UndecidableInstances,
-             BangPatterns #-}
+             BangPatterns, LambdaCase #-}
 
 {-# OPTIONS_GHC -Wincomplete-patterns #-}
 
@@ -14,7 +14,7 @@ import qualified Data.Set as Set
 import qualified Data.IntMap as IntMap
 import Data.Kind
 import Control.Monad
-import Data.Maybe( isJust )
+import Data.Maybe
 import Text.PrettyPrint as PP
 import Debug.Trace
 import Data.Char
@@ -22,6 +22,12 @@ import qualified Text.Read as Read
 import qualified Text.ParserCombinators.ReadP as ReadP
 import Data.Tree
 import Bag
+
+import Lens.Micro
+import Lens.Micro.Internal
+import Lens.Micro.GHC -- At instance for containers
+import Data.Functor.Identity
+import Data.Functor.Const
 
 {- *********************************************************************
 *                                                                      *
@@ -701,6 +707,120 @@ mkMExprMap = foldr (\(tmpl_vs, e, a) -> insertMExprMap tmpl_vs e a) emptyMExprMa
 
 mkMExprSet :: [([Var], Expr)] -> MExprMap Expr
 mkMExprSet = mkMExprMap . map (\(tmpl_vs, e) -> (tmpl_vs, e, e))
+
+{- *********************************************************************
+*                                                                      *
+          Lensy versions, basically instances of Lens.Micro.At
+*                                                                      *
+********************************************************************* -}
+
+-- | We would like to make TrieMap an instance of the 'At' type class
+-- from microlens, but I don't see how to define the necessary type family
+-- instances..
+class TrieMap tm => TrieMapLens tm where
+  atTM  :: TrieKey tm -> Lens' (tm v) (Maybe v)
+  nullTM :: tm v -> Bool
+
+alterTM' :: TrieMapLens tm => TrieKey tm -> XT v -> tm v -> tm v
+alterTM' k xt m = runIdentity $ atTM k (Identity . xt) m
+
+lookupTM' :: TrieMapLens tm => TrieKey tm -> tm v -> Maybe v
+lookupTM' k m = getConst $ atTM k Const m
+
+instance TrieMapLens tm => TrieMapLens (SEMap tm) where
+  atTM = atSEM
+  nullTM = nullSEM
+
+nullSEM :: TrieMapLens tm => SEMap tm v -> Bool
+nullSEM EmptySEM      = True
+-- nullSEM (MultiSEM tm) = nullTM tm -- Invariant: MultiSEM is never empty
+nullSEM _             = False
+
+atSEM :: TrieMapLens tm => TrieKey tm -> Lens' (SEMap tm v) (Maybe v)
+atSEM !k xt EmptySEM
+  = xt Nothing <&> \case
+      Nothing -> EmptySEM
+      Just v  -> SingleSEM k v
+atSEM k1 xt tm@(SingleSEM k2 v2)
+  | k1 == k2 = xt (Just v2) <&> \case
+                  Nothing -> EmptySEM
+                  Just v' -> SingleSEM k2 v'
+  | otherwise = xt Nothing <&> \case
+                  Nothing -> tm
+                  Just v1  -> MultiSEM $ insertTM k1 v1 (insertTM k2 v2 emptyTM)
+atSEM k xt (MultiSEM tm)
+  = atTM k xt tm <&> \tm' -> if nullTM tm' then EmptySEM else MultiSEM tm'
+
+instance TrieMapLens tm => TrieMapLens (ListMap' tm) where
+  atTM = atList
+  nullTM = nullList
+
+lens_lm_nil :: Lens' (ListMap' tm v) (Maybe v)
+lens_lm_nil xt lm@(LM { .. }) = xt lm_nil <&> \nil' -> lm { lm_nil = nil' }
+
+lens_lm_cons :: Lens' (ListMap' tm v) (tm (ListMap tm v))
+lens_lm_cons xt lm@(LM { .. }) = xt lm_cons <&> \cons' -> lm { lm_cons = cons' }
+
+nullList :: TrieMapLens tm => ListMap' tm v -> Bool
+nullList (LM {..}) = isNothing lm_nil && nullTM lm_cons
+
+-- | Like the 'non' combinator from microlens, but specialised to
+-- 'emptyTM'/'nullTM' instead of 'Eq'.
+nonEmpty :: TrieMapLens tm => Lens' (Maybe (tm v)) (tm v)
+nonEmpty afb s = f <$> afb (fromMaybe emptyTM s)
+  where f y = if nullTM y then Nothing else Just y
+{-# INLINE nonEmpty #-}
+
+atList :: TrieMapLens tm => [TrieKey tm] -> Lens' (ListMap' tm v) (Maybe v)
+atList []     = lens_lm_nil
+atList (k:ks) = lens_lm_cons . atTM k . nonEmpty . atTM ks
+
+atBoundVarOcc :: BoundVar -> Lens' (BoundVarMap v) (Maybe v)
+atBoundVarOcc tv xt tm = IntMap.alterF xt tv tm
+
+atFreeVarOcc :: Var -> Lens' (FreeVarMap v) (Maybe v)
+atFreeVarOcc tv xt tm = Map.alterF xt tv tm
+
+instance TrieMapLens ExprMap' where
+  atTM = atExpr
+  nullTM = nullExpr
+
+lens_em_bvar :: Lens' (ExprMap' a) (BoundVarMap a)
+lens_em_bvar xf em@(EM { .. }) = xf em_bvar <&> \bvar' -> em { em_bvar = bvar' }
+
+lens_em_fvar :: Lens' (ExprMap' a) (FreeVarMap a)
+lens_em_fvar xf em@(EM { .. }) = xf em_fvar <&> \fvar' -> em { em_fvar = fvar' }
+
+lens_em_app :: Lens' (ExprMap' a) (ExprMap (ExprMap a))
+lens_em_app xf em@(EM { .. }) = xf em_app <&> \app' -> em { em_app = app' }
+
+lens_em_lit :: Lens' (ExprMap' a) (Map.Map Lit a)
+lens_em_lit xf em@(EM { .. }) = xf em_lit <&> \lit' -> em { em_lit = lit' }
+
+lens_em_lam :: Lens' (ExprMap' a) (ExprMap a)
+lens_em_lam xf em@(EM { .. }) = xf em_lam <&> \lam' -> em { em_lam = lam' }
+
+nullExpr :: ExprMap' v -> Bool
+nullExpr (EM {..}) =  Prelude.null em_fvar && Prelude.null em_bvar
+                   && Prelude.null em_lit && nullTM em_app && nullTM em_lam
+
+atExpr :: DeBruijn Expr -> Lens' (ExprMap' v) (Maybe v)
+atExpr (D dbe e) = case e of
+  Var x     -> case lookupDBE x dbe of
+                  Just bv -> lens_em_bvar . at bv -- NB: at from microlens's `At (IntMap v)` instance
+                  Nothing -> lens_em_fvar . at x
+  Lit lit   -> lens_em_lit . at lit
+  App e1 e2 -> lens_em_app . atTM (D dbe e1) . nonEmpty . atTM (D dbe e2)
+  Lam x e   -> lens_em_lam . atTM (D (extendDBE x dbe) e)
+
+-- We would have to define these microlens instances for every TrieMapLens. It's
+-- weirdly redundant, I'm only doing so for ExprMap' here:
+type instance Index (ExprMap' v) = DeBruijn Expr
+type instance IxValue (ExprMap' v) = v
+instance Ixed (ExprMap' v) where
+  ix = ixAt -- defined in microlens
+instance At (ExprMap' v) where
+  at = atTM
 
 {- *********************************************************************
 *                                                                      *
