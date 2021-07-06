@@ -1,0 +1,3 @@
+\textbf{10} & \textbf{2.71\textmu{}s} & 0.89 & 0.74 & \textbf{23.6\textmu{}s} & 0.6\insigdig{4} & 0.73 & \textbf{306\textmu{}s} & 0.52 & 0.83 \\
+\textbf{100} & \textbf{14.9\textmu{}s} & 0.92 & 0.61 & \textbf{176\textmu{}s} & 0.86 & 0.59 & \textbf{1.8\insigdig{3}ms} & 0.7\insigdig{5} & 0.60 \\
+\textbf{1000} & \textbf{202\textmu{}s} & 0.96 & 0.56 & \textbf{2.15ms} & 0.9\insigdig{4} & 0.5\insigdig{7} & 28.\insigdig{6}ms & \textbf{1.0\insigdig{6}} & 0.6\insigdig{8} \\

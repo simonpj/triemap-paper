@@ -1,0 +1,9 @@
+\benchname{lookup\_all} & \textbf{2.71\textmu{}s} & 0.89 & 0.74 & \textbf{176\textmu{}s} & 0.86 & 0.59 & 28.\insigdig{6}ms & \textbf{1.0\insigdig{6}} & 0.6\insigdig{8} \\
+\benchname{lookup\_all\_app1} & \textbf{5.00\textmu{}s} & 0.5\insigdig{4} & 0.7\insigdig{2} & \textbf{39\insigdig{4}\textmu{}s} & 0.30 & 0.66 & \textbf{67.\insigdig{9}ms} & 0.2\insigdig{4} & 0.66 \\
+\benchname{lookup\_all\_app2} & \textbf{5.11\textmu{}s} & 0.7\insigdig{9} & 0.7\insigdig{4} & \textbf{459\textmu{}s} & 0.5\insigdig{7} & 0.73 & \textbf{99.\insigdig{4}ms} & 0.2\insigdig{9} & 0.86 \\
+\benchname{lookup\_all\_lam} & \textbf{4.98\textmu{}s} & 0.35 & 0.52 & \textbf{433\textmu{}s} & 0.17 & 0.4\insigdig{6} & \textbf{74.\insigdig{2}ms} & 0.1\insigdig{5} & 0.57 \\
+\benchname{lookup\_one} & 260ns & \textbf{1.19} & 0.76 & \textbf{1.17\textmu{}s} & 0.86 & 0.64 & \textbf{18.0\textmu{}s} & 0.94 & 0.60 \\
+\benchname{insert\_lookup\_one} & \textbf{50.0ns} & 0.42 & 0.46 & \textbf{1.95\textmu{}s} & 0.75 & 0.51 & \textbf{20.8\textmu{}s} & 0.90 & 0.4\insigdig{4} \\
+\benchname{fromList} & 3.49\textmu{}s & \textbf{1.50} & 1.27 & 135\textmu{}s & \textbf{1.13} & 0.62 & 1\insigdig{5}.\insigdig{7}ms & \textbf{1.1\insigdig{1}} & 0.4\insigdig{7} \\
+\benchname{fromList\_app1} & 8.6\insigdig{4}\textmu{}s & 1.0\insigdig{4} & \textbf{1.6\insigdig{6}} & 65\insigdig{5}\textmu{}s & 0.52 & \textbf{1.4\insigdig{7}} & \textbf{8\insigdig{1}.\insigdig{4}ms} & 0.2\insigdig{7} & 0.76 \\
+\benchname{fold} & 48\insigdig{3}ns & \textbf{6.0\insigdig{0}} & 3.72 & 5.7\insigdig{1}\textmu{}s & \textbf{9.79} & 3.09 & 12\insigdig{0}\textmu{}s & \textbf{15.4\insigdig{0}} & 3.51 \\

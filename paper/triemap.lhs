@@ -89,6 +89,9 @@
 \usepackage{xcolor}
 \usepackage{pgffor}
 \usepackage{ragged2e}
+\usepackage{upgreek} % \textmu
+\usepackage{multirow}
+\usepackage{diagbox}
 
 % \RequirePackage{xargs}
 
@@ -320,6 +323,9 @@ instance Eq Expr where
 \newcommand{\pv}[1]{\$_{#1}}    % Pattern variable binder
 \newcommand{\pvo}[1]{\%_{#1}}   % Pattern variable occurrence
 
+% Benchmark formatting hooks
+\newcommand{\benchname}[1]{\texttt{#1}}
+\newcommand{\insigdig}[1]{\ensuremath{\tilde{\text{#1}}}} % How to mark insignificant (within 2*σ) digits
 
 %% Title information
 \title%[Short Title]
@@ -1206,7 +1212,7 @@ applies without difficulty to this generalised map.
 And that is really all there is to it: it is remarkably easy to extend the basic
 trie idea to be insensitive to alpha-conversion.
 
-\section{Tries that match}
+\section{Tries that match} \label{sec:matching}
 
 A key advantage of tries over hash-maps and balanced trees is
 that they can naturally extend to support \emph{matching} (\Cref{sec:matching-intro}).
@@ -1651,6 +1657,147 @@ forcing a lexicographic ordering on patterns where I don't think there should
 be one.}
 
 \subsection{Unification}
+
+\section{Evaluation} \label{sec:eval}
+
+So far, we have seen that trie maps offer at least one significant advantage
+over other kinds of maps like ordered maps or hash maps: The ability to do a
+matching lookup in \Cref{sec:matching}. In this section, we will see that
+query performance is another advantage. Our implementation of trie maps in
+Haskell can generally compete in performance with other map data structures,
+while significantly outperforming traditional map implementations on some
+operations.
+
+\subsection{Runtime}
+
+\begin{table}
+
+  \caption{Benchmarks of different operations over our trie map |ExprMap| (TM),
+  ordered maps |Map Expr| (OM) and hash maps |HashMap Expr| (HM), varying the
+  size parameter $N$.
+  We give the speedup of OM and HM relative to absolute runtime measurements for
+  TM. Digits whose order of magnitude is no larger than that of twice the standard
+  deviation are marked by squiggly lines.}
+  \begin{tabular}{l rrr rrr rrr}
+  \toprule
+  $N$  & \multicolumn{3}{c}{\textbf{10}} & \multicolumn{3}{c}{\textbf{100}} & \multicolumn{3}{c}{\textbf{1000}} \\
+       \cmidrule(lr{.5em}){2-4} \cmidrule(lr{.5em}){5-7} \cmidrule(lr{.5em}){8-10}
+  Data structure  & \multicolumn{1}{c}{TM} & \multicolumn{1}{c}{OM} & \multicolumn{1}{c}{HM}
+       & \multicolumn{1}{c}{TM} & \multicolumn{1}{c}{OM} & \multicolumn{1}{c}{HM}
+       & \multicolumn{1}{c}{TM} & \multicolumn{1}{c}{OM} & \multicolumn{1}{c}{HM} \\
+  \midrule
+  \input{bench-overview.tex-incl}
+  \bottomrule
+  \end{tabular}
+
+  \label{fig:runtime}
+\end{table}
+
+\Cref{fig:runtime} presents the results of measuring runtime on
+\sg{insert architecture when finalising benchmarks}. All runtime measurements
+were conducted as microbenchmarks using the \texttt{criterion}%
+\footnote{\url{https://hackage.haskell.org/package/criterion}}
+benchmark suite.
+
+\subsubsection*{Setup}
+All benchmarks except the \benchname{fromList*} variants are handed a pre-built
+map containing $N$ expressions, each consisting of roughly $N$ |Expr| data
+constructors and drawn from a pseudo-random source with a fixed (and thus
+deterministic) seed. $N$ is varied between 10 and 1000.
+Benchmarks ending in \benchname{\_lam}, \benchname{\_app1}, \benchname{\_app2}
+add a shared prefix to each of the $N$ expressions before building the initial
+map:
+\begin{itemize}
+  \item \benchname{\_lam} wraps $|(Lam "$")|^N$ around each expression
+  \item \benchname{\_app1} wraps $|(Lit "$" `App`)|^N$ around each expression
+  \item \benchname{\_app2} wraps $|(`App` Lit "$")|^N$ around each expression
+\end{itemize}
+Where |"$"| is a name that doesn't otherwise occur in the generated expressions.
+
+\begin{itemize}
+  \item The \benchname{lookup\_all*} family of benchmarks looks up every
+        expression that is part of the map. So for a map of size 100, we will
+        perform 100 lookups of expressions each of which have approximately size
+        100. \benchname{lookup\_one} will look up just one expression that is
+        part of the map.
+  \item \benchname{insert\_lookup\_one} will insert a random expression into the
+        initial map and immediately look it up afterwards. The lookup is to
+        ensure that any work delayed by laziness is indeed forced.
+  \item The \benchname{fromList*} family benchmarks a naïve |fromList|
+        implementation on |ExprMap| against the tuned |fromList| implementations
+        of the other maps, measuring map creation performance from batches.
+  \item \benchname{fold} simply sums up all values that are stored in the map
+        (which stores |Int|s).
+\end{itemize}
+
+\subsubsection*{Querying}
+The results show that lookup in |ExprMap| often wins against |Map Expr| and
+|HashMap Expr|. The margin is small on the completely random |Expr|s of
+\benchname{lookup\_all}, but realistic applications of |ExprMap| often store
+|Expr|s with some kind of shared structure. The \benchname{\_lam} and
+\benchname{\_app1} variants show that |ExprMap| can win big time against
+an ordered map representation: |ExprMap| looks at the shared prefix exactly
+once one lookup, while |Map| has to traverse the shared prefix on each of its
+$\mathcal{O}(\log n)$ comparisons. As a result, the gap between |ExprMap| and
+|Map| widens as $N$ increases, confirming an asymptotic difference.
+The advantage is less pronounced in the \benchname{\_app2} variant, presumably
+because |ExprMap| can't share the common prefix here: It turns into an
+unsharable suffix in the pre-order serialisation, blowing up the trie map
+representation compared to its sibling \benchname{\_app1}.
+
+Although |HashMap| loses on most benchmarks compared to |ExprMap| and |Map|, it
+performs much more consistently than |Map|. We believe it that is due to the
+fact that it is enough to traverse the |Expr| once to compute the hash, thus
+it is expected to scale similarly as |ExprMap|.
+
+Comparing the \benchname{lookup\_all*} measurements of the same map data
+structure on different size parameters $N$ reveals a roughly cubic correlation.
+That seems plausible given that $N$ linearly affects map size, expression size
+and number of lookups. But realistic workloads tend to have much larger map
+sizes than expression sizes!
+
+\begin{table}
+  \caption{Varying expression size $E$ and map size $M$ independently on benchmark
+  \benchname{lookup\_all}.}
+  \begin{tabular}{r rrr rrr rrr}
+  \toprule
+  \multirow{2}{*}{\diagbox{$E$}{$M$}} & \multicolumn{3}{c}{\textbf{10}}
+                                      & \multicolumn{3}{c}{\textbf{100}}
+                                      & \multicolumn{3}{c}{\textbf{1000}} \\
+  \cmidrule(lr{.5em}){2-4} \cmidrule(lr{.5em}){5-7} \cmidrule(lr{.5em}){8-10}
+                     & TM & OM & HM
+                     & TM & OM & HM
+                     & TM & OM & HM \\
+  \midrule
+  \input{bench-lookup.tex-incl}
+  \bottomrule
+  \end{tabular}
+
+  \label{fig:runtime-lookup}
+\end{table}
+
+Focusing on \benchname{lookup\_all}, we measured performance when independently
+varying map size $M$ and expression size $E$. The results in
+\Cref{fig:runtime-lookup} show that |ExprMap| scales even better than |Map| when
+we increase $M$ and leave $E$ constant. The time measurements for |ExprMap|
+appear to grow linearly with $M$. Considering that the number of lookups also
+increases $M$-fold, it seems the cost of a single lookup remained constant,
+despite the fact that we store varying numbers of expressions in the trie map.
+By contrast, fixing $M$ but increasing $E$ makes |Map| easily catch up on lookup
+performance with |ExprMap|, ultimately outpacing it. |HashMap| shows performance
+consistent with |ExprMap| but is a bit slower, as before.
+
+\subsubsection*{Building}
+
+\begin{itemize}
+  \item Quite fast, but will be outpaced by |Map| for huge $E$
+  \item |fromList| is generally slow. No ideas for improvement
+  \item Likewise |fold|. Don't do it
+\end{itemize}
+
+\subsection{Space}
+
+Another table here
 
 \section{Related work} \label{sec:related}
 
