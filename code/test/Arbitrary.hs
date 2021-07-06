@@ -40,10 +40,10 @@ genClosedExpr = genOpenExpr emptyEnv
 genOpenExpr :: Env -> QC.Gen Expr
 genOpenExpr env = QC.sized $ \size ->
   QC.frequency $ concat
-    [ [ (1, genLit env)     ]
-    , [ (2, genVar env)     | not $ null $ boundVars env ]
-    , [ (size, genApp env)    ]
-    , [ (size `div` 4, genLam env) ]
+    [ [ (1,                genLit env) ]
+    , [ (2,                genVar env) | not $ null $ boundVars env ]
+    , [ (size * 8 `div` 7, genApp env) ]
+    , [ (size `div` 4,     genLam env) ]
     ]
 
 -- | This defn leads to good correlation between QC size and expr sizes
