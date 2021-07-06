@@ -1,1 +1,3 @@
 dist-newstyle
+crit.new.csv # move it to crit.csv if you want it
+crit.new.html

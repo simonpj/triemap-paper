@@ -118,10 +118,12 @@ mkNExprsWithPrefix map_size expr_size f = map (\e -> iterate f e !! expr_size) (
 *                                                                      *
 ********************************************************************* -}
 
-criterionSizes :: [Int]
--- criterionSizes = [100, 1000]
-criterionSizes = [10, 100, 1000]
--- criterionSizes = [10, 100, 1000, 10000]
+criterionDiagSizes, criterionAllSizes :: [Int]
+-- criterionDiagSizes = [100, 1000]
+criterionDiagSizes = [10, 100, 1000]
+-- criterionDiagSizes = [10, 100, 1000, 10000]
+
+criterionAllSizes = [10, 100, 1000, 10000]
 
 criterion :: [Benchmark]
 criterion =
@@ -168,57 +170,57 @@ criterion =
     {-# INLINE bench_diag_variants #-}
 
     rnd_lookup_all :: Benchmark
-    rnd_lookup_all = bench_all_variants "lookup_all" criterionSizes criterionSizes $ \(_ :: em) n m ->
+    rnd_lookup_all = bench_all_variants "lookup_all" criterionAllSizes criterionAllSizes $ \(_ :: em) n m ->
       with_map_of_exprs @em n m $ \exprs expr_map ->
       bench "" $ nf (map (`lookupMap` expr_map)) exprs
 
     rnd_lookup_one :: Benchmark
-    rnd_lookup_one = bench_diag_variants "lookup_one" criterionSizes $ \(_ :: em) n m ->
+    rnd_lookup_one = bench_diag_variants "lookup_one" criterionDiagSizes $ \(_ :: em) n m ->
       with_map_of_exprs @em n m $ \exprs expr_map ->
       bench "" $ nf (`lookupMap` expr_map) (head exprs) -- exprs is random, so head is as good as any
 
     rnd_insert_lookup_one :: Benchmark
-    rnd_insert_lookup_one = bench_diag_variants "insert_lookup_one" criterionSizes $ \(_ :: em) n m ->
+    rnd_insert_lookup_one = bench_all_variants "insert_lookup_one" criterionAllSizes criterionAllSizes $ \(_ :: em) n m ->
       with_map_of_exprs @em n m $ \_exprs expr_map ->
       env (pure (runGenDet m genClosedExpr)) $ \e ->
       bench "" $ nf (\e' -> lookupMap e' (insertMap e' (n+1) expr_map)) e
 
     rnd_lookup_all_lam :: Benchmark
-    rnd_lookup_all_lam = bench_diag_variants "lookup_all_lam" criterionSizes $ \(_ :: em) n m ->
+    rnd_lookup_all_lam = bench_diag_variants "lookup_all_lam" criterionDiagSizes $ \(_ :: em) n m ->
       env (pure (mkNExprsWithPrefix n m (Lam "$"))) $ \exprs ->
       env (pure ((mapFromList $ zip exprs [0..]) :: em)) $ \(expr_map :: em) ->
       bench "" $ nf (map (`lookupMap` expr_map)) exprs
 
     rnd_lookup_all_app1 :: Benchmark
-    rnd_lookup_all_app1 = bench_diag_variants "lookup_all_app1" criterionSizes $ \(_ :: em) n m ->
+    rnd_lookup_all_app1 = bench_diag_variants "lookup_all_app1" criterionDiagSizes $ \(_ :: em) n m ->
       env (pure (mkNExprsWithPrefix n m (Lit "$" `App`))) $ \exprs ->
       env (pure ((mapFromList $ zip exprs [0..]) :: em)) $ \(expr_map :: em) ->
       bench "" $ nf (map (`lookupMap` expr_map)) exprs
 
     rnd_lookup_all_app2 :: Benchmark
-    rnd_lookup_all_app2 = bench_diag_variants "lookup_all_app2" criterionSizes $ \(_ :: em) n m ->
+    rnd_lookup_all_app2 = bench_diag_variants "lookup_all_app2" criterionDiagSizes $ \(_ :: em) n m ->
       env (pure (mkNExprsWithPrefix n m (`App` Lit "$"))) $ \exprs ->
       env (pure ((mapFromList $ zip exprs [0..]) :: em)) $ \(expr_map :: em) ->
       bench "" $ nf (map (`lookupMap` expr_map)) exprs
 
     rnd_fromList :: Benchmark
-    rnd_fromList = bench_diag_variants "fromList" criterionSizes $ \(_ :: em) n m ->
+    rnd_fromList = bench_diag_variants "fromList" criterionDiagSizes $ \(_ :: em) n m ->
       env (pure (flip zip [0..] $ mkNExprs n m)) $ \pairs ->
       bench "" $ nf (mapFromList :: [(Expr, Int)] -> em) pairs
 
     rnd_fromList_app1 :: Benchmark
-    rnd_fromList_app1 = bench_diag_variants "fromList_app1" criterionSizes $ \(_ :: em) n m ->
+    rnd_fromList_app1 = bench_diag_variants "fromList_app1" criterionDiagSizes $ \(_ :: em) n m ->
       env (pure (flip zip [0..] $ mkNExprsWithPrefix n m (Lit "$" `App`))) $ \pairs ->
       bench "" $ nf (mapFromList :: [(Expr, Int)] -> em) pairs
 
     rnd_fold :: Benchmark
-    rnd_fold = bench_diag_variants "fold" criterionSizes $ \(_ :: em) n m ->
+    rnd_fold = bench_diag_variants "fold" criterionDiagSizes $ \(_ :: em) n m ->
       with_map_of_exprs @em n m $ \_exprs expr_map ->
       bench "" $ whnf (\em -> fold (+) em 0) expr_map
 
 -- No unionTM yet...
 --    rnd_union :: Benchmark
---    rnd_union = bench_all_variants "rnd_union" criterionSizes $ \(_ :: m) n ->
+--    rnd_union = bench_all_variants "rnd_union" criterionDiagSizes $ \(_ :: m) n ->
 --      with_map_of_exprs @m n $ \_exprs1 expr_map1 ->
 --      with_map_of_exprs @m (n+1) $ \_exprs2 expr_map2 ->
 --      bench "" $ nf (map (`union` expr_map)) exprs

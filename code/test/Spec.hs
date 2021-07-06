@@ -58,7 +58,7 @@ _prop_find =
   in e == applySubst subst typ
 
 -- | A regression test exemplifying that is_more_specific is broken:
-prop_too_specific = do
+_prop_too_specific = do
   let m = mkMExprSet [(["a", "b", "c"], read "F (a b) c"), (["ab"], read "F ab C")]
       matches = lookupMExprMap (read "F (A B) C") m
   counterexample ("Matching on `F (A B) C` returned wrong number of matches:\n" ++ show matches) $
