@@ -503,13 +503,13 @@ alterExpr (D dbe e) xt m@(EM {..})
       App e1 e2 -> m { em_app = em_app |> alterTM (D dbe e1) |>> alterTM (D dbe e2) xt }
       Lam x e   -> m { em_lam = em_lam |> alterTM (D (extendDBE x dbe) e) xt }
 
-foldExpr :: (v -> a -> a) -> ExprMap' v -> a -> a
-foldExpr f (EM {..})
-  = foldBVM f em_bvar .
-    foldFVM f em_fvar .
-    foldTM (foldTM f) em_app .
-    (\z -> foldr f z em_lit) .
-    foldTM f em_lam
+foldExpr :: forall a v. (v -> a -> a) -> ExprMap' v -> a -> a
+foldExpr f (EM {..}) z
+  = let !z1 = foldTM f em_lam z in
+    let !z2 = foldr f z1 em_lit in
+    let !z3 = foldTM (\em z -> z `seq` foldTM f em z) em_app z2 in
+    let !z4 = foldFVM f em_fvar z3 in
+    foldBVM f em_bvar z4
 
 -- | For debugging purposes. Draw with 'containers:Data.Tree.drawTree' or
 -- 'tree-view:Data.Tree.View.showTree'. The latter uses much less screen space.
