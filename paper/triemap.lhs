@@ -1129,7 +1129,7 @@ with an automated approach to generating boilerplate code.
 
 Thus far we have usefully consolidated the state of the art, but have not really done
 anything new.  Tries are well known, and there are a number of papers about
-tries in Haskell \cite{hinze etc}.  However, none of these works deal with keys that contain
+tries in Haskell \cite{hinze}.  However, none of these works deal with keys that contain
 binders, and that should be insensitive to alpha-conversion.  That is the challenge we
 address next.  Here is our data type, |ExprL|, where the ``L'' connotes the new |Lam| constructor:
 \begin{code}
@@ -1675,7 +1675,8 @@ operations.
 
   \caption{Benchmarks of different operations over our trie map |ExprMap| (TM),
   ordered maps |Map Expr| (OM) and hash maps |HashMap Expr| (HM), varying the
-  size parameter $N$.
+  size parameter $N$.  Each map is of size $N$ (so $M=N$) and the expressions
+  it contains are also each of size $N$ (so $E=N$).
   We give the speedup of OM and HM relative to absolute runtime measurements for
   TM. Digits whose order of magnitude is no larger than that of twice the standard
   deviation are marked by squiggly lines.}
@@ -1737,7 +1738,7 @@ map:
   \item \benchname{\_app1} wraps $N$ layers of $|(Lit "$" `App`)|$ around each expression
   \item \benchname{\_app2} wraps $N$ layers of $|(`App` Lit "$")|$ around each expression
 \end{itemize}
-Where |"$"| is a name that doesn't otherwise occur in the generated expressions.
+where |"$"| is a name that doesn't otherwise occur in the generated expressions.
 
 \begin{itemize}
   \item The \benchname{lookup\_all*} family of benchmarks looks up every
@@ -1781,7 +1782,7 @@ structure on different size parameters $N$ reveals a roughly cubic correlation
 throughout all implementations, give or take a logarithmic factor.
 That seems plausible given that $N$ linearly affects map size, expression size
 and number of lookups. But realistic workloads tend to have much larger map
-sizes than expression sizes!
+sizes than expression sizes! \simon{so what do we conclude here?}
 
 \begin{table}
   \centering
@@ -1816,10 +1817,7 @@ Focusing on \benchname{lookup\_all}, we measured performance when independently
 varying map size $M$ and expression size $E$. The results in
 \Cref{fig:runtime-finer} show that |ExprMap| scales better than |Map| when
 we increase $M$ and leave $E$ constant. The difference is even more pronounced
-than in the previous table, where $N = M = E$.
-\simon{Why ``even better''?  Just ``better''?  And how is it better?  Constant factor, asymptotic?}
-\sg{``Even better'' as in ``the difference is even more prononunced than in the
-previous table'' (fixed.?) Suggested asymptotics are discussed below.}
+than in \Cref{fig:runtime}, in which $N = M = E$.
 
 The time measurements for |ExprMap| appear to grow linearly with $M$.
 Considering that the number of lookups also increases $M$-fold, it seems the
