@@ -1,3 +1,5 @@
+cabal.project.local # The result of new-configure shouldn't be committed
 dist-newstyle
 crit.new.csv # move it to crit.csv if you want it
 crit.new.html
+result # nix-build
