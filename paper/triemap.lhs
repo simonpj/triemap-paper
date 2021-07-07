@@ -1854,10 +1854,10 @@ difficult to traverse and involves quite a few indirections.
 \simon{Not expected by me!  A factor of TEN!?  WHat is going on?}
 \sg{I don't know... I mean, it's huge code, quite cache inefficient and all,
 but I looked at the Core and didn't see something out of the ordinary like
-a lack of eta expansion. Maybe we could squeeze out a few cycles by SAT'ing,
-thus specialising for the |(+)| folding operator. That's what |Map| does.
-We can't do SAT, because the function argument is not static in the em_app
-recursion; thus |foldExpr| would still need to be recursive and the whole
+a lack of eta expansion. Maybe we could squeeze out a few cycles by SATing,
+thus specialising for the (+) folding operator. That's what Map does.
+We can't do SAT, because the function argument is not static in the em\_app
+recursion; thus foldExpr would still need to be recursive and the whole
 exercise was for nothing.}
 This is in stark contrast to the situation with |Map|, where it's just a
 textbook in-order traversal over the search tree. Folding over |HashMap| is not
@@ -1911,6 +1911,42 @@ implementation.
     |fromList| like I described.}
 
 \subsection{Space}
+
+\begin{table}
+  \centering
+  \caption{Varying expression size $E$ and map size $M$ while measuring the
+  memory footprint of the different map implemenations on 4 different expression
+  populations.}
+  \resizebox{\textwidth}{!}{%
+    \begin{tabular}{rr rrr rrr rrr rrr}
+    \toprule
+    \multicolumn{2}{c}{\multirow{2}{*}{\diagbox{$E$}{$M$}}} & \multicolumn{3}{c}{\textbf{10}}
+                                        & \multicolumn{3}{c}{\textbf{100}}
+                                        & \multicolumn{3}{c}{\textbf{1000}}
+                                        & \multicolumn{3}{c}{\textbf{10000}} \\
+    \cmidrule(lr{.5em}){3-5} \cmidrule(lr{.5em}){6-8} \cmidrule(lr{.5em}){9-12} \cmidrule(lr{.5em}){12-14}
+                       & & TM & OM & HM
+                         & TM & OM & HM
+                         & TM & OM & HM
+                         & TM & OM & HM \\
+    \midrule
+    \multirow{4}{*}{\rotatebox{90}{\benchname{space}}}
+    \input bench-space.tex-incl
+    \midrule
+    \multirow{4}{*}{\rotatebox{90}{\benchname{space\_app1}}}
+    \input bench-space_app1.tex-incl
+    \midrule
+    \multirow{4}{*}{\rotatebox{90}{\benchname{space\_app2}}}
+    \input bench-space_app2.tex-incl
+    \midrule
+    \multirow{4}{*}{\rotatebox{90}{\benchname{space\_lam}}}
+    \input bench-space_lam.tex-incl
+    \bottomrule
+    \end{tabular}
+  }
+
+  \label{fig:space}
+\end{table}
 
 Another table here
 

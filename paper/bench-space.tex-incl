@@ -1,0 +1,4 @@
+& \textbf{10} & 12.5KB & 0.79 & \textbf{0.78} & 87.8KB & 0.80 & \textbf{0.80} & 766KB & 0.89 & \textbf{0.88} & 6.88MB & 0.96 & \textbf{0.95} \\
+& \textbf{100} & 55.5KB & 0.93 & \textbf{0.93} & 531KB & 0.91 & \textbf{0.91} & 4.94MB & 0.91 & \textbf{0.90} & 48.6MB & 0.92 & \textbf{0.92} \\
+& \textbf{1000} & 477KB & 0.99 & \textbf{0.99} & 4.77MB & 0.98 & \textbf{0.98} & 46.6MB & 0.98 & \textbf{0.98} & 468MB & 0.98 & \textbf{0.98} \\
+& \textbf{10000} & 4.10MB & 1.00 & \textbf{1.00} & 42.1MB & 1.00 & \textbf{1.00} & 421MB & 1.00 & \textbf{1.00} & 4.12GB & 1.00 & \textbf{1.00} \\

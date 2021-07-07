@@ -74,7 +74,7 @@ def format_relative(baseline: Decimal, mean: Decimal, confidence: Decimal):
 
 def csv_to_cleaned_table(filename):
   table = defaultdict(lambda: defaultdict(lambda: {}))
-  with open('crit.csv') as csvfile:
+  with open(filename) as csvfile:
     reader = csv.DictReader(csvfile)
     for row in reader:
       descr = row['Name']
