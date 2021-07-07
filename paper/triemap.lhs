@@ -1669,7 +1669,7 @@ Haskell can generally compete in performance with other map data structures,
 while significantly outperforming traditional map implementations on some
 operations.
 
-\subsection{Runtime}
+\subsection{Runtime} \label{sec:runtime}
 
 \begin{table}
 
@@ -1915,8 +1915,10 @@ implementation.
 \begin{table}
   \centering
   \caption{Varying expression size $E$ and map size $M$ while measuring the
-  memory footprint of the different map implemenations on 4 different expression
-  populations.}
+  memory footprint of the different map implementions on 4 different expression
+  populations. Measurements of |Map| (OM) and |HashMap| (HM) are displayed as
+  relative multiples of the absolute measurements on |ExprMap| (TM). Lower is
+  better. \dag indicates heap overflow.}
   \resizebox{\textwidth}{!}{%
     \begin{tabular}{rr rrr rrr rrr rrr}
     \toprule
@@ -1948,7 +1950,34 @@ implementation.
   \label{fig:space}
 \end{table}
 
-Another table here
+We also measured the memory footprint of |ExprMap| compared to |Map| and
+|HashMap|. The results are shown in \Cref{fig:space}. All four benchmarks simply
+measure the size on the heap in bytes of a map consisting of $M$ expressions of
+size $E$. They only differ in whether or not the expressions have a shared
+prefix. As before, \benchname{space} is built over completely random expressions,
+while the other three benchmarks build maps with common prefixes, as discussed in
+\cref{sec:runtime}.
+
+In \benchname{space}, prefix sharing is highly unlikely for reasons discussed
+in the last section: Randomness dictates that most expressions diverge quite
+early in their prefix. As a result, |ExprMap| consumes slightly more space
+than both |Map| and |ExprMap|, the latter of which wins every single instance.
+The difference here is ultimately due to the fact that inner nodes in the trie
+allocate more space than inner nodes in |Map| or |ExprMap|.
+
+However, in \benchname{space\_app1} and \benchname{space\_lam}, we can see that
+|ExprMap| is able to exploit the shared prefixes to great effect: For big
+$M$, the memory footprint of \benchname{space\_app1} approaches that of
+\benchname{space} because the shared prefix is only stored once. In the other
+dimension along $E$, memory footprint still increases by similar factors as
+in \benchname{space}. The \benchname{space\_lam} family does need a bit more
+bookkeeping for the de Bruijn numbering, so the results aren't quite as close to
+\benchname{space}, but it's still an easy win over |Map| and |HashMap|.
+
+For \benchname{space\_app2}, |ExprMap| can't share any prefixes because the
+shared structure turns into a suffix in the pre-order serialisation. As a result,
+|Map| and |HashMap| allocate less space, all consistent constant factors apart
+from another. |HashMap| wins here again.
 
 \section{Related work} \label{sec:related}
 
