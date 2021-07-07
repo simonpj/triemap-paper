@@ -140,9 +140,9 @@ s = ''
 overview_names=['lookup_all']
 for name in overview_names:
   inputs=table[name]
-  for expr_size in [10,100,1000]:
-    s = s + '\\textbf{'+str(expr_size)+'} & '
-    for map_size in [10,100,1000]:
+  for expr_size in [10,100,1000,10000]:
+    s = s + '& \\textbf{'+str(expr_size)+'} & '
+    for map_size in [10,100,1000,10000]:
       measurements = inputs[(map_size, expr_size)]
       (winner,_) = min([(v, measurements[v][0]) for v in variants], key=lambda p: p[1])
       for v in variants:
@@ -157,5 +157,28 @@ for name in overview_names:
 
 print(s)
 with open('../paper/bench-lookup.tex-incl', 'w') as f: f.write(s)
+
+# Format E x M table for insert_lookup_one
+s = ''
+overview_names=['insert_lookup_one']
+for name in overview_names:
+  inputs=table[name]
+  for expr_size in [10,100,1000,10000]:
+    s = s + '& \\textbf{'+str(expr_size)+'} & '
+    for map_size in [10,100,1000,10000]:
+      measurements = inputs[(map_size, expr_size)]
+      (winner,_) = min([(v, measurements[v][0]) for v in variants], key=lambda p: p[1])
+      for v in variants:
+        #print(name,size,v)
+        (_, entry) = measurements[v]
+        if v == winner:
+          s = s+'\\textbf{'+entry+'} & '
+        else:
+          s = s+entry+' & '
+    # the weird slice is to strip the trailing '& '
+    s = s[:-2]+'\\\\\n'
+
+print(s)
+with open('../paper/bench-insert.tex-incl', 'w') as f: f.write(s)
 
 

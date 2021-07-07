@@ -326,6 +326,7 @@ instance Eq Expr where
 % Benchmark formatting hooks
 \newcommand{\benchname}[1]{\texttt{#1}}
 \newcommand{\insigdig}[1]{\ensuremath{\tilde{\text{#1}}}} % How to mark insignificant (within 2*σ) digits
+\newcommand{\hackage}[1]{\varid{#1}\footnote{\url{https://hackage.haskell.org/package/#1}}}
 
 %% Title information
 \title%[Short Title]
@@ -1695,15 +1696,21 @@ operations.
 
 \Cref{fig:runtime} presents the results of measuring runtime on
 \sg{insert architecture when finalising benchmarks}. All runtime measurements
-were conducted as microbenchmarks using the \texttt{criterion}%
-\footnote{\url{https://hackage.haskell.org/package/criterion}}
-benchmark suite.
+were conducted as microbenchmarks using the \hackage{criterion} benchmarking
+library.
 
 \subsubsection*{Setup}
 All benchmarks except the \benchname{fromList*} variants are handed a pre-built
 map containing $N$ expressions, each consisting of roughly $N$ |Expr| data
 constructors and drawn from a pseudo-random source with a fixed (and thus
 deterministic) seed. $N$ is varied between 10 and 1000.
+We compared |ExprMap| to two other map implementations:
+\begin{itemize}
+  \item |Map Expr| is the ordered map implementation from the |containers|
+        library. It uses size balanced trees under the hood \cite{adams}.
+  \item |HashMap Expr| is an implementation of hash array mapped tries
+        \cite{hamt} from the \hackage{unordered-containers} library.
+\end{itemize}
 Benchmarks ending in \benchname{\_lam}, \benchname{\_app1}, \benchname{\_app2}
 add a shared prefix to each of the $N$ expressions before building the initial
 map:
@@ -1757,21 +1764,30 @@ and number of lookups. But realistic workloads tend to have much larger map
 sizes than expression sizes!
 
 \begin{table}
-  \caption{Varying expression size $E$ and map size $M$ independently on benchmark
-  \benchname{lookup\_all}.}
-  \begin{tabular}{r rrr rrr rrr}
-  \toprule
-  \multirow{2}{*}{\diagbox{$E$}{$M$}} & \multicolumn{3}{c}{\textbf{10}}
-                                      & \multicolumn{3}{c}{\textbf{100}}
-                                      & \multicolumn{3}{c}{\textbf{1000}} \\
-  \cmidrule(lr{.5em}){2-4} \cmidrule(lr{.5em}){5-7} \cmidrule(lr{.5em}){8-10}
-                     & TM & OM & HM
-                     & TM & OM & HM
-                     & TM & OM & HM \\
-  \midrule
-  \input{bench-lookup.tex-incl}
-  \bottomrule
-  \end{tabular}
+  \centering
+  \caption{Varying expression size $E$ and map size $M$ independently on benchmarks
+  \benchname{lookup\_all} and \benchname{insert\_lookup\_one}.}
+  \resizebox{\textwidth}{!}{%
+    \begin{tabular}{rr rrr rrr rrr rrr}
+    \toprule
+    \multicolumn{2}{c}{\multirow{2}{*}{\diagbox{$E$}{$M$}}} & \multicolumn{3}{c}{\textbf{10}}
+                                        & \multicolumn{3}{c}{\textbf{100}}
+                                        & \multicolumn{3}{c}{\textbf{1000}}
+                                        & \multicolumn{3}{c}{\textbf{10000}} \\
+    \cmidrule(lr{.5em}){3-5} \cmidrule(lr{.5em}){6-8} \cmidrule(lr{.5em}){9-12} \cmidrule(lr{.5em}){12-14}
+                       & & TM & OM & HM
+                         & TM & OM & HM
+                         & TM & OM & HM
+                         & TM & OM & HM \\
+    \midrule
+    \multirow{4}{*}{\rotatebox{90}{\benchname{lookup\_all}}}
+    \input{bench-lookup.tex-incl}
+    \midrule
+    \multirow{4}{*}{\rotatebox{90}{\benchname{insert\_...}}}
+    \input{bench-insert.tex-incl}
+    \bottomrule
+    \end{tabular}
+  }
 
   \label{fig:runtime-lookup}
 \end{table}
@@ -1781,19 +1797,53 @@ varying map size $M$ and expression size $E$. The results in
 \Cref{fig:runtime-lookup} show that |ExprMap| scales even better than |Map| when
 we increase $M$ and leave $E$ constant. The time measurements for |ExprMap|
 appear to grow linearly with $M$. Considering that the number of lookups also
-increases $M$-fold, it seems the cost of a single lookup remained constant,
-despite the fact that we store varying numbers of expressions in the trie map.
-By contrast, fixing $M$ but increasing $E$ makes |Map| easily catch up on lookup
-performance with |ExprMap|, ultimately outpacing it. |HashMap| shows performance
-consistent with |ExprMap| but is a bit slower, as before.
+increases $M$-fold, it seems the cost of a single lookup remained almost
+constant, despite the fact that we store varying numbers of expressions in the
+trie map. By contrast, fixing $M$ but increasing $E$ makes |Map| easily catch up
+on lookup performance with |ExprMap|, ultimately outpacing it. |HashMap| shows
+performance consistent with |ExprMap| but is a bit slower, as before.
+
+Folding over |ExprMap|s is expectedly slow: The complex tree structure is
+difficult to traverse and involves quite a few indirections. This is in stark
+contrast to the situation with |Map|, where it's just a textbook in-order
+traversal over the search tree. Folding over |HashMap| is not quite as fast,
+but still much more efficient than folding over |ExprMap|.
 
 \subsubsection*{Building}
 
-\begin{itemize}
-  \item Quite fast, but will be outpaced by |Map| for huge $E$
-  \item |fromList| is generally slow. No ideas for improvement
-  \item Likewise |fold|. Don't do it
-\end{itemize}
+The \benchname{insert\_lookup\_one} benchmark demonstrates that |ExprMap| also
+wins on insert performance, although the defeat against |Map| for size
+parameters beyond 1000 is looming. Again, \Cref{fig:runtime-lookup} decouples
+map size $M$ and expression size $E$. The data suggests that in comparison to
+|Map|, $E$ indeed affects insert performance of |ExprMap| linearly. By contrast,
+$M$ does not seem to affect insert performance at all.
+
+The small edge |ExprMap| seems to have over |Map| and |HashMap| doesn't carry
+over to its naïve |fromList| implementation, though. |Map|'s |fromList| sorts
+the input list and then builds the search tree in one linear sweep. |HashMap|
+can make use of transient mutability and perform destructive inserts on the map
+data structure during the call to |fromList|, knowing that such mutability can't
+be observed by the caller.
+
+As such, |Map| clearly wins the \benchname{fromList} benchmark. It is a bit
+surprising that |HashMap| seems to lose against |ExprMap| for larger $N$.
+Rehashing can't be the reason, because hash array mapped tries never need to be
+rehashed.
+
+We expect |ExprMap| to catch up in \benchname{fromList\_app1}. And indeed it
+does, outperforming |Map| for larger $N$ which pays for having to compare
+the shared prefix repeatedly. But |HashMap| is good for another surprise and
+significantly outperforms |ExprMap| here for small $N$.
+
+\sg{Move to Related Work?}
+What would a non-naïve version of |fromList| for |ExprMap| look like? Perhaps
+the process could be sped up considerably by partitioning the input list
+according to the different fields of |ExprMap| like |em_lam| and then calling
+the |fromList| implementations of the individual fields in turn. The process
+would be very similar to discrimination sort \cite{discr-sort}, which is a
+generalisation of radix sort to tree-like data and very close to tries.
+Indeed, the \hackage{discrimination} library provides such an optimised |toMap|
+implementation.
 
 \subsection{Space}
 

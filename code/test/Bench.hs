@@ -226,7 +226,7 @@ criterion =
 --      bench "" $ nf (map (`union` expr_map)) exprs
 
 weighSizes :: [Int]
-weighSizes = [10, 100, 1000]
+weighSizes = [10, 100, 1000, 1000]
 -- weighSizes = [10, 100, 1000, 5000]
 
 -- Called weigh, because I started out by using the Weigh benchmark framework,
