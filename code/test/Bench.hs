@@ -212,7 +212,7 @@ criterion =
       bench "" $ nf (map (`lookupMap` expr_map)) exprs
 
     rnd_fromList :: Benchmark
-    rnd_fromList = bench_diag_variants "fromList" criterionDiagSizes $ \(_ :: em) n m ->
+    rnd_fromList = bench_all_variants "fromList" criterionAllSizes criterionAllSizes $ \(_ :: em) n m ->
       env (pure (flip zip [0..] $ mkNExprs n m)) $ \pairs ->
       bench "" $ nf (mapFromList :: [(Expr, Int)] -> em) pairs
 
