@@ -309,10 +309,11 @@ lkFreeVarOcc var (tsubst, env) = case Map.lookup var env of
 
 class Eq (TrieKey tm) => TrieMap tm where
    type TrieKey tm :: Type
-   emptyTM  :: tm v
-   lookupTM :: TrieKey tm -> tm v -> Maybe v
-   alterTM  :: TrieKey tm -> XT v -> tm v -> tm v
-   foldTM   :: (v -> a -> a) -> tm v -> a -> a
+   emptyTM        :: tm v
+   lookupTM       :: TrieKey tm -> tm v -> Maybe v
+   alterTM        :: TrieKey tm -> XT v -> tm v -> tm v
+   unionWithTM    :: (v -> v -> v) -> tm v -> tm v -> tm v
+   foldTM         :: (v -> a -> a) -> tm v -> a -> a
 
 --   mapTM    :: (a->b) -> tm a -> tm b
 --   filterTM :: (a -> Bool) -> tm a -> tm a
@@ -368,10 +369,11 @@ deriving instance (Show v, Show (TrieKey tm), Show (tm v))
 
 instance TrieMap tm => TrieMap (SEMap tm) where
   type TrieKey (SEMap tm) = TrieKey tm
-  emptyTM  = EmptySEM
-  lookupTM = lookupSEM
-  alterTM  = alterSEM
-  foldTM   = foldSEM
+  emptyTM     = EmptySEM
+  lookupTM    = lookupSEM
+  alterTM     = alterSEM
+  unionWithTM = unionWithSEM
+  foldTM      = foldSEM
 
 lookupSEM :: TrieMap tm => TrieKey tm -> SEMap tm v -> Maybe v
 lookupSEM !_  EmptySEM = Nothing
@@ -397,6 +399,23 @@ alterSEM k1 xt tm@(SingleSEM k2 v2)
 alterSEM k xt (MultiSEM tm)
   = MultiSEM (alterTM k xt tm)
 
+unionWithSEM :: TrieMap tm => (v -> v -> v) -> SEMap tm v -> SEMap tm v -> SEMap tm v
+unionWithSEM _ EmptySEM        m        = m
+unionWithSEM _ m               EmptySEM = m
+unionWithSEM f (SingleSEM k1 v1) (SingleSEM k2 v2)
+  | k1 == k2 = SingleSEM k1 (f v1 v2)
+  | otherwise = MultiSEM $ alterTM k1 (\_ -> Just v1)
+                         $ alterTM k2 (\_ -> Just v2)
+                         $ emptyTM
+unionWithSEM f (MultiSEM tm)   (SingleSEM k v)
+  = MultiSEM $ alterTM k (\_ -> Just v) tm
+unionWithSEM f (SingleSEM k v) (MultiSEM tm)
+  = MultiSEM $ alterTM k xt tm
+  where
+    xt Nothing = Just v
+    xt old     = old
+unionWithSEM f (MultiSEM tm1)  (MultiSEM tm2)
+  = MultiSEM $ unionWithTM f tm1 tm2
 
 foldSEM :: TrieMap tm => (v -> a -> a) -> SEMap tm v -> a -> a
 foldSEM _ EmptySEM        z = z
@@ -418,10 +437,12 @@ data ListMap' tm a
 
 instance TrieMap tm => TrieMap (ListMap' tm) where
    type TrieKey (ListMap' tm) = [TrieKey tm]
-   emptyTM  = emptyList
-   lookupTM = lookupList
-   alterTM  = alterList
-   foldTM   = foldList
+   emptyTM     = emptyList
+   lookupTM    = lookupList
+   alterTM     = alterList
+   unionWithTM = unionWithList
+   foldTM      = foldList
+   -- fromListWithTM = undefined
 
 emptyList :: TrieMap tm => ListMap' tm a
 emptyList = LM { lm_nil = Nothing, lm_cons = emptyTM }
@@ -437,6 +458,15 @@ alterList ks xt tm@(LM {..})
   = case ks of
       []      -> tm { lm_nil  = lm_nil |> xt }
       (k:ks') -> tm { lm_cons = lm_cons |> alterTM k |>> alterTM ks' xt }
+
+unionWithMaybe :: (v -> v -> v) -> Maybe v -> Maybe v -> Maybe v
+unionWithMaybe f (Just v1) (Just v2) = Just (f v1 v2)
+unionWithMaybe _ m1        m2        = m1 `mplus` m2
+
+unionWithList :: TrieMap tm => (v -> v -> v) -> ListMap' tm v -> ListMap' tm v -> ListMap' tm v
+unionWithList f m1 m2
+  = LM { lm_nil = unionWithMaybe f (lm_nil m1) (lm_nil m2)
+       , lm_cons = unionWithTM (unionWithTM f) (lm_cons m1) (lm_cons m2) }
 
 foldList :: TrieMap tm => (v -> a -> a) -> ListMap' tm v -> a -> a
 foldList f (LM {..}) = foldMaybe f lm_nil . foldTM (foldTM f) lm_cons
@@ -465,10 +495,11 @@ deriving instance (Show (TrieKey ExprMap'), Show v)
 
 instance TrieMap ExprMap' where
   type TrieKey ExprMap' = DeBruijn Expr
-  emptyTM  = mkEmptyExprMap
-  lookupTM = lookupExpr
-  alterTM  = alterExpr
-  foldTM   = foldExpr
+  emptyTM     = mkEmptyExprMap
+  lookupTM    = lookupExpr
+  alterTM     = alterExpr
+  unionWithTM = unionWithExpr
+  foldTM      = foldExpr
 
 emptyExprMap :: ExprMap a
 emptyExprMap = EmptySEM
@@ -503,6 +534,14 @@ alterExpr (D dbe e) xt m@(EM {..})
       App e1 e2 -> m { em_app = em_app |> alterTM (D dbe e1) |>> alterTM (D dbe e2) xt }
       Lam x e   -> m { em_lam = em_lam |> alterTM (D (extendDBE x dbe) e) xt }
 
+unionWithExpr :: (v -> v -> v) -> ExprMap' v -> ExprMap' v -> ExprMap' v
+unionWithExpr f m1 m2
+  = EM { em_bvar = IntMap.unionWith f (em_bvar m1) (em_bvar m2)
+       , em_fvar = Map.unionWith f (em_fvar m1) (em_fvar m2)
+       , em_lit  = Map.unionWith f (em_lit m1) (em_lit m2)
+       , em_app  = unionWithTM (unionWithTM f) (em_app m1) (em_app m2)
+       , em_lam  = unionWithTM f (em_lam m1) (em_lam m2) }
+
 foldExpr :: forall a v. (v -> a -> a) -> ExprMap' v -> a -> a
 foldExpr f (EM {..}) z
   = let !z1 = foldTM f em_lam z in
@@ -510,6 +549,7 @@ foldExpr f (EM {..}) z
     let !z3 = foldTM (\em z -> z `seq` foldTM f em z) em_app z2 in
     let !z4 = foldFVM f em_fvar z3 in
     foldBVM f em_bvar z4
+
 
 -- | For debugging purposes. Draw with 'containers:Data.Tree.drawTree' or
 -- 'tree-view:Data.Tree.View.showTree'. The latter uses much less screen space.

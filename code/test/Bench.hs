@@ -81,6 +81,7 @@ class NFData m => MapAPI m where
   emptyMap :: m
   lookupMap :: Expr -> m -> Maybe Int
   insertMap :: Expr -> Int -> m -> m
+  unionMap :: m -> m -> m
   fold :: (Int -> b -> b) -> m -> b -> b
   mapFromList :: [(Expr, Int)] -> m
 
@@ -88,6 +89,7 @@ instance MapAPI (ExprMap Int) where
   emptyMap = emptyExprMap
   lookupMap e = lookupTM (deBruijnize e)
   insertMap e = insertTM (deBruijnize e)
+  unionMap = unionWithTM (\l r -> r)
   fold = foldTM
   {-# NOINLINE fold #-}
   mapFromList = foldr (uncurry insertMap) emptyMap
@@ -96,6 +98,7 @@ instance MapAPI (Map Expr Int) where
   emptyMap = Map.empty
   lookupMap = Map.lookup
   insertMap = Map.insert
+  unionMap = Map.unionWith (\l r -> r)
   fold f m z = foldr f z m
   {-# NOINLINE fold #-} -- disable specialisation for f as foldTM can't do it. Apples to apples
   mapFromList = Map.fromList
@@ -104,6 +107,7 @@ instance MapAPI (HashMap Expr Int) where
   emptyMap = HashMap.empty
   lookupMap = HashMap.lookup
   insertMap = HashMap.insert
+  unionMap = HashMap.unionWith (\l r -> r)
   fold f m z = foldr f z m
   {-# NOINLINE fold #-} -- disable specialisation for f as foldTM can't do it. Apples to apples
   mapFromList = HashMap.fromList
@@ -138,6 +142,8 @@ criterion =
   , rnd_insert_lookup_one
   , rnd_fromList_app1
   , rnd_fromList
+  , rnd_union
+  , rnd_union_app1
   , rnd_fold
   ]
   where
@@ -215,17 +221,24 @@ criterion =
       env (pure (flip zip [0..] $ mkNExprsWithPrefix n m (Lit "$" `App`))) $ \pairs ->
       bench "" $ nf (mapFromList :: [(Expr, Int)] -> em) pairs
 
+    rnd_union :: Benchmark
+    rnd_union = bench_all_variants "union" criterionAllSizes criterionAllSizes $ \(_ :: em) n m ->
+      with_map_of_exprs @em n m $ \_exprs expr_map1 ->
+      with_map_of_exprs @em (n+1) (m+1) $ \_exprs expr_map2 ->
+      bench "" $ nf (uncurry unionMap :: (em, em) -> em) (expr_map1, expr_map2)
+
+    rnd_union_app1 :: Benchmark
+    rnd_union_app1 = bench_diag_variants "union_app1" criterionDiagSizes $ \(_ :: em) n m ->
+      env (pure (mkNExprsWithPrefix n m (Lit "$" `App`))) $ \exprs1 ->
+      env (pure ((mapFromList $ zip exprs1 [0..]) :: em)) $ \(expr_map1 :: em) ->
+      env (pure (mkNExprsWithPrefix (n+1) (m+1) (Lit "$" `App`))) $ \exprs2 ->
+      env (pure ((mapFromList $ zip exprs2 [0..]) :: em)) $ \(expr_map2 :: em) ->
+      bench "" $ nf (uncurry unionMap :: (em, em) -> em) (expr_map1, expr_map2)
+
     rnd_fold :: Benchmark
     rnd_fold = bench_diag_variants "fold" criterionDiagSizes $ \(_ :: em) n m ->
       with_map_of_exprs @em n m $ \_exprs expr_map ->
       bench "" $ whnf (\em -> fold (+) em 0) expr_map
-
--- No unionTM yet...
---    rnd_union :: Benchmark
---    rnd_union = bench_all_variants "rnd_union" criterionDiagSizes $ \(_ :: m) n ->
---      with_map_of_exprs @m n $ \_exprs1 expr_map1 ->
---      with_map_of_exprs @m (n+1) $ \_exprs2 expr_map2 ->
---      bench "" $ nf (map (`union` expr_map)) exprs
 
 weighSizes :: [Int]
 weighSizes = [10, 100, 1000, 1000]
