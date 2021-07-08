@@ -1877,6 +1877,10 @@ generalisation of radix sort to tree-like data and very close to tries.
 Indeed, the \hackage{discrimination} library provides such an optimised
 $\mathcal{O}(N)$ |toMap| implementation for ordered maps.
 
+The \benchname{union*} benchmarks don't reveal anything new; |Map| and |HashMap|
+win for small $N$, but |ExprMap| wins in the long run, especially when there's
+a sharable prefix involved.
+
 \subsection{Space}
 
 \begin{table}
