@@ -1,0 +1,4 @@
+& \textbf{10} & \textbf{42.\insigdig{0}ns} & 1.9\insigdig{8} & 1.8\insigdig{6} & 102ns & 1.7\insigdig{8} & \textbf{0.8\insigdig{0}} & 109ns & 2.58 & \textbf{0.98} & \textbf{69.\insigdig{7}ns} & 4.74 & 1.99 \\
+& \textbf{100} & \textbf{1.39\textmu{}s} & 1.05 & 2.11 & \textbf{1.39\textmu{}s} & 1.24 & 2.07 & \textbf{1.47\textmu{}s} & 1.65 & 2.02 & \textbf{1.52\textmu{}s} & 2.3\insigdig{5} & 1.9\insigdig{8} \\
+& \textbf{1000} & 15.5\textmu{}s & \textbf{0.97} & 2.27 & 15.6\textmu{}s & \textbf{0.99} & 2.2\insigdig{7} & \textbf{15.6\textmu{}s} & 1.0\insigdig{3} & 2.26 & \textbf{15.7\textmu{}s} & 1.07 & 2.26 \\
+& \textbf{10000} & 152\textmu{}s & \textbf{0.99} & 2.5\insigdig{2} & 152\textmu{}s & \textbf{0.99} & 2.5\insigdig{2} & 153\textmu{}s & \textbf{0.99} & 2.5\insigdig{0} & \textbf{153\textmu{}s} & 1.00 & 2.5\insigdig{0} \\

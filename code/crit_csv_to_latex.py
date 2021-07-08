@@ -68,8 +68,8 @@ def format_absolute(mean: Decimal, confidence: Decimal):
   return s+sis[si_idx]
 
 def format_relative(baseline: Decimal, mean: Decimal, confidence: Decimal):
-  speedup = quantize_n_digits(n_digits, baseline / mean)
-  s = mark_insignificant_digits(f"{speedup:.{n_digits-1}f}", mean.adjusted() - confidence.adjusted())
+  inv_speedup = quantize_n_digits(n_digits, mean / baseline)
+  s = mark_insignificant_digits(f"{inv_speedup:.{n_digits-1}f}", mean.adjusted() - confidence.adjusted())
   return s
 
 def csv_to_cleaned_table(filename):
@@ -115,7 +115,7 @@ table = csv_to_cleaned_table(sys.argv[1])
 variants=['ExprMap','Map','HashMap']
 # Format overview table for all benchmarks
 s = ''
-overview_names=['lookup_all','lookup_all_app1','lookup_all_app2','lookup_all_lam','lookup_one','insert_lookup_one','fromList','fromList_app1','fold']
+overview_names=['lookup_all','lookup_all_app1','lookup_all_app2','lookup_all_lam','lookup_one','fold','insert_lookup_one','fromList','fromList_app1','union','union_app1']
 for name in overview_names:
   inputs=table[name]
   s = s + '\\benchname{'+name.replace('_','\\_')+'} & '
@@ -135,10 +135,10 @@ for name in overview_names:
 print(s)
 with open('../paper/bench-overview.tex-incl', 'w') as f: f.write(s)
 
-# Format E x M table for lookup_all
-s = ''
-overview_names=['lookup_all']
-for name in overview_names:
+# Format E x M table for runtime-finer
+finer_names=['lookup_all','lookup_all_app1','insert_lookup_one','fromList','union']
+for name in finer_names:
+  s = ''
   inputs=table[name]
   for expr_size in [10,100,1000,10000]:
     s = s + '& \\textbf{'+str(expr_size)+'} & '
@@ -155,30 +155,5 @@ for name in overview_names:
     # the weird slice is to strip the trailing '& '
     s = s[:-2]+'\\\\\n'
 
-print(s)
-with open('../paper/bench-lookup.tex-incl', 'w') as f: f.write(s)
-
-# Format E x M table for insert_lookup_one
-s = ''
-overview_names=['insert_lookup_one']
-for name in overview_names:
-  inputs=table[name]
-  for expr_size in [10,100,1000,10000]:
-    s = s + '& \\textbf{'+str(expr_size)+'} & '
-    for map_size in [10,100,1000,10000]:
-      measurements = inputs[(map_size, expr_size)]
-      (winner,_) = min([(v, measurements[v][0]) for v in variants], key=lambda p: p[1])
-      for v in variants:
-        #print(name,size,v)
-        (_, entry) = measurements[v]
-        if v == winner:
-          s = s+'\\textbf{'+entry+'} & '
-        else:
-          s = s+entry+' & '
-    # the weird slice is to strip the trailing '& '
-    s = s[:-2]+'\\\\\n'
-
-print(s)
-with open('../paper/bench-insert.tex-incl', 'w') as f: f.write(s)
-
-
+  print(s)
+  with open(f'../paper/bench-{name}.tex-incl', 'w') as f: f.write(s)

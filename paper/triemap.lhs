@@ -405,16 +405,17 @@ Traditional finite-map implementations tend to do badly in such applications, be
 they are often based on balanced trees and the assumption that comparing two keys is
 a fast, constant-time operation.  That assumption is false for tree-structured keys.
 
-Another time that a compiler may want to look up a tree-structured key
-is when rewriting expressions: it wants to see if any rewrite rule
-matches the sub-expression in hand.  We want an extended version of a
-finite map where we can insert a collection of rewrite rules, expressed as
-(pattern, rhs) pairs, and then look up an expression in the map,
-getting a hit if the one or more of the patterns \emph{matches} the
-expression.  If there is a large number of such (pattern,rhs) entries
-to check, we would like to do so faster than checking them one by one.
-Several parts of GHC, a Haskell compiler, need matching lookup, and currently
-use an inefficint linear algorithm to do so.
+Another time that a compiler may want to look up a tree-structured key is
+when rewriting expressions: it wants to see if any rewrite rule matches the
+sub-expression in hand and subsequently rewrite with the instantiated right-hand
+side (RHS) of the rule. For us compiler developers to accomodate such a feature,
+we need an extended version of a finite map where we can insert a collection
+of rewrite rules, expressed as (\varid{pattern},~\varid{rhs}) pairs, and
+then look up an expression in the map, getting a hit if one or more of the
+patterns \emph{match} the expression. If there is a large number of such
+(\varid{pattern},~\varid{rhs}) entries to check, we would like to do so faster
+than checking them one by one. Several parts of GHC, a Haskell compiler, need
+matching lookup, and currently use an inefficint linear algorithm to do so.
 
 In principle it is well known how to do this: use a \emph{trie}.  In particular, for the
 matching task, use \emph{discrimination trees}, which are a key data structure in the
@@ -423,7 +424,7 @@ ideas in the context of a statically-typed functional programming language, Hask
 This shift of context is surprisigly fruitful, and we make the following contributions:
 \begin{itemize}
 \item We develop a standard pattern for a statically typed triemap for
-  an arbitrary new algebraic data type (\Cref{sec:basic-ideas}). In
+  an arbitrary new algebraic data type (\Cref{sec:basic}). In
   contrast, most of the literature describes untyped tries for a
   fixed, generic tree type. (\citet{hinze:generalized} is an exception.)
   In particular:
@@ -431,7 +432,7 @@ This shift of context is surprisigly fruitful, and we make the following contrib
     \item Supported by type classs, we can make good use of polymorphism to build triemaps
       for polymorphic data types, such as lists (\Cref{sec:class}).
 
-    \item We cover the full range of operations expected for finite maps: not only insertion and lookup, but alter, union, map, filter, and fold (\Cref{sec:basic-ideas}).
+    \item We cover the full range of operations expected for finite maps: not only insertion and lookup, but alter, union, map, filter, and fold (\Cref{sec:basic}).
 
     \item We develop a generic optimisation for singleton maps, which can be generalised
       to work for arbitrary triemaps (\Cref{sec:singleton}).
@@ -449,7 +450,7 @@ This shift of context is surprisigly fruitful, and we make the following contrib
 
      \item We present measurements that compare the performance of our triemaps (ignoring
        their matching capability) with traditional finite-map implementations
-       in Haskell (\Cref{sec:eval}.
+       in Haskell (\Cref{sec:eval}).
 \end{itemize}
 Our contribution is not so much a clever new idea as an exposition of
 some old ideas in a new context, perhaps providing some new perspective on those
@@ -515,9 +516,10 @@ you may wish to imagine it is simply a string:
 type Var = String
 \end{code}
 %}
-The data type |Expr| is capable of representing expressions like |add x y| and
-|\lambda x. add x y|. We will use this data type throughout the paper, because it
-has all the features that occur in real expression data types: free variables like |add|,
+% Convention: object language expressions like add x y in math mode
+The data type |Expr| is capable of representing expressions like $(add x y)$ and
+$(\lambda x. add x y)$. We will use this data type throughout the paper, because it
+has all the features that occur in real expression data types: free variables like $add$,
 represented by a |Var| node;
 lambdas which can bind variables (|Lam|), and occurrences of those bound variables (|Var|);
 and nodes with multiple children (|App|).  A real-world expression type would have
@@ -542,7 +544,7 @@ inserted value.
 \subsection{Lookup modulo matching} \label{sec:matching-intro}
 
 Beyond just the basic finite maps we have described, our practical setting
-in GHC demands more: we want to a lookup that does \emph{matching}.  GHC supports
+in GHC demands more: we want to do a lookup that does \emph{matching}.  GHC supports
 so-called \emph{rewrite rules}~\cite{rewrite-rules}, which the user can specify
 in their source program, like this:
 \begin{code}
@@ -595,9 +597,9 @@ generalisation of |insertEM|: instead of providing just
 a new element to be inserted, the caller provides a
 \emph{transformation} |XT v|, an
 abbreviation for |Maybe v -> Maybe v| (see \Cref{fig:library}).  This function
-transforms the existing value associated with key, if any (hence the
+transforms the existing value associated with the key, if any (hence the
 input |Maybe|), to a new value, if any (hence the output |Maybe|).
-These fundamental operations on a finite map must obey these properties:
+These fundamental operations on a finite map must obey the following properties:
 \begin{code}
 property propLookupEmpty (e)                       (lookup e empty             ^^^^)  (Nothing)
 property propLookupAlter (e m xt)                  (lookup e (alter e xt m)    ^^^^)  (xt (lookup e m))
@@ -658,7 +660,7 @@ with matching lookup}.  For our purposes they are non-starters.
 What other standard solutions are there, apart from linear search?
 The theorem proving and automated reasoning community has been working with huge sets
 of rewrite rules, just as we describe, for many years.
-They have developed \emph{discriminator trees} for this job, which
+They have developed \emph{discrimination trees} for this job, which
 embody essentially the same core ideas as those we present below.  But there are many
 differences, as we discuss later in \Cref{sec:related}.
 
@@ -692,9 +694,8 @@ Here is a trie-based implemenation for |Expr|:
 \begin{code}
 data ExprMap v = EM  { em_var  :: Map Var v, em_app  :: ExprMap (ExprMap v) }
 \end{code}
-Here |Map Var v| is any standard, existing finite map, such as the |containers|
-library\footnote{\url{https://hackage.haskell.org/package/containers}
-} keyed by |Var|, with values |v|.
+Here |Map Var v| is any standard, existing finite map, such as the
+\hackage{containers} library keyed by |Var|, with values |v|.
 One way to understand this slightly odd data type is to study its lookup function:
 \begin{code}
 lookupExpr :: Expr -> ExprMap v -> Maybe v
@@ -727,10 +728,10 @@ lookupExpr (App e1 e2)  = em_app  >.> lookupExpr e1 >=> lookupExpr e2
 \end{code}
 %}
 The function |em_var :: ExprMap v -> Map Var v|
-is the auto-generated selector that picks |em_var| field from an |EM| record, and similarly |em_app|.
+is the auto-generated selector that picks the |em_var| field from an |EM| record, and similarly |em_app|.
 The functions |(>.>)| and |(>=>)| are right-associative forward composition
 operators, respectively monadic and non-monadic,
-that chain the individual operations together (see Cref{fig:library}).
+that chain the individual operations together (see \Cref{fig:library}).
 Finally, we have $\eta$-reduced the definition, by omitting the |m| parameter.
 These abbreviations become quite worthwhile when we add more constructors, each with more fields,
 to the key data type.
@@ -812,7 +813,7 @@ unionExpr :: ExprMap v -> ExprMap v -> ExprMap v
 \end{code}
 In tree-based implementations of finite maps, such union operations can be tricky.
 The two trees, which have been built independently, might not have the same
-left-subtree/right-subtree structure, so some careful re-alignment may be required.
+left-subtree/right-subtree structure, so some careful rebalancing may be required.
 But for tries there are no such worries --
 their structure is identical, and we can simply zip them together.  There is one
 wrinkle: just as we had to generalise |insert| to |alter|,
@@ -865,7 +866,7 @@ folding over the map with |foldrExpr|.
 
 But alas, |foldrExpr| will never terminate!  It always invokes itself immediately
 (in |z1|) on |m_app|; but that invocation will again recursively invoke
-|foldrExpr|; and so on for ever.
+|foldrExpr|; and so on forever.
 The solution is simple: we just need an explicit representation of the empty map.
 Here is one way to do it (we will see another in \Cref{sec:generalised}):
 %{
@@ -891,10 +892,10 @@ foldrExpr k z (EM { em_var = m_var, em_app = m_app })  = Map.foldr k z1 m_var
     kapp m1 r = foldrExpr k r m1
 \end{code}
 Equipped with a fold, we can easily define the size function, and another
-that returns the range of the map:\simon{Typesetting trouble: need a space between underscore and n}
+that returns the range of the map:
 \begin{code}
 sizeExpr :: ExprMap v -> Int
-sizeExpr = foldrExpr (\_ n -> n+1) 0
+sizeExpr = foldrExpr (\ _ n -> n+1) 0
 
 elemsExpr :: ExprMap v -> [v]
 elemsExpr = foldrExpr (:) []
@@ -914,11 +915,11 @@ a type class for them:
 \begin{code}
 class Eq (TrieKey tm) => TrieMap tm where
    type TrieKey tm :: Type
-   emptyTM   :: tm a
-   lookupTM  :: TrieKey tm -> tm a -> Maybe a
-   alterTM   :: TrieKey tm -> XT a -> tm a -> tm a
-   foldTM    :: (a -> b -> b) -> tm a -> b -> b
-   unionTM   :: tm a -> tm a -> tm a
+   emptyTM     :: tm a
+   lookupTM    :: TrieKey tm -> tm a -> Maybe a
+   alterTM     :: TrieKey tm -> XT a -> tm a -> tm a
+   foldTM      :: (a -> b -> b) -> tm a -> b -> b
+   unionWithTM :: (a -> a -> a) -> tm a -> tm a -> tm a
    dots
 \end{code}
 %}
@@ -1069,7 +1070,7 @@ instance TrieMap tm => TrieMap (SEMap tm) where
   emptyTM  = EmptySEM
   lookupTM = lookupSEM
   alterTM  = alterSEM
-  foldTM   = foldSEM
+  dots
 \end{code}
 Adding a new item to a triemap can turn |EmptySEM| into |SingleSEM| and |SingleSEM|
 into |MultiSEM|; and deleting an item from a |SingleSEM| turns it back into |EmptySEM|.
@@ -1089,7 +1090,7 @@ The auxiliary data types |ExprMap'| and |ListMap'| have only a single constructo
 the empty and singleton cases are dealt with by |SEMap|.  We reserve the original,
 un-primed, names for the user-visible |ExprMap| and |ListMap| constructors.
 
-The singleton-map optimisation makes a big difference in practice: see \Cref{sec:results}.
+The singleton-map optimisation makes a big difference in practice: see \Cref{sec:eval}.
 
 \subsection{Generic programming}
 
@@ -1126,8 +1127,9 @@ The key idea is simple: we perform de-Bruijn numbering on the fly,
 renaming each binder to a natural number, from outside in.
 So, when inserting or looking up a key $(\lambda x.\, foo~ (\lambda y.\, x+y))$ we
 behave as if the key was $(\lambda.\, foo ~(\lambda. \bv{1} + \bv{2}))$, where
-each $\bv{i}$ stands for an occurrence of the variable bound by the $i$'th lambda.
-In effect, then, we behave as if the data type was like this:
+each $\bv{i}$ stands for an occurrence of the variable bound by the $i$'th
+lambda, counting from the root of the expression. In effect, then, we behave as
+if the data type was like this:
 \begin{spec}
 data Expr' = AppL ExprL ExprL | Lam ExprL | FreeVar Var | BoundVar Int
 \end{spec}
@@ -1223,7 +1225,7 @@ For example, suppose we wanted to encode the rewrite rule
 %format f2 = "exf2"
 %endif
 \begin{code}
-prag_begin RULES "foo" forall x. f x x = f2 x prag_end
+prag_begin RULES "foo" forall x. f x x = f_2 x prag_end
 \end{code}
 %}
 Here the pattern $([x], f~ x~ x)$ has a repeated variable $x$,
@@ -1279,8 +1281,8 @@ cannot know \emph{a priori} which key to assign to which variable.
 Our solution is to number the pattern variables \emph{in order of their
 first occurrence in a left-to-right scan of the expression}\footnote{As we shall
   see, this is very convenient in implementation terms.}.
-As in \Cref{sec:binders} we will imagine that we cannicalise the pattern, although
-in reality we will do so on-the-fly, without ever constructing the cannonicalised pattern.
+As in \Cref{sec:binders} we will imagine that we canonicalise the pattern, although
+in reality we will do so on-the-fly, without ever constructing the canonicalised pattern.
 Be that as it may, the canonicalised patterns become:
 $$
    f~\pv{1}~\pv{2}~True      \qquad \text{and} \qquad  f~\pv{1}~\pv{2}~False
@@ -1332,7 +1334,8 @@ For our example the pattern key map would be
 $[(x, \pv{1}), (y,\pv{2})]$.  We can store the pattern key
 map paired with the value, in the triemap itself,
 so that once we find a successful match we can use the pattern
-key map and the pattern-key substitution to recover the pattern-variable substition that we want.
+key map and the pattern-key substitution to recover the pattern-variable
+substitution that we want.
 
 To summarise, suppose we want to build a matching trie for the following (pattern, value) pairs:
 $$
@@ -1363,10 +1366,7 @@ data MExprMapX v
           ,  mm_fvar  :: Map Var v
           ,  mm_pvar  :: Maybe v     -- First occurrence of a pattern var
           ,  mm_xvar  :: PatOccs v   -- Subsequent occurrence of a pattern var
-               -- SG: I propose to combine |mm_pvar, mm_xvar| and have a single
-               -- |mm_pvar :: PatKeyMap v|. We can resolve first (flex) and second
-               -- or subseq (rigid) occs as we go.
-           }
+          }
     | EmptyMM
 type PatOccs v = [(PatKey,v)]
 \end{code}
@@ -1374,9 +1374,10 @@ The client-visible |MExprMap| with values of type |v|
 is a matching trie |MExprMapX| with values of type |(PatKeys,v)|,
 as described in \Cref{sec:patkeymap}.
 The trie |MExprMapX| has four fields, one for each case in the pattern.
-The first two fields deal with literals and applications, just as before. The third deals with the \emph{binding} occurrence
-of a pattern variable $\pv{}$, and the fourth with a \emph{bound} occurrence of
-a pattern variable $\pvo{i}$.
+The first two fields deal with free variables and applications, just as before.
+The third deals with the \emph{binding} occurrence of a pattern variable
+$\pv{}$, and the fourth with a \emph{bound} occurrence of a pattern variable
+$\pvo{i}$.
 
 The core lookup function looks like this:
 %{
@@ -1390,8 +1391,8 @@ As well as the target expression |Expr| and the trie, the lookup function also t
 a |PatSubst| that gives the bindings for pattern variable bound so far.
 It returns a bag of results, since more than one entry in the trie may match,
 each paired with the |PatSubst| that binds the pattern variables.
-A |PatSubst| carries not only the current substition, but also (like a |BoundVarMap|, \Cref{sec:binders})
-the next free pattern key:
+A |PatSubst| carries not only the current substitution, but also (like a
+|BoundVarMap|, \Cref{sec:binders}) the next free pattern key:
 \begin{code}
 data PatSubst = PS { ps_next  :: PatKey, ps_subst :: Map PatKey Expr }
 type PatKey = Int
@@ -1425,7 +1426,7 @@ lookupPatKey subst (pat_var, pat_key) = (pat_var, lookupPatSubst pat_key subst)
 \end{code}
 Here |lookupMExpr| is just an impedence-matching shim around
 a call to |lkMExpr| that does all the work.  Notice that the
-input.  The latter returns a bag of |(PatSubst, (PatKeys, v))|
+input changed.  The latter returns a bag of |(PatSubst, (PatKeys, v))|
 values, which the function |rejig| converts into the
 the |Match v| results that we want.  The ``unbound key''
 failure case in |lookupPatSubst| means that
@@ -1457,11 +1458,23 @@ lkMExpr e (psubst, mt)
         App e1 e2 -> Bag.concatMap (lkT (D dbe t2)) $
                      lkT (D dbe t1) (tsubst, mem_fun mt)
 \end{code}
-The bag of results is the union of three possibilities, as follows. (Keep in mind that a |MExprMap| represents \emph{many} patterns simultaneously.)
+The bag of results is the union of three possibilities, as follows. (Keep in
+mind that a |MExprMap| represents \emph{many} patterns simultaneously.)
 \begin{itemize}
-\item |pat_var_bndr|: we consult the |mm_pvar|, if it contains |Just v| then at least one of the patterns in this trie has a pattern binder $\pv{}$ at this spot.  In that case we can simply bind the next free pattern variable (|ps_next|) to |e|, and return a singleton bag.
-\item |pat_var_occs|: any of the bound pattern varaibles might have an occurrence $\pvo{i}$ at this spot, and a list of such bindings is held in |pat_var_occs|.  For each, we must do an equality check between the target |e| and the expression bound to that pattern variable (found via |lookupPatSubst|).  We return a bag of all values for which the equality check succeeds.
-  \item |look_at_e| corresponds exactly to the cases we saw before in \Cref{sec:Expr}.   The only subtlety is that we are are returning a \emph{bag} of results, but happily the Kleisli composition operator |(>=>)| (\Cref{fig:library}) works for any monad, including bags.
+\item |pat_var_bndr|: we consult the |mm_pvar|, if it contains |Just v| then
+  at least one of the patterns in this trie has a pattern binder $\pv{}$ at
+  this spot. In that case we can simply bind the next free pattern variable
+  (|ps_next|) to |e|, and return a singleton bag.
+\item |pat_var_occs|: any of the bound pattern variables might have an
+  occurrence $\pvo{i}$ at this spot, and a list of such bindings is held
+  in |pat_var_occs|. For each, we must do an equality check between the
+  target |e| and the expression bound to that pattern variable (found via
+  |lookupPatSubst|). We return a bag of all values for which the equality check
+  succeeds.
+\item |look_at_e| corresponds exactly to the cases we saw before in
+  \Cref{sec:Expr}. The only subtlety is that we are are returning a
+  \emph{bag} of results, but happily the Kleisli composition operator |(>=>)|
+  (\Cref{fig:library}) works for any monad, including bags.
 \end{itemize}
 
 \subsection{Altering a matching trie}
@@ -1480,17 +1493,17 @@ type PatKeyMap = BoundVarMap   -- We re-use BoundVarMap
 xtMExpr :: Set PatVar -> Expr -> (PatKeyMap -> XT a)
          -> PatKeyMap -> MExprMapX v -> MExprMapX v
 \end{code}
-It is unsurprising the the function is given the set of pattern variables, so that it
+It is unsurprising that the function is given the set of pattern variables, so that it
 can distinguish pattern variables from free variables.  It also takes a |PatKeyMap|, the
 current binding of already-encountered pattern variables to their pattern keys;
 when it completes the lookup it passes that completed binding map to the ``alter'' function.
 
 Given this workhorse, we can build the client-visible |insert| function\footnote{|alter| is not much harder.}:
 \begin{code}
-insertExpr :: forall v. [Var]     -- Pattern variables
+insertMExpr :: forall v. [Var]     -- Pattern variables
                          -> Expr  -- Pattern
                          -> v -> MExprMap v -> MExprMap v
-insertExpr pat_vs e v mm
+insertMExpr pat_vs e v mm
   = xtExpr (Set.fromList pat_vs) e xt emptyBVM mm
   where
     xt :: PatKeyMap -> XT (PatKeys, v)
@@ -1560,7 +1573,7 @@ but it turns out to be hard to achieve this, because each case only has a local
 view of the overall match.
 
 Sometimes one wants to find all patterns that \emph{unify} with the target,
-assuming we have some notion of ``unificable variable'' in the target.  Embodying
+assuming we have some notion of ``unifiable variable'' in the target.  Embodying
 full-blown unification into the lookup algorithm seems hard, but it is relatively
 easy to return a set of \emph{candidates} that then be post-processed with a full
 unifier to see if the candidate does indeed unify with the target.
@@ -1593,12 +1606,12 @@ unifier to see if the candidate does indeed unify with the target.
 \section{Evaluation} \label{sec:eval}
 
 So far, we have seen that trie maps offer a significant advantage over other
-kinds of maps like ordered maps or hash maps: The ability to do a matching
-lookup in \Cref{sec:matching}. In this section, we will see that query
+kinds of maps like ordered maps or hash maps: the ability to do a matching
+lookup (in \Cref{sec:matching}). In this section, we will see that query
 performance is another advantage. Our implementation of trie maps in Haskell
 can generally compete in performance with other map data structures, while
-significantly outperforming traditional map implementations on some operations
-\emph{and} supporting the extension to do a matching lookup.
+significantly outperforming traditional map implementations on some operations.
+Not bad for a data structure that we can also extend to support matching lookup!
 
 \subsection{Runtime} \label{sec:runtime}
 
@@ -1608,9 +1621,10 @@ significantly outperforming traditional map implementations on some operations
   ordered maps |Map Expr| (OM) and hash maps |HashMap Expr| (HM), varying the
   size parameter $N$.  Each map is of size $N$ (so $M=N$) and the expressions
   it contains are also each of size $N$ (so $E=N$).
-  We give the speedup of OM and HM relative to absolute runtime measurements for
-  TM. Digits whose order of magnitude is no larger than that of twice the standard
-  deviation are marked by squiggly lines.}
+  We give the measurements of OM and HM relative to absolute runtime
+  measurements for TM. Lower is better. Digits whose order of magnitude is
+  no larger than that of twice the standard deviation are marked by squiggly
+  lines.}
   \begin{tabular}{l rrr rrr rrr}
   \toprule
   $N$  & \multicolumn{3}{c}{\textbf{10}} & \multicolumn{3}{c}{\textbf{100}} & \multicolumn{3}{c}{\textbf{1000}} \\
@@ -1628,10 +1642,12 @@ significantly outperforming traditional map implementations on some operations
   \label{fig:runtime}
 \end{table}
 
-\Cref{fig:runtime} presents the results of measuring runtime on
-\sg{insert architecture when finalising benchmarks}. All runtime measurements
-were conducted as microbenchmarks using the \hackage{criterion} benchmarking
-library.
+We measured the runtime performance of the |ExprMap| data structure on a
+selection of workloads, conducted using the \hackage{criterion} benchmarking
+library%
+\footnote{The benchmark machine runs Ubuntu 18.04 on an Intel Core i5-8500 with 16GB RAM.}.
+\Cref{fig:runtime} presents an overview of the results, while
+\Cref{fig:runtime-finer} goes into more detail on some configurations.
 
 \subsubsection*{Setup}
 All benchmarks except the \benchname{fromList*} variants are handed a pre-built
@@ -1642,8 +1658,7 @@ deterministic) seed. $N$ is varied between 10 and 1000.
 We compare three different non-matching map implementations, simply because we
 were not aware of other map data structures with matching lookup and we wanted
 to compare apples to apples.
-
-The (non-matching) |ExprMap| forming the baseline. Asymptotics are given with
+The (non-matching) |ExprMap| forms the baseline. Asymptotics are given with
 respect to map size $n$ and key expression size $k$:
 
 \begin{itemize}
@@ -1669,8 +1684,8 @@ add a shared prefix to each of the expressions before building the initial
 map:
 \begin{itemize}
   \item \benchname{\_lam} wraps $N$ layers of $|(Lam "$")|$ around each expression
-  \item \benchname{\_app1} wraps $N$ layers of $|(Lit "$" `App`)|$ around each expression
-  \item \benchname{\_app2} wraps $N$ layers of $|(`App` Lit "$")|$ around each expression
+  \item \benchname{\_app1} wraps $N$ layers of $|(Var "$" `App`)|$ around each expression
+  \item \benchname{\_app2} wraps $N$ layers of $|(`App` Var "$")|$ around each expression
 \end{itemize}
 where |"$"| is a name that doesn't otherwise occur in the generated expressions.
 
@@ -1723,7 +1738,7 @@ sizes than expression sizes!
   \caption{Varying expression size $E$ and map size $M$ independently on benchmarks
   \benchname{lookup\_all} and \benchname{insert\_lookup\_one}.}
   \resizebox{\textwidth}{!}{%
-    \begin{tabular}{rr rrr rrr rrr rrr}
+    \begin{tabular}{cr rrr rrr rrr rrr}
     \toprule
     \multicolumn{2}{c}{\multirow{2}{*}{\diagbox{$E$}{$M$}}} & \multicolumn{3}{c}{\textbf{10}}
                                         & \multicolumn{3}{c}{\textbf{100}}
@@ -1736,10 +1751,19 @@ sizes than expression sizes!
                          & TM & OM & HM \\
     \midrule
     \multirow{4}{*}{\rotatebox{90}{\benchname{lookup\_all}}}
-    \input bench-lookup.tex-incl
+    \input bench-lookup_all.tex-incl
     \midrule
-    \multirow{4}{*}{\rotatebox{90}{\benchname{insert\_...}}}
-    \input bench-insert.tex-incl
+    \multirow{4}{*}{\rotatebox{90}{\benchname{lo\_a\_app1}}}
+    \input bench-lookup_all_app1.tex-incl
+    \midrule
+    \multirow{4}{*}{\rotatebox{90}{\benchname{insert\_o\_l}}}
+    \input bench-insert_lookup_one.tex-incl
+    \midrule
+    \multirow{4}{*}{\rotatebox{90}{\benchname{fromList }}}
+    \input bench-fromList.tex-incl
+    \midrule
+    \multirow{4}{*}{\rotatebox{90}{\benchname{union}}}
+    \input bench-union.tex-incl
     \bottomrule
     \end{tabular}
   }
@@ -1753,7 +1777,7 @@ size $E$ independently for \benchname{lookup\_all}. The results in
 increase $M$ and leave $E$ constant. The difference is even more pronounced than
 in \Cref{fig:runtime}, in which $N = M = E$.
 
-The time measurements for |ExprMap| appear to grow linearly with $M$.
+The time measurements for |ExprMap| appear to grow almost linearly with $M$.
 Considering that the number of lookups also increases $M$-fold, it seems the
 cost of a single lookup remained almost constant, despite the fact that we store
 varying numbers of expressions in the trie map. That is exactly the strength
@@ -1765,7 +1789,7 @@ captures the common short circuiting semantics of the lexicographic order on
 
 By contrast, fixing $M$ but increasing $E$ makes |Map| easily catch up
 on lookup performance with |ExprMap|, ultimately outpacing it. The shared prefix
-factor $P$ for |Map| remains essentially constant relative to $E$: Larger
+factor $P$ for |Map| remains essentially constant relative to $E$: larger
 expressions still are likely to differ very early because they are random.
 Increasing $M$ will introduce more clashes and is actually more likely to
 increase $P$ on completely random expressions. As written above, realistic
@@ -1780,24 +1804,24 @@ Returning to \Cref{fig:runtime}, we see that folding over |ExprMap|s is
 considerably slower than over |Map| or |HashMap|. The complex tree structure is
 difficult to traverse and involves quite a few indirections.
 This is in stark contrast to the situation with |Map|, where it's just a
-textbook in-order traversal over the search tree. Folding over |HashMap| is not
-quite as fast, but still much more efficient than folding over |ExprMap|.
+textbook in-order traversal over the search tree. Folding over |HashMap|
+performs similarly to |Map|.
 
-We think that |ExprMap| dies by a thousand paper cuts: The lazy folding
-function means that we allocate a lot of thunks for intermediate results that
-we end up forcing in the case of our folding function |(+)| anyway. That is a
-price that |Map| and |HashMap| pay, too, but not nearly as much as the
+We think that |ExprMap| folding performance dies by a thousand paper cuts: The
+lazy folding function means that we allocate a lot of thunks for intermediate
+results that we end up forcing anyway in the case of our folding operator |(+)|.
+That is a price that |Map| and |HashMap| pay, too, but not nearly as much as the
 implementation of |foldExpr| does.
 Furthermore, there's the polymorphic recursion in the head case of |em_app|
 with a different folding function |(foldTM f)|, which allocates on each call
 and makes it impossible to specialise |foldExpr| for a fixed folding function
 like |(+)| with the static argument transformation~\cite{santos}. Hence
 we tried to single out the issue by ensuring that |Map| and |ExprMap| in
-fact don't specialise for |(+)| when running the benchmarks, by means of an
+fact don't specialise for |(+)| when running the benchmarks, by means of a
 \texttt{NOINLINE} pragma.
 Another possible reason might be that the code generated for |foldExpr| is quite
-a lot larger than the code for |Map|, say, so it is not unlikely that we are
-measuring caching effects.
+a lot larger than the code for |Map|, say, so we are likely measuring caching
+effects.
 We are positive there are numerous ways in which the performance of |foldExpr|
 can be improved, but believe it is unlikely to exceed or just reach the
 performance of |Map|.
@@ -2007,16 +2031,19 @@ libraries describe how to match on expression data structures modulo
 $\alpha$-equivalence or how to perform matching lookup.
 
 Tries have been utilised for memoisation in the past. The earliest such
-attempt we could find was being taken by Hinze~\cite{hinze}, which describes our
-informal approach of deriving a trie from a first-order, possibly parameterised
-and nested data type in more detail. The ideas of Hinze manifest in the
-\hackage{MemoTrie} library. A generalisation of those ideas then led to
-\hackage{functor-combo}. The \hackage{representable-tries} library observes
-that trie maps are representable functors and then vice versa tries to
-characterise the sub-class of representable functors for which there exists a
-trie map implementation. Again, the data type generic approach has been taken
-far deeper before than in this paper, but none of the libraries try to view
-tries for matching lookup.
+attempt we could find was being taken by Hinze~\cite{hinze:generalized},
+which describes our informal approach of deriving a trie from a first-order,
+possibly parameterised and nested data type in great detail, including the
+realisation that we need the generalisations |alter| and |unionWith| in order to
+define |insert| and |union|.
+
+The ideas of Hinze manifest in the \hackage{MemoTrie} library. A
+generalisation of those ideas then led to \hackage{functor-combo}. The
+\hackage{representable-tries} library observes that trie maps are representable
+functors and then vice versa tries to characterise the sub-class of
+representable functors for which there exists a trie map implementation. Again,
+the data type generic approach has been taken far deeper before than in this
+paper, but none of the libraries try to view tries for matching lookup.
 
 The \hackage{twee-lib} library defines a simple term index data structure based
 on discrimination trees for the \varid{twee} equation theorem prover. We would
