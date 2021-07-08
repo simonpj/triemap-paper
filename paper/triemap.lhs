@@ -186,6 +186,10 @@
 \newcommand{\tick}{\text{\textquoteright}}
 \newcommand{\package}[1]{\textsf{#1}}
 
+% Change lhs2TeX code indentation
+% https://tex.stackexchange.com/a/186520/52414
+\setlength\mathindent{1.5em}
+
 %if style == poly
 %format checktype(e) = e
 %format |-> = "\mapsto"
