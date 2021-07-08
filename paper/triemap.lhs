@@ -975,7 +975,7 @@ lookupListExpr :: [Expr] -> ListExprMap v -> Maybe v
 \end{code}
 But rather than define a |ListExprMap| for keys of type |[Expr]|,
 and a |ListDeclMap| for keys of type |[Decl]|, etc, we would obviously prefer
-to build a trie for lists of \emph{any type}, like this \cite{hinze-generalized}:
+to build a trie for lists of \emph{any type}, like this \cite{hinze:generalized}:
 \begin{code}
 lookupList :: TrieMap tm => [TrieKey tm] -> ListMap tm v -> Maybe v
 lookupList []      = lm_nil
