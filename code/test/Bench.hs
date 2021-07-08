@@ -89,24 +89,23 @@ instance MapAPI (ExprMap Int) where
   lookupMap e = lookupTM (deBruijnize e)
   insertMap e = insertTM (deBruijnize e)
   fold = foldTM
+  {-# NOINLINE fold #-}
   mapFromList = foldr (uncurry insertMap) emptyMap
-
-slowfoldr :: Foldable f => (a -> b -> b) -> b -> f a -> b
-slowfoldr = foldr
-{-# NOINLINE slowfoldr #-}
 
 instance MapAPI (Map Expr Int) where
   emptyMap = Map.empty
   lookupMap = Map.lookup
   insertMap = Map.insert
-  fold f m z = slowfoldr f z m
+  fold f m z = foldr f z m
+  {-# NOINLINE fold #-} -- disable specialisation for f as foldTM can't do it. Apples to apples
   mapFromList = Map.fromList
 
 instance MapAPI (HashMap Expr Int) where
   emptyMap = HashMap.empty
   lookupMap = HashMap.lookup
   insertMap = HashMap.insert
-  fold f m z = slowfoldr f z m
+  fold f m z = foldr f z m
+  {-# NOINLINE fold #-} -- disable specialisation for f as foldTM can't do it. Apples to apples
   mapFromList = HashMap.fromList
 
 mkNExprs :: Int -> Int -> [Expr]
