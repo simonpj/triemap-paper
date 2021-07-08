@@ -1591,13 +1591,13 @@ to return the most-specific matches.
 
 \section{Evaluation} \label{sec:eval}
 
-So far, we have seen that trie maps offer at least one significant advantage
-over other kinds of maps like ordered maps or hash maps: The ability to do a
-matching lookup in \Cref{sec:matching}. In this section, we will see that
-query performance is another advantage. Our implementation of trie maps in
-Haskell can generally compete in performance with other map data structures,
-while significantly outperforming traditional map implementations on some
-operations.
+So far, we have seen that trie maps offer a significant advantage over other
+kinds of maps like ordered maps or hash maps: The ability to do a matching
+lookup in \Cref{sec:matching}. In this section, we will see that query
+performance is another advantage. Our implementation of trie maps in Haskell
+can generally compete in performance with other map data structures, while
+significantly outperforming traditional map implementations on some operations
+\emph{and} supporting the extension to do a matching lookup.
 
 \subsection{Runtime} \label{sec:runtime}
 
@@ -1638,9 +1638,12 @@ map containing $N$ expressions, each consisting of roughly $N$ |Expr| data
 constructors, and drawn from a pseudo-random source with a fixed (and thus
 deterministic) seed. $N$ is varied between 10 and 1000.
 
-We compare three different map implementations, with |ExprMap| forming the
-baseline. Asymptotics are given with respect to map size $n$ and key expression
-size $k$:
+We compare three different non-matching map implementations, simply because we
+were not aware of other map data structures with matching lookup and we wanted
+to compare apples to apples.
+
+The (non-matching) |ExprMap| forming the baseline. Asymptotics are given with
+respect to map size $n$ and key expression size $k$:
 
 \begin{itemize}
   \item |ExprMap| (designated ``TM'' in \Cref{fig:runtime}) is the trie map
@@ -1964,17 +1967,44 @@ numbering all pattern variable occurrences, which loses sharing.}
 
 \subsection{Haskell triemaps}
 
-\subsection{Notes from Sebastian}
+Trie data structures found their way into numerous Haskell packages over time.
+There are trie data structures that are specific to |String|, like the
+\hackage{StringMap} package, or polymorphically, requiring just a type class for
+trie key extraction, like the \hackage{TrieMap} package. None of these
+libraries describe how to match on expression data structures modulo
+$\alpha$-equivalence or how to perform matching lookup.
 
-\begin{itemize}
-\item Using a FSM; e.g \emph{Interpreted Pattern Match Execution} by Jeff Niu, a UW undergrad intern at Google.  https://docs.google.com/presentation/d/1e8MlXOBgO04kdoBoKTErvaPLY74vUaVoEMINm8NYDds/edit?usp=sharing
+Tries have been utilised for memoisation in the past. The earliest such
+attempt we could find was being taken by Hinze~\cite{hinze}, which describes our
+informal approach of deriving a trie from a first-order, possibly parameterised
+and nested data type in more detail. The ideas of Hinze manifest in the
+\hackage{MemoTrie} library. A generalisation of those ideas then led to
+\hackage{functor-combo}. The \hackage{representable-tries} library observes
+that trie maps are representable functors and then vice versa tries to
+characterise the sub-class of representable functors for which there exists a
+trie map implementation. Again, the data type generic approach has been taken
+far deeper before than in this paper, but none of the libraries try to view
+tries for matching lookup.
 
-\item Matching multiple strings.
-\end{itemize}
-There is rich literature on radix trees, which incorporate the Singleton optimisation simply as ``each node that is the only child is merged with its parent'', and an abundance of related work in the theorem proving community available under the term ``Discrimination Tree'' and ``Term Indexing''. I think it would help the paper if instead of starting from ``an API for finite maps''/tries as a baseline, it would start from "an API for term indexing"/discrimination trees as decribed in the Handbook of Automated Reasoning (2001), for example. I'll have access to a hard copy in a couple of days and can then report on the contents...
+The \hackage{twee-lib} library defines a simple term index data structure based
+on discrimination trees for the \varid{twee} equation theorem prover. We would
+arrive at a similar data structure in this paper had we started from an
+expression data type
+\begin{code}
+data Expr = App Con [Expr] | Var Var
+\end{code}
+In contrast to our |ExprMap|, \varid{twee}'s |Index| does path compression not
+only for leave paths but also for internal paths, as is common for radix trees.
+That is an interesting optimisation that could decrease space usage in
+benchmarks such as \benchname{space\_app1}.
 
-Here's a GH issue that suggests using Discrimination Trees to speed up Hoogle queries: https://github.com/ndmitchell/hoogle/issues/250. That thread generally seems like a good source of references to consider. It suggests that discrimination trees are but the simplest data structure to perform term indexing.
-Remy Goldschmidt (@@taktoa, the GH issue creator) even provides a model implementation of discrimination trees in Haskell: https://gist.github.com/taktoa/7a4d77ebc3a312dd69bb19199d30863b
+% \subsection{Notes from Sebastian}
+%
+% \begin{itemize}
+% \item Using a FSM; e.g \emph{Interpreted Pattern Match Execution} by Jeff Niu, a UW undergrad intern at Google.  https://docs.google.com/presentation/d/1e8MlXOBgO04kdoBoKTErvaPLY74vUaVoEMINm8NYDds/edit?usp=sharing
+%
+% \item Matching multiple strings.
+% \end{itemize}
 
 \bibliography{triemap}
 
