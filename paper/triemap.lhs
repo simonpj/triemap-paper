@@ -1076,7 +1076,8 @@ Adding a new item to a triemap can turn |EmptySEM| into |SingleSEM| and |SingleS
 into |MultiSEM|; and deleting an item from a |SingleSEM| turns it back into |EmptySEM|.
 But you might wonder whether we can shrink a |MultiSEM| back to a |SingleSEM| when it has
 only one remaining element?
-Yes, of course we can, but it takes a bit of work; the Appendix has the details.
+Yes, of course we can, but it takes quite a bit of code, and it is far from clear
+that it is worth doing so.
 
 Finally, we need to re-define |ExprMap| and |ListMap| using |SEMap|:
 \begin{code}
@@ -1501,7 +1502,7 @@ when it completes the lookup it passes that completed binding map to the ``alter
 Given this workhorse, we can build the client-visible |insert| function\footnote{|alter| is not much harder.}:
 \begin{code}
 insertMExpr :: forall v. [Var]     -- Pattern variables
-                         -> Expr  -- Pattern
+                         -> Expr   -- Pattern
                          -> v -> MExprMap v -> MExprMap v
 insertMExpr pat_vs e v mm
   = xtExpr (Set.fromList pat_vs) e xt emptyBVM mm
@@ -1971,8 +1972,9 @@ in these works, although they could be handled fairly easily by a de-Bruijn pre-
 \begin{code}
   data Term = Node Fun [Term]
 \end{code}
-where |Fun| is a function symbol.  Discrimination trees are described by imagining
-a pre-order traversal that (uniquely, since |Fun| symbols have fixed arity)
+where |Fun| is a function symbol, and each such function symbol has a fixed arity.
+Discrimination trees are described by imagining
+a pre-order traversal that (uniquely, since function symbols have fixed arity)
 converts the |Term| to a list of type |[Fun]|, and treating that as the key.
 The map is implemented like this:
 \begin{code}
@@ -2005,7 +2007,8 @@ theorem provers.  All of these techniques except E-matching are surveyed in
 If we applied our ideas to |Term| we would get a single-field triemap which
 (just like |lookupDT|) would initially branch on |Fun|, and then go though
 a chain of |ListMap| constructors (which correspond to the |DNode| above).
-You have to squint pretty hard, but the net result is very similar, although
+You have to squint pretty hard  --- for example, we do the pre-order traversal on the fly
+--- but the net result is very similar, although
 it is arrived at by entirely different thought process.
 % \begin{itemize}
 % \item We present our triemaps as a library written in a statically typed functional
