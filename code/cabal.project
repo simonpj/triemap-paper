@@ -1,0 +1,9 @@
+packages: ./triemap.cabal
+optimization: 2
+benchmark-options: +RTS -A128M -RTS
+
+package *
+  ghc-options: -fproc-alignment=64 -rtsopts
+
+program-options
+  ghc-options: -fproc-alignment=64 -rtsopts
