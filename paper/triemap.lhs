@@ -1645,7 +1645,10 @@ Not bad for a data structure that we can also extend to support matching lookup!
 We measured the runtime performance of the |ExprMap| data structure on a
 selection of workloads, conducted using the \hackage{criterion} benchmarking
 library%
-\footnote{The benchmark machine runs Ubuntu 18.04 on an Intel Core i5-8500 with 16GB RAM.}.
+\footnote{The benchmark machine runs Ubuntu 18.04 on an Intel Core i5-8500 with
+16GB RAM. All programs were compiled with \texttt{-O2 -fproc-alignment=64} to
+eliminate code layout flukes and run with \texttt{+RTS -A128M -RTS} for 128MB
+space in generation 0 in order to prevent major GCs from skewing the results.}.
 \Cref{fig:runtime} presents an overview of the results, while
 \Cref{fig:runtime-finer} goes into more detail on some configurations.
 
@@ -1808,7 +1811,7 @@ textbook in-order traversal over the search tree. Folding over |HashMap|
 performs similarly to |Map|.
 
 We think that |ExprMap| folding performance dies by a thousand paper cuts: The
-lazy folding function means that we allocate a lot of thunks for intermediate
+lazy fold implementation means that we allocate a lot of thunks for intermediate
 results that we end up forcing anyway in the case of our folding operator |(+)|.
 That is a price that |Map| and |HashMap| pay, too, but not nearly as much as the
 implementation of |foldExpr| does.
@@ -1835,34 +1838,35 @@ map size $M$ and expression size $E$. The data suggests that in comparison to
 $M$ does not seem to affect insert performance at all.
 
 The small edge that |ExprMap| seems to have over |Map| and |HashMap|
-doesn't carry over to its naïve |fromList| implementation, though. |Map| clearly
-wins the \benchname{fromList} benchmark. That is surprising, given that |Map|'s
-|fromList| quickly falls back to a list fold like |ExprMap| on unsorted inputs.
-|HashMap| makes use of transient mutability and performs destructive inserts
-on the map data structure during the call to |fromList|, knowing that such
-mutability can't be observed by the caller, but still performs worse than
-|ExprMap| or |Map| for larger $N$. Rehashing can't be the reason, because
-hash array mapped tries never need to be rehashed.
+doesn't carry over to its naïve |fromList| implementation, though. |Map| wins
+the \benchname{fromList} benchmark, albeit with |ExprMap| as a close second.
+That is a bit surprising, given that |Map|'s |fromList| quickly falls back to a
+list fold like |ExprMap| on unsorted inputs, while |HashMap| has a less naïve
+implementation: it makes use of transient mutability and performs destructive
+inserts on the map data structure during the call to |fromList|, knowing that
+such mutability can't be observed by the caller. Yet, it still performs worse
+than |ExprMap| or |Map| for larger $E$, as can be seen in
+\Cref{fig:runtime-finer}.
 
-\sg{Maybe rewrite after measuring with -A128M}
-Cursory investigation of |ExprMap| suggests that it spends much more time in
-garbage collection than |Map|; over the course of a test program reproducing
-the $N = 1000$ case, the generational garbage collector had to copy more than
-thrice as many bytes. One reason is that the (fixed) input list of
-expressions will quickly end up in the old generation and |Map|'s internal nodes
-simply store pointers to those expressions. That produces much less short-lived
-garbage than |ExprMap|, which allocates one large |EM| constructor for each
-|Expr| node in the shared prefix. If a minor GC is triggered during the call to
-|fromList|, some of the garbage will end up in the old generation, resulting in
-more costly major GCs. |criterion| performs a minor GC before each measurement
-of a benchmark, so we tried to increase the size of the young generation in
-order to prevent intermittent major GC during measurements. It appears that
-brings perf on par with |Map|, but still doesn't win.
+% % Not an issue anymore with -A128M
+% Cursory investigation of |ExprMap| suggests that it spends much more time in
+% garbage collection than |Map|; over the course of a test program reproducing
+% the $N = 1000$ case, the generational garbage collector had to copy more than
+% thrice as many bytes. One reason is that the (fixed) input list of
+% expressions will quickly end up in the old generation and |Map|'s internal nodes
+% simply store pointers to those expressions. That produces much less short-lived
+% garbage than |ExprMap|, which allocates one large |EM| constructor for each
+% |Expr| node in the shared prefix. If a minor GC is triggered during the call to
+% |fromList|, some of the garbage will end up in the old generation, resulting in
+% more costly major GCs. |criterion| performs a minor GC before each measurement
+% of a benchmark, so we tried to increase the size of the young generation in
+% order to prevent intermittent major GC during measurements. It appears that
+% brings perf on par with |Map|, but still doesn't win.
 
-We expect |ExprMap| to catch up in \benchname{fromList\_app1}. And indeed it
-does, outperforming |Map| for larger $N$ which pays for having to compare
-the shared prefix repeatedly. But |HashMap| is good for another surprise and
-significantly outperforms |ExprMap| here for small $N$.
+We expected |ExprMap| to take the lead in \benchname{fromList\_app1}. And indeed
+it does, outperforming |Map| for larger $N$ which pays for having to compare the
+shared prefix repeatedly. But |HashMap| is good for another surprise and keeps
+on outperforming |ExprMap| for small $N$.
 
 What would a non-naïve version of |fromList| for |ExprMap| look like? Perhaps
 the process could be sped up considerably by partitioning the input list
@@ -1935,12 +1939,12 @@ $M$, the memory footprint of \benchname{space\_app1} approaches that of
 dimension along $E$, memory footprint still increases by similar factors as
 in \benchname{space}. The \benchname{space\_lam} family does need a bit more
 bookkeeping for the de Bruijn numbering, so the results aren't quite as close to
-\benchname{space}, but it's still an easy win over |Map| and |HashMap|.
+\benchname{space\_app1}, but it's still an easy win over |Map| and |HashMap|.
 
 For \benchname{space\_app2}, |ExprMap| can't share any prefixes because the
 shared structure turns into a suffix in the pre-order serialisation. As a result,
 |Map| and |HashMap| allocate less space, all consistent constant factors apart
-from another. |HashMap| wins here again.
+from each other. |HashMap| wins here again.
 
 \section{Related work} \label{sec:related}
 
