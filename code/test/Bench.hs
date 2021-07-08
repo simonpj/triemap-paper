@@ -7,7 +7,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 
-module Bench ( criterion, weigh ) where
+module Bench where
 
 import GenTrieMap
 import Arbitrary
@@ -24,7 +24,6 @@ import qualified Data.Map.Strict as Map
 import Data.Hashable
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
-
 
 {- *********************************************************************
 *                                                                      *
@@ -51,10 +50,10 @@ instance (TrieMap tm, NFData (TrieKey tm), NFData (tm v), NFData v) => NFData (S
   rnf (MultiSEM tm) = rnf tm
 
 instance (NFData (tm (ListMap tm v)), NFData v) => NFData (ListMap' tm v) where
-  rnf lm = rnf [rnf (lm_nil lm), rnf (lm_cons lm)]
+  rnf lm = rnf (lm_nil lm) `seq` rnf (lm_cons lm)
 
 instance NFData v => NFData (ExprMap' v) where
-  rnf EM{..} = rnf [rnf em_bvar, rnf em_fvar, rnf em_app, rnf em_lit, rnf em_lam ]
+  rnf EM{..} = rnf em_bvar `seq` rnf em_fvar `seq` rnf em_app `seq` rnf em_lit `seq` rnf em_lam
 
 instance Hashable Expr where
   hashWithSalt salt e = go salt (deBruijnize e)
@@ -92,18 +91,22 @@ instance MapAPI (ExprMap Int) where
   fold = foldTM
   mapFromList = foldr (uncurry insertMap) emptyMap
 
+slowfoldr :: Foldable f => (a -> b -> b) -> b -> f a -> b
+slowfoldr = foldr
+{-# NOINLINE slowfoldr #-}
+
 instance MapAPI (Map Expr Int) where
   emptyMap = Map.empty
   lookupMap = Map.lookup
   insertMap = Map.insert
-  fold f m z = foldr f z m
+  fold f m z = slowfoldr f z m
   mapFromList = Map.fromList
 
 instance MapAPI (HashMap Expr Int) where
   emptyMap = HashMap.empty
   lookupMap = HashMap.lookup
   insertMap = HashMap.insert
-  fold f m z = foldr f z m
+  fold f m z = slowfoldr f z m
   mapFromList = HashMap.fromList
 
 mkNExprs :: Int -> Int -> [Expr]
