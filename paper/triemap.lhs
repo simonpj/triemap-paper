@@ -929,8 +929,6 @@ a type-level function that transforms the type of the triemap into
 the type of \emph{keys} of that triemap.
 
 Now we can witness the fact that |ExprMap| is a |TrieMap|, like this:
-\rae{Are there definitions for |alterTM| and |foldTM| for this, if we wanted them?}
-\simon{Yes, in GenTrieMap.hs. But we need an Appendix that sets it all out.}
 %{
 %if style == poly
 %format dots = "\ldots"
@@ -1249,11 +1247,11 @@ Here are the signatures of the lookup and insertion\footnote{We begin with |inse
 type ExprPat = ([PatVar], Expr)
 type PatVar  = Var
 type Match v = ([(PatVar, Expr)], v)
+type MExprMap v = ... -- in Section 5.5
 
 insertMExpr :: ExprPat -> v -> MExprMap v -> MExprMap v
 lookupMExpr :: Expr -> MExprMap v -> Bag (Match v)
 \end{code}
-\rae{What is the actual definition of |MExprMap|?}
 A |MExprMap| is a trie, keyed by |ExprPat| \emph{patterns}.
 A pattern variable, of type |PatVar| is just a |Var|; we
 use the type synonym just for documentation purposes. When inserting into a
@@ -1276,7 +1274,7 @@ make two lambda expressions that differ only superficially (in the
 name of their bound variable) look the same.  Clearly, we want to do
 the same for pattern variables.  After all, consider these two patterns:
 $$
-([a,b], f~a~b~True) \qquad and \qquad ([p,q], f~q~p~False)
+([a,b], f~a~b~True) \qquad \text{and} \qquad ([p,q], f~q~p~False)
 $$
 The two pattern expressions share a common prefix, but differ both in the
 \emph{names} of the pattern variable and in their \emph{order}. We might hope
@@ -1292,14 +1290,14 @@ As in \Cref{sec:binders} we will imagine that we cannicalise the pattern, althou
 in reality we will do so on-the-fly, without ever constructing the cannonicalised pattern.
 Be that as it may, the canonicalised patterns become:
 $$
-   f~\pv{1}~\pv{2}~True      \qquad and \qquad  f~\pv{1}~\pv{2}~False
+   f~\pv{1}~\pv{2}~True      \qquad \text{and} \qquad  f~\pv{1}~\pv{2}~False
 $$
 By numbering the variables left-to-right, we ensure that they ``line up''.
 In fact, since the pattern variables are numbered left-to-right we don't even
 need the subscripts (just as we don't need a subscript on the lambda in
 de-Bruijn notation), so the canonicalised patterns become
 $$
-   f~\pv{}~\pv{}~True      \qquad and \qquad  f~\pv{}~\pv{}~False
+   f~\pv{}~\pv{}~True      \qquad \text{and} \qquad  f~\pv{}~\pv{}~False
 $$
 What if the variable occurs more than once? For example, suppose we are matching
 the pattern $([x],\, f\, x\,x\,x)$ against the target expression
@@ -1314,7 +1312,7 @@ be canonicalised to $(f\,\pv{}\,\pvo{1}\,\pvo{1})$, where the first (or binding)
 is denoted $\pv{}$ and subsequent (bound) occurrences of pattern variable $i$ are denoted $\pvo{i}$.
 
 For pattern-variable occurrences we really do need the subcript! Consider the
-patterns $$([x,y], f\,x\,y\,y\,x) \qquad and \qquad ([p,q], f\,q\,p\,q\,p)$$
+patterns $$([x,y], f\,x\,y\,y\,x) \qquad \text{and} \qquad ([p,q], f\,q\,p\,q\,p)$$
 which differ not only in the names of their pattern variables, but also in the
 order in which they occur in the pattern.
 They canonicalise to
@@ -1345,12 +1343,12 @@ key map and the pattern-key substitution to recover the pattern-variable substit
 
 To summarise, suppose we want to build a matching trie for the following (pattern, value) pairs:
 $$
-(([x,y],\; f\;y\;(g\;y\;x)),\; v_1) \qquad and \qquad (([a],\; f\;a\;True),\;v_2)
+(([x,y],\; f\;y\;(g\;y\;x)),\; v_1) \qquad \text{and} \qquad (([a],\; f\;a\;True),\;v_2)
 $$
 Then we will build a trie withe the following entries (key-value pairs):
 $$
 ( (f \;\pv{}\;(g\;\pvo{1}\;\pv{})),\; ([(x,\pv{2}),(y,\pv{1})], v_1) )
-  \qquad and \qquad
+  \qquad \text{and} \qquad
 ( (f \;\pv{}\;True),\; ([(a,\pv{1})],\;v_2) )
 $$
 
@@ -1364,7 +1362,7 @@ that is we will not deal with lambdas and lambda-bound variables for now.
 in after we have dealt with matching.
 With these thoughts in mind, our matching trie has this definition:
 \begin{code}
-type PatKeys     = [(PatVar,PatKey)]
+type PatKeys    = [(PatVar,PatKey)]
 type MExprMap v = MExprMapX (PatKeys, v)
 
 data MExprMapX v
@@ -1657,7 +1655,7 @@ size $k$:
   \item |HashMap Expr| (designated ``HM'') is an implementation of hash array
         mapped tries \cite{hamt} from the \hackage{unordered-containers}
         library. Like |ExprMap|, map access incurs a full traversal of the key
-        to compute a hash and then a $\mathcal{O}(\log_32 n)$ lookup in the
+        to compute a hash and then a $\mathcal{O}(\log_{32} n)$ lookup in the
         array mapped trie. The log factor can be treated like a constant for all
         intents an purposes, so lookup and insert is effectively in
         $\mathcal{O}(k)$.
@@ -1714,7 +1712,7 @@ structure on different size parameters $N$ reveals a roughly cubic correlation
 throughout all implementations, give or take a logarithmic factor.
 That seems plausible given that $N$ linearly affects map size, expression size
 and number of lookups. But realistic workloads tend to have much larger map
-sizes than expression sizes! \simon{so what do we conclude here?}
+sizes than expression sizes!
 
 \begin{table}
   \centering
@@ -1745,11 +1743,11 @@ sizes than expression sizes! \simon{so what do we conclude here?}
   \label{fig:runtime-finer}
 \end{table}
 
-Focusing on \benchname{lookup\_all}, we measured performance when independently
-varying map size $M$ and expression size $E$. The results in
-\Cref{fig:runtime-finer} show that |ExprMap| scales better than |Map| when
-we increase $M$ and leave $E$ constant. The difference is even more pronounced
-than in \Cref{fig:runtime}, in which $N = M = E$.
+Let us look at what happens if we vary map size $M$ and expression
+size $E$ independently for \benchname{lookup\_all}. The results in
+\Cref{fig:runtime-finer} show that |ExprMap| scales better than |Map| when we
+increase $M$ and leave $E$ constant. The difference is even more pronounced than
+in \Cref{fig:runtime}, in which $N = M = E$.
 
 The time measurements for |ExprMap| appear to grow linearly with $M$.
 Considering that the number of lookups also increases $M$-fold, it seems the
@@ -1801,7 +1799,6 @@ can be improved, but believe it is unlikely to exceed or just reach the
 performance of |Map|.
 
 \subsubsection*{Building}
-
 The \benchname{insert\_lookup\_one} benchmark demonstrates that |ExprMap| also
 wins on insert performance, although the defeat against |Map| for size
 parameters beyond 1000 is looming. Again, \Cref{fig:runtime-finer} decouples
@@ -1819,8 +1816,9 @@ mutability can't be observed by the caller, but still performs worse than
 |ExprMap| or |Map| for larger $N$. Rehashing can't be the reason, because
 hash array mapped tries never need to be rehashed.
 
-Cursory investigation of |ExprMap| suggests that it spents much more time in
-garbage collection than |Map|; over the course of our test program reproducing
+\sg{Maybe rewrite after measuring with -A128M}
+Cursory investigation of |ExprMap| suggests that it spends much more time in
+garbage collection than |Map|; over the course of a test program reproducing
 the $N = 1000$ case, the generational garbage collector had to copy more than
 thrice as many bytes. One reason is that the (fixed) input list of
 expressions will quickly end up in the old generation and |Map|'s internal nodes
@@ -1838,7 +1836,6 @@ does, outperforming |Map| for larger $N$ which pays for having to compare
 the shared prefix repeatedly. But |HashMap| is good for another surprise and
 significantly outperforms |ExprMap| here for small $N$.
 
-\sg{Move to Related Work?}
 What would a non-naïve version of |fromList| for |ExprMap| look like? Perhaps
 the process could be sped up considerably by partitioning the input list
 according to the different fields of |ExprMap| like |em_lam| and then calling
@@ -1926,7 +1923,7 @@ reasoning community for decades.
 An automated reasoning system has
 hundreds or thousands of axioms, each of which is quantified over
 some variables (just like the RULEs described in \Cref{sec:matching-intro}). Each of these
-axioms might apply at any sub-tree of the term under consideration, soa efficient
+axioms might apply at any sub-tree of the term under consideration, so efficient
 matching of many axioms is absolutely central to the performance of these systems.
 
 This led to a great deal of work in so-called \emph{discrimination trees}, starting
@@ -1978,10 +1975,6 @@ There is rich literature on radix trees, which incorporate the Singleton optimis
 
 Here's a GH issue that suggests using Discrimination Trees to speed up Hoogle queries: https://github.com/ndmitchell/hoogle/issues/250. That thread generally seems like a good source of references to consider. It suggests that discrimination trees are but the simplest data structure to perform term indexing.
 Remy Goldschmidt (@@taktoa, the GH issue creator) even provides a model implementation of discrimination trees in Haskell: https://gist.github.com/taktoa/7a4d77ebc3a312dd69bb19199d30863b
-
-Here's a paper from 1994 claiming to be faster than discrimination trees: http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.43.823 (In case you're wondering, I'm not affiliated with the author at all.)
-
-It appears that at least since 2009, the 1994 approach has already been extended to a higher-order pattern scenario (allowing e.g. miller pattern unification): https://dl.acm.org/doi/10.1145/1614431.1614437
 
 \bibliography{triemap}
 
