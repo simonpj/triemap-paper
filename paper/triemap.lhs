@@ -392,8 +392,7 @@ consider the Haskell expression
 \begin{code}
   let x = a+b in ...(let y = a+b in x+y)....
 \end{code}
-We might hope that the compiler will recognise the repeated |(a+b)| and transform the
-expression to
+We might hope that the compiler will recognise the repeated |(a+b)| and transform to
 \begin{code}
   let x = a+b in ...(x+x)....
 \end{code}
@@ -402,14 +401,14 @@ Then, when encountering the inner |let|, we can look up the right hand side in t
 get a hit, and replace |y| by |x|.  All we need is a finite map in keyed by syntax trees.
 
 Traditional finite-map implementations tend to do badly in such applications, because
-they are often based on balanced trees and the assumption that comparing two keys is
+they are often based on balanced trees, and make the assumption that comparing two keys is
 a fast, constant-time operation.  That assumption is false for tree-structured keys.
 
 Another time that a compiler may want to look up a tree-structured key is
 when rewriting expressions: it wants to see if any rewrite rule matches the
 sub-expression in hand and subsequently rewrite with the instantiated right-hand
-side (RHS) of the rule. For us compiler developers to accomodate such a feature,
-we need an extended version of a finite map where we can insert a collection
+side (RHS) of the rule. For a compiler developer to accomodate such a feature,
+we need an extended version of a finite map in which we can insert a collection
 of rewrite rules, expressed as (\varid{pattern},~\varid{rhs}) pairs, and
 then look up an expression in the map, getting a hit if one or more of the
 patterns \emph{match} the expression. If there is a large number of such
@@ -417,16 +416,17 @@ patterns \emph{match} the expression. If there is a large number of such
 than checking them one by one. Several parts of GHC, a Haskell compiler, need
 matching lookup, and currently use an inefficint linear algorithm to do so.
 
-In principle it is well known how to do this: use a \emph{trie}.  In particular, for the
-matching task, use \emph{discrimination trees}, which are a key data structure in the
-automated reasoning community.  In this paper we apply these
+In principle it is well known how to build a finite map for a deeply-structured
+key: use a \emph{trie}.  For the
+matching task, use \emph{discrimination trees}, a variant of tries that are heavily used
+by the automated reasoning community (\Cref{sec:discrim-trees}).  In this paper we apply these
 ideas in the context of a statically-typed functional programming language, Haskell.
 This shift of context is surprisigly fruitful, and we make the following contributions:
 \begin{itemize}
-\item We develop a standard pattern for a statically typed triemap for
-  an arbitrary new algebraic data type (\Cref{sec:basic}). In
+\item Following \citet{hinze:generalized}, we develop a standard pattern for
+  a statically typed triemap for an arbitrary new algebraic data type (\Cref{sec:basic}). In
   contrast, most of the literature describes untyped tries for a
-  fixed, generic tree type. (\citet{hinze:generalized} is an exception.)
+  fixed, generic tree type.
   In particular:
   \begin{itemize}
     \item Supported by type classs, we can make good use of polymorphism to build triemaps
@@ -1090,7 +1090,7 @@ The auxiliary data types |ExprMap'| and |ListMap'| have only a single constructo
 the empty and singleton cases are dealt with by |SEMap|.  We reserve the original,
 un-primed, names for the user-visible |ExprMap| and |ListMap| constructors.
 
-The singleton-map optimisation makes a big difference in practice: see \Cref{sec:eval}.
+The singleton-map optimisation makes a big difference in practice.
 
 \subsection{Generic programming}
 
@@ -1952,7 +1952,7 @@ from each other. |HashMap| wins here again.
 
 \section{Related work} \label{sec:related}
 
-\subsection{Matching triemaps in automated reasoning}
+\subsection{Matching triemaps in automated reasoning} \label{sec:discrim-trees}
 
 Matching triemaps, also called \emph{term indexing}, have been used in the automated
 reasoning community for decades.
@@ -1962,7 +1962,7 @@ some variables (just like the RULEs described in \Cref{sec:matching-intro}). Eac
 axioms might apply at any sub-tree of the term under consideration, so efficient
 matching of many axioms is absolutely central to the performance of these systems.
 
-This led to a great deal of work in so-called \emph{discrimination trees}, starting
+This led to a great deal of work on so-called \emph{discrimination trees}, starting
 in the late 1980's, which is beautifully surveyed in the Handbook of Automated Reasoning
 \cite[Chapter 26]{handbook:2001}.
 All of this work typically assumes a single, fixed, data type of ``first order terms''
@@ -1973,31 +1973,31 @@ in these works, although they could be handled fairly easily by a de-Bruijn pre-
 \end{code}
 where |Fun| is a function symbol.  Discrimination trees are described by imagining
 a pre-order traversal that (uniquely, since |Fun| symbols have fixed arity)
-converts the term to a list of type |[Fun]|, and treating that as the key.
+converts the |Term| to a list of type |[Fun]|, and treating that as the key.
 The map is implemented like this:
 \begin{code}
   data DTree v = DVal v | DNode (Map Fun DTree)
 
   lookupDT :: [Fun] -> DTree v -> Maybe v
   lookupDT []      (DVal v)   = Just v
-  lookupdt (f:fs)  (DNode m)  = case Map.lookup f m of
+  lookupDT (f:fs)  (DNode m)  = case Map.lookup f m of
                                   Just dt -> lookupDT fs dt
                                   Nothing -> Nothing
   lookup _ _ = Nothing
 \end{code}
-Each layer of the tree simply branches on the first |Fun|, and looks up
+Each layer of the tree branches on the first |Fun|, and looks up
 the rest of the |[Fun]| in the appropriate child.
 Extending this basic setup with matching is done by some kind of backtracking.
 
 Discrimination trees are heavily used by theorem provers, such as Coq, Isabelle, and Lean.
 Moreover, discrimination trees have been further developed in a number of ways.
 Vapire uses \emph{code trees} which are a kind of compiled form of discrimination
-tree where we store abstract machine instructions, rather than a data structure
+tree that stores abstract machine instructions, rather than a data structure
 at each node of the tree \cite{voronkov:vampire}.
 Spass \cite{spass} uses \emph{substitution trees} \cite{substitution-trees},
-a refinement of discrimination trees that tries to share common \emph{sub-trees}
+a refinement of discrimination trees that can share common \emph{sub-trees}
 not just common \emph{prefixes}. (It is not clear whether the extra complexity of
-substitution pays its way.)  Z3 uses \emph{E-matching code trees}, which solve
+substitution trees pays its way.)  Z3 uses \emph{E-matching code trees}, which solve
 for matching modulo an ever-growing equality relation, useful in saturation-based
 theorem provers.  All of these techniques except E-matching are surveyed in
 \citet{handbook:2001}.
@@ -2007,22 +2007,21 @@ If we applied our ideas to |Term| we would get a single-field triemap which
 a chain of |ListMap| constructors (which correspond to the |DNode| above).
 You have to squint pretty hard, but the net result is very similar, although
 it is arrived at by entirely different thought process.
-This different perspective is quite insightful:
-\begin{itemize}
-\item We present our triemaps as a library written in a statically typed functional
-  language, whereas the discrimination tree literature tends to assume an implementation in C,
-  and gives algorithms in pseudocode.
-
-\item Our triemaps provide a full range of operations, including alter, union, and fold,
-  wheres the automated-reasoning applications focus almost exclusively on insert and lookup.
-
-\item We build triemaps for many
-different data types, whereas the discrimination tree literature tends to assume
-a single built-in data type of terms.
-
-\item We use type classes and polymorphism to make it easy to build triemaps
-  over polymorphic types like lists (\Cref{sec:class}).
-\end{itemize}
+% \begin{itemize}
+% \item We present our triemaps as a library written in a statically typed functional
+%  language, whereas the discrimination tree literature tends to assume an implementation in C,
+%   and gives algorithms in pseudocode.
+% 
+% \item Our triemaps provide a full range of operations, including alter, union, and fold,
+%  wheres the automated-reasoning applications focus almost exclusively on insert and lookup.
+%
+% \item We build triemaps for many
+% different data types, whereas the discrimination tree literature tends to assume
+% a single built-in data type of terms.
+% 
+% \item We use type classes and polymorphism to make it easy to build triemaps
+%   over polymorphic types like lists (\Cref{sec:class}).
+% \end{itemize}
 
 Many of the insights of the term indexing world re-appear, in different guise,
 in our triemaps.   For example, when a variable is repeated in a pattern we can
@@ -2031,11 +2030,11 @@ and check those constraints at the end \cite[Section 26.14]{handbook:2001}.
 
 \subsection{Haskell triemaps}
 
-Trie data structures found their way into numerous Haskell packages over time.
+Trie data structures have found their way into numerous Haskell packages over time.
 There are trie data structures that are specific to |String|, like the
 \hackage{StringMap} package, or polymorphically, requiring just a type class for
 trie key extraction, like the \hackage{TrieMap} package. None of these
-libraries describe how to match on expression data structures modulo
+libraries describe how to index on expression data structures modulo
 $\alpha$-equivalence or how to perform matching lookup.
 
 Tries have been utilised for memoisation in the past. The earliest such
@@ -2061,7 +2060,7 @@ expression data type
 data Expr = App Con [Expr] | Var Var
 \end{code}
 In contrast to our |ExprMap|, \varid{twee}'s |Index| does path compression not
-only for leave paths but also for internal paths, as is common for radix trees.
+only for paths ending in leaves (as we do) but also for internal paths, as is common for radix trees.
 That is an interesting optimisation that could decrease space usage in
 benchmarks such as \benchname{space\_app1}.
 
