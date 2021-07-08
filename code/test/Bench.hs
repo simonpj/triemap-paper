@@ -241,8 +241,7 @@ criterion =
       bench "" $ whnf (\em -> fold (+) em 0) expr_map
 
 weighSizes :: [Int]
-weighSizes = [10, 100, 1000, 1000]
--- weighSizes = [10, 100, 1000, 5000]
+weighSizes = [10, 100, 1000, 1000, 10000]
 
 -- Called weigh, because I started out by using the Weigh benchmark framework,
 -- but it delivered incorrect results. Still like the name
