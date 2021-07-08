@@ -5,53 +5,38 @@
 % Hinze paper: http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.8.4069
 
 %% For double-blind review submission, w/o CCS and ACM Reference (max submission space)
-% \documentclass[acmsmall,review]{acmart}\settopmatter{printfolios=true,printccs=false,printacmref=false}
+\documentclass[acmsmall,review,anonymous]{acmart}\settopmatter{printfolios=true,printccs=false,printacmref=false}
 %% For double-blind review submission, w/ CCS and ACM Reference
 %\documentclass[acmsmall,review,anonymous]{acmart}\settopmatter{printfolios=true}
 %% For single-blind review submission, w/o CCS and ACM Reference (max submission space)
-% \documentclass[acmsmall,review]{acmart}\settopmatter{printfolios=true,printccs=false,printacmref=false}
+%\documentclass[acmsmall,review]{acmart}\settopmatter{printfolios=true,printccs=false,printacmref=false}
 %% For single-blind review submission, w/ CCS and ACM Reference
 %\documentclass[acmsmall,review]{acmart}\settopmatter{printfolios=true}
 %% For final camera-ready submission, w/ required CCS and ACM Reference
-\documentclass[acmsmall,dvipsnames]{acmart}
+%\documentclass[acmsmall]{acmart}\settopmatter{}
+
 
 %% Journal information
 %% Supplied to authors by publisher for camera-ready submission;
 %% use defaults for review submission.
-% \acmJournal{PACMPL}
-% \acmVolume{1}
-% \acmNumber{ICFP} % CONF = POPL or ICFP or OOPSLA
-% \acmArticle{1}
-% \acmYear{2020}
-% \acmMonth{8}
-% \acmDOI{} % \acmDOI{10.1145/nnnnnnn.nnnnnnn}
-% \startPage{1}
+\acmJournal{PACMPL}
+\acmVolume{1}
+\acmNumber{POPL} % CONF = POPL or ICFP or OOPSLA
+\acmArticle{1}
+\acmYear{2022}
+\acmMonth{1}
+\acmDOI{} % \acmDOI{10.1145/nnnnnnn.nnnnnnn}
+\startPage{1}
 
 %% Copyright information
 %% Supplied to authors (based on authors' rights management selection;
 %% see authors.acm.org) by publisher for camera-ready submission;
 %% use 'none' for review submission.
-% \setcopyright{none}
+\setcopyright{none}
 %\setcopyright{acmcopyright}
 %\setcopyright{acmlicensed}
 %\setcopyright{rightsretained}
 %\copyrightyear{2018}           %% If different from \acmYear
-
-%%% The following is specific to ICFP '20 and the paper
-%%% 'Kinds Are Calling Conventions'
-%%% by Paul Downen, Zena M. Ariola, Simon Peyton Jones, and Richard A. Eisenberg.
-%%%
-\setcopyright{rightsretained}
-\acmPrice{}
-\acmDOI{10.1145/3408986}
-\acmYear{2020}
-\copyrightyear{2020}
-\acmSubmissionID{icfp20main-p93-p}
-\acmJournal{PACMPL}
-\acmVolume{4}
-\acmNumber{ICFP}
-\acmArticle{104}
-\acmMonth{8}
 
 %% Bibliography style
 \bibliographystyle{ACM-Reference-Format}
