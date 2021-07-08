@@ -384,63 +384,78 @@ TrieMaps are great.
 
 \section{Introduction} \label{sec:intro}
 
-The designs of many programming languages include a feature where some concrete use of a construct is matched against a set of possible interpretations, where the possible interpretations might be defined in terms of variables to be instantiated at concrete usages. For example:
+Many functional languages provide \emph{finite maps} either as a
+built-in data type, or as a mature, well-optimised library.  Generally the keys
+of such a map will be small: an integer, a string, or perhaps a pair of integers.
+But in some applications the key is large: an entire tree structure.  For example,
+consider the Haskell expression
+\begin{code}
+  let x = a+b in ...(let y = a+b in x+y)....
+\end{code}
+We might hope that the compiler will recognise the repeated |(a+b)| and transform the
+expression to
+\begin{code}
+  let x = a+b in ...(x+x)....
+\end{code}
+An easy way to do so is to build a finite map that maps the expression |(a+b)| to |x|.
+Then, when encountering the inner |let|, we can look up the right hand side in the map,
+get a hit, and replace |y| by |x|.  All we need is a finite map in keyed by syntax trees.
+
+Traditional finite-map implementations tend to do badly in such applications, because
+they are often based on balanced trees and the assumption that comparing two keys is
+a fast, constant-time operation.  That assumption is false for tree-structured keys.
+
+Another time that a compiler may want to look up a tree-structured key
+is when rewriting expressions: it wants to see if any rewrite rule
+matches the sub-expression in hand.  We want an extended version of a
+finite map where we can insert a collection of rewrite rules, expressed as
+(pattern, rhs) pairs, and then look up an expression in the map,
+getting a hit if the one or more of the patterns \emph{matches} the
+expression.  If there is a large number of such (pattern,rhs) entries
+to check, we would like to do so faster than checking them one by one.
+Several parts of GHC, a Haskell compiler, need matching lookup, and currently
+use an inefficint linear algorithm to do so.
+
+In principle it is well known how to do this: use a \emph{trie}.  In particular, for the
+matching task, use \emph{discrimination trees}, which are a key data structure in the
+automated reasoning community.  In this paper we apply these
+ideas in the context of a statically-typed functional programming language, Haskell.
+This shift of context is surprisigly fruitful, and we make the following contributions:
 \begin{itemize}
-\item Haskell's class instances work this way: the user defines instances (which may contain variables), and then concrete usage sites of class methods require finding an instance that applies.
-\item Agda, Coq, and Idris all have implicit-argument features directly inspired by Haskell's class mechanism.
-\item An extension to Haskell allows overloaded instances, where we select the most specific instance (that is, one that is a specialization of any other possible matching instance).
-\item C++ and Java both support function overloading, where a usage site of a function must be matched against a choice of implementation. C++'s templates and Java's generics allow for variables to be used in the implementations. There are sometimes multiple implementations that match; both languages choose the most specific match (for an appropriate definition of "most specific").
-\item C++ separately allows template specialization, where a templated definition can have concrete specializations. Once again, selection of these specializations depends on a "most-specific" relation appropriate to the case.
-\item Scala? C\#?
+\item We develop a standard pattern for a statically typed triemap for
+  an arbitrary new algebraic data type (\Cref{sec:basic-ideas}). In
+  contrast, most of the literature describes untyped tries for a
+  fixed, generic tree type. (\citet{hinze:generalized} is an exception.)
+  In particular:
+  \begin{itemize}
+    \item Supported by type classs, we can make good use of polymorphism to build triemaps
+      for polymorphic data types, such as lists (\Cref{sec:class}).
+
+    \item We cover the full range of operations expected for finite maps: not only insertion and lookup, but alter, union, map, filter, and fold (\Cref{sec:basic-ideas}).
+
+    \item We develop a generic optimisation for singleton maps, which can be generalised
+      to work for arbitrary triemaps (\Cref{sec:singleton}).
+
+   \end{itemize}
+\item We show how to make our triemaps insensitive to \emph{alpha-equivalence} in
+       keys that include binding forms (\Cref{sec:binders}).
+       Accounting for alpha-equivalence is not hard, but it is crucial for
+       the applications in compilers.
+
+     \item We extend our triemaps to support \emph{matching} lookups (\Cref{sec:matching}).
+       This is an important
+       step, because the only readily-available alternative is linear lookup.  The code is
+       short, but surprisingly tricky.
+
+     \item We present measurements that compare the performance of our triemaps (ignoring
+       their matching capability) with traditional finite-map implementations
+       in Haskell (\Cref{sec:eval}.
 \end{itemize}
-Beyond features specified in a language's design, optimizations may require such a structure. For example, GHC's rewrite rules~\cite{rewrite-rules} requires a similar lookup to find a mapping from expressions to rules that may apply.
+Our contribution is not so much a clever new idea as an exposition of
+some old ideas in a new context, perhaps providing some new perspective on those
+old ideas. We discuss related work in \Cref{sec:related}.
 
-Our concern here is the efficient implementation of this matching
-operation. That is, we wish to define a structure mapping keys to
-arbitrary values. The keys are chosen from a type described by a
-context-free grammar and thus comprise small trees. We assume a total
-ordering on such trees. The challenge lies in the fact that we want
-our structure to support wildcard variables, which represent any tree
-at all. We will write such variables with Greek letters. Accordingly,
-we can view a mapping |alpha ||-> v| as an infinite mapping, connecting
-all possible trees to |v|, or we can have |Maybe alpha ||-> v2| map all
-trees whose root is |Maybe| to the value |v2|. Combining these to |alpha
-||-> v, Maybe alpha ||-> v2| would map all trees to |v|, except those
-trees that have |Maybe| at the root, which map to |v2|. Accordingly,
-looking up in our structure find the most specific
-match.\footnote{This aspect of our design is unforced. We could also
-return all possible matches, instead of selecting the most
-specific. See \cref{sec:most-specific}.}
-
-Our contributions are as follows:
-
-\begin{itemize}
-\item We describe the language-agnostic Variable Trie-Map (VTM) data
-  structure, with the semantics as described above (and made more precise in
-  \cref{sec:vtm}). The keys in a VTM support local bound variables via
-  on-the-fly conversion to de Bruijn levels~\cite{debruijn}, necessary to
-  support polymorphic types or $\lambda$-expressions. Looking up in a VTM is
-  linear in the size of the key, regardless of the size of the VTM itself. The
-  operations on a VTM are proved to uphold the sensible properties described in
-  \cref{sec:vtm-properties}.
-\item Some languages require not only the matching behavior above, but also a
-  \emph{unification} operation, where we find not only keys that match, but
-  keys that would match if variables in the looked-up tree were further
-  instantiated. \Cref{sec:unification} describes how we extend VTMs to support
-  unification as well as matching.
-\item While VTMs are time-efficient, they can be space-inefficient.
-  \Cref{sec:path-compression} describes an easy optimization which drastically
-  reduces the memory footprint of VTMs whose keys share little structure in
-  common. This optimization shows a 30\% geometric mean savings in the size of
-  the structure GHC uses to look up rewrite rules.
-\item Our work was motivated by quadratic behavior in GHC, observed when
-  checking for instance consistency among imports. This became a problem in
-  practice in Haskell's use at Facebook. We report on our implementation
-  within GHC, showing that it achieves a 98\% speedup against the previous
-  (admittedly naive) implementation of instance tables.
-\end{itemize}
-
-\section{The problem we address}
+\section{The problem we address} \label{sec:problem}
 \begin{figurebox}
 %{
 %if style == poly
@@ -508,26 +523,30 @@ lambdas which can bind variables (|Lam|), and occurrences of those bound variabl
 and nodes with multiple children (|App|).  A real-world expression type would have
 many more constructors, including literals, let-expressions and suchlike.
 
-\rae{A little redundant with some intro stuff.}
 A finite map keyed by such expressions is extremely useful.
-GHC uses such a map during its common sub-expression
-elimination pass, where the map associates an
-expression with the identifier bound to that expression; if the same
-expression occurs again, we can look it up in the map, and replace the
-expression with the variable.
+The Introduction gave the example of a simple common sub-expression
+elimination pass.
 GHC also does many lookups based on \emph{types} rather than
 \emph{expressions}.  For example, when implementing type-class
 instance lookup, or doing type-family reduction, GHC needs a map whose
 key is a type.  Both types and expressions are simply trees, and so are
 particular instances of the general task.
 
+In the context of a compiler, where the keys are expressions or types,
+the keys may contain internal \emph{binders}, such as the binder |x| in |(\x -> x)|.
+If so, we would expect insertion and lookup to be insensitive to
+$\alpha$-renaming, so we could, for example,
+insert with key |(\x -> x)| and look up with key |(\y -> y)|, to find the
+inserted value.
+
 \subsection{Lookup modulo matching} \label{sec:matching-intro}
 
 Beyond just the basic finite maps we have described, our practical setting
 in GHC demands more: we want to a lookup that does \emph{matching}.  GHC supports
-so-called \emph{rewrite rules}~\cite{rewrite-rules}, which the user can specify like this:
+so-called \emph{rewrite rules}~\cite{rewrite-rules}, which the user can specify
+in their source program, like this:
 \begin{code}
-prag_begin RULES "map/map" forall f g xs. map f (map g xs) = map (f . g) xs prag_end
+prag_begin RULES "map/map"  forall f g xs. map f (map g xs)  =  map (f . g) xs prag_end
 \end{code}
 This rule asks the compiler to rewrite any target expression that matches the shape
 of the left-hand side (LHS) of the rule into the right-hand side
@@ -548,7 +567,6 @@ like to be insensitive to alpha-conversion for those. For example:
 \begin{code}
 prag_begin RULES "map/id"  map (\x -> x) = \y -> y prag_end
 \end{code}
-\simon{Can we typeset the opening and closing pragma brackets more nicely? Shorter dash for a start.}
 We want to find a successful match if we see a call |map (\y -> y)|,
 even though the bound variable has a different name.
 
@@ -613,24 +631,6 @@ mapEM :: (a -> b) -> ExprMap a -> ExprMap b
 foldEM :: (a -> b -> b) -> ExprMap a -> b -> b
 \end{code}
 \end{itemize}
-
-\subsection{Keys that include binders: alpha-renaming}
-
-Recall that the type |Expr| is the \emph{key} of our |ExprMap| type.
-We do not want our programming language to distinguish between the expressions
-|\x -> x| and |\y -> y|, and so we would expect insertion and lookup to be insensitive to
-$\alpha$-renaming. That is, the correctness properties we list above
-must use $\alpha$-equivalence when comparing expressions for equality.
-
-Making insert and lookup work modulo $\alpha$-equivalence is not difficult
-in priciple; for example, we the key expression to one using de Bruijn levels or indices,
-and then work with that. However, doing so requires making a copy of the input
-key, a potentially expensive extra step. We will see that it can be accommodated
-with a simple on-the-fly indexing.
-\rae{Remind me why hashing-modulo-alpha is hard, referring to
-  \cite{alpha-hashing}.}\simon{Not relevant here; our ``hashing modulo alpha paper
-  is only relevant if you want
-  compositional hashing of every node.}
 
 \subsection{Non-solutions} \label{sec:ord}
 
@@ -974,7 +974,7 @@ lookupListExpr :: [Expr] -> ListExprMap v -> Maybe v
 \end{code}
 But rather than define a |ListExprMap| for keys of type |[Expr]|,
 and a |ListDeclMap| for keys of type |[Decl]|, etc, we would obviously prefer
-to build a trie for lists of \emph{any type}, like this \cite{hinze}:
+to build a trie for lists of \emph{any type}, like this \cite{hinze-generalized}:
 \begin{code}
 lookupList :: TrieMap tm => [TrieKey tm] -> ListMap tm v -> Maybe v
 lookupList []      = lm_nil
@@ -1114,16 +1114,16 @@ with an automated approach to generating boilerplate code.
 
 \section{Keys with binders} \label{sec:binders}
 
-Thus far we have usefully consolidated the state of the art, but have not really done
-anything new.  Tries are well known, and there are a number of papers about
-tries in Haskell \cite{hinze}.  However, none of these works deal with keys that contain
-binders, and that should be insensitive to alpha-conversion.  That is the challenge we
-address next.  Here is our data type, |ExprL|, where the ``L'' connotes the new |Lam| constructor:
+If our keys are expressions (in a compiler, say) they may contain
+binders, and we want insert and lookup to be insensitive to
+$\alpha$-renaming (\Cref{sec:problem}).  That is the challenge we
+address next.  Here is our data type, |ExprL|, where the ``L''
+connotes the new |Lam| constructor:
 \begin{code}
 data ExprL = AppL ExprL ExprL | Lam Var ExprL | VarL Var
 \end{code}
 The key idea is simple: we perform de-Bruijn numbering on the fly,
-renamign each binder to a natural number, from outside in.
+renaming each binder to a natural number, from outside in.
 So, when inserting or looking up a key $(\lambda x.\, foo~ (\lambda y.\, x+y))$ we
 behave as if the key was $(\lambda.\, foo ~(\lambda. \bv{1} + \bv{2}))$, where
 each $\bv{i}$ stands for an occurrence of the variable bound by the $i$'th lambda.
@@ -1231,13 +1231,6 @@ and should match targets like $(f~ 1~ 1)$ or $(f ~(g~ v)~ (g ~v))$,
 but not $(f~ 1~ (g~ v))$.  This ability is important if we are to use matching tries
 to implement class or type-family look in GHC.
 
-It is sometimes desirable to be able to look up the \emph{most specific match} in the matching trie.
-For example, suppose the matching trie contains the following two (pattern,value) pairs:
-$$
-\{ ([a],\, f\, a),\;\; ([p,q],\, f\,(p+q)) \}
-$$
-and suppose we look up $(f\,(2+x))$ in the trie.  The first entry matches, but the second also matches (with $S = [p \mapsto 2, q \mapsto x]$), and \emph{the second pattern is a substitution instance of the first}.  In some applications
-we may want to return just the second match.  We call this \emph{most-specific matching}.
 
 \subsection{The API of a matching trie} \label{sec:match-api}
 
@@ -1455,14 +1448,6 @@ lkMExpr e (psubst, mt)
      pat_var_occs = Bag.fromList [ (psubst, v)
                                  | (pat_var, v) <- mm_xvar mt
                                  , e == lookupPatSubst pat_var psubst ]
-                                 -- SG: the equality check here might get very costly, right?
-                                 -- Although it probably only matters for pattern/pattern comparisons, e.g.,
-                                 -- Are the following patterns compatible?
-                                 --   ([x], f <huge> x .. x) and ([y], f y y .. y)
-                                 -- A union/find would help here, I think, so that
-                                 -- we record that x and y are equal (after we check
-                                 -- the second arg pair) and don't have to compare
-                                 -- the substitution of x and y, <huge>, multiple times.
 
      look_at_e :: Bag (PatSubst, v)
      look_at_e = case e of
@@ -1557,37 +1542,53 @@ xtCons _   Nothing  pat_occs = pat_occs
 xtCons key (Just x) pat_occs = (key,x) : pat_occs
 \end{code}
 
-\subsection{Most specific match}
+\subsection{Further developments: most specific match, and unification}
 
-\Cref{sec:matching-spec} described the goal of returning only the \emph{most specific matches} from
-a lookup.  In GHC today, the lookup returns \emph{all} matches, and these matches are then
-exhaustively compared against each other; if one is more specific than (a substitution instance of) another, the latter is discarded.
+It is sometimes desirable to be able to look up the \emph{most specific match}
+in the matching triemap.
+For example, suppose the matching trie contains the following two (pattern,value) pairs:
+$$
+\{ ([a],\, f\, a),\;\; ([p,q],\, f\,(p+q)) \}
+$$
+and suppose we look up $(f\,(2+x))$ in the trie.  The first entry matches, but the second also matches (with $S = [p \mapsto 2, q \mapsto x]$), and \emph{the second pattern is a substitution instance of the first}.  In some applications
+we may want to return just the second match.  We call this \emph{most-specific matching}.
 
-A happy consequence of the trie representation is that a one-line change suffices
-to return only the most-specific matches.  We simply modify the definition |lkMExpr| from \Cref{sec:matching-lookup} as follows:
-%{
-%if style == poly
-%format as_before = "\ldots \text{as before} \ldots"
-%else
-%format as_before = "pat_var_occs :: Bag (PatSubst, v); pat_var_occs = undefined; look_at_e :: Bag (PatSubst, v); look_at_e = undefined; pat_var_bndr :: Bag (PatSubst, v); pat_var_bndr = undefined"
-%format lkMExpr = "lkMExpr2"
-%endif
-\begin{code}
-lkMExpr e (psubst, mt)
-  | Bag.null pat_var_occs && Bag.null look_at_e
-  = pat_var_bndr
-  | otherwise
-  = pat_var_occs `Bag.union` look_at_e
-  where
-    as_before
-\end{code}
-%}
-That is, we only return the matches obtained by matching a pattern variable (|pat_var_bndr|) if there
-are no more-specific matches (namely |pat_var_occs| and |look_at_e|).  It is a happy
-consequence of the trie structure that this simple (and efficient in execution terms) change suffices
-to return the most-specific matches.
+The implementation we have shown returns \emph{all} matches, leaving it to
+a post-pass to pick only the most-specific ones.  It seems plausible that some
+modification to the lookup algorithm might suffice to identify the most-specific matches,
+but it turns out to be hard to achieve this, because each case only has a local
+view of the overall match.
 
-\subsection{Unification}
+Sometimes one wants to find all patterns that \emph{unify} with the target,
+assuming we have some notion of ``unificable variable'' in the target.  Embodying
+full-blown unification into the lookup algorithm seems hard, but it is relatively
+easy to return a set of \emph{candidates} that then be post-processed with a full
+unifier to see if the candidate does indeed unify with the target.
+
+%             FAILSED ATTEMPT
+% to get most specific matching
+%
+% We simply modify the definition |lkMExpr| from \Cref{sec:matching-lookup} as follows:
+% \begin{code}
+% lkMExpr e (psubst, mt)
+%   | Bag.null pat_var_occs && Bag.null look_at_e
+%   = pat_var_bndr
+%   | otherwise
+%   = pat_var_occs `Bag.union` look_at_e
+%   where
+%     as_before
+% \end{code}
+% %}
+%
+% \sg{But that notion of most-specific is biased towards specificity happening
+% early in the App chain, if I'm not mistaken. So given the map $\{(([x],
+% f~x~True), 1), (([y], f~True~y), 2)\}$, the most-specific match of $f~True~True$
+% will be $2$: the second pattern is more specific in the first App arg, while
+% the first one has simply an unbound patvar in that position. But actually I'd
+% consider $1$ just as specific, albeit incomparable to $2$. In effect, you're
+% forcing a lexicographic ordering on patterns where I don't think there should
+% be one.}
+
 
 \section{Evaluation} \label{sec:eval}
 
@@ -1932,19 +1933,49 @@ matching of many axioms is absolutely central to the performance of these system
 This led to a great deal of work in so-called \emph{discrimination trees}, starting
 in the late 1980's, which is beautifully surveyed in the Handbook of Automated Reasoning
 \cite[Chapter 26]{handbook:2001}.
-Automated theorem provers such as Vampire, E, Z3, and (to a lesser extent) interactive
-theorem provers like Coq, Isabelle, and Lean, make extensive use of discrimination trees.
+All of this work typically assumes a single, fixed, data type of ``first order terms''
+like this\footnote{Binders in terms do not seem to be important
+in these works, although they could be handled fairly easily by a de-Bruijn pre-pass.}
+\begin{code}
+  data Term = Node Fun [Term]
+\end{code}
+where |Fun| is a function symbol.  Discrimination trees are described by imagining
+a pre-order traversal that (uniquely, since |Fun| symbols have fixed arity)
+converts the term to a list of type |[Fun]|, and treating that as the key.
+The map is implemented like this:
+\begin{code}
+  data DTree v = DVal v | DNode (Map Fun DTree)
 
-Discrimination trees save work when keys have a common \emph{prefix}.
-\emph{Substitution trees} (also surveyed in the same Handbook) go
-further and try to save work when keys have common \emph{sub-trees};
-but the extra complexity does not seem to pay its way in practice, and
-substitution trees do not appear to be used in production applications.
-\simon{Leonardo, is that true; I think it's what you said.}
+  lookupDT :: [Fun] -> DTree v -> Maybe v
+  lookupDT []      (DVal v)   = Just v
+  lookupdt (f:fs)  (DNode m)  = case Map.lookup f m of
+                                  Just dt -> lookupDT fs dt
+                                  Nothing -> Nothing
+  lookup _ _ = Nothing
+\end{code}
+Each layer of the tree simply branches on the first |Fun|, and looks up
+the rest of the |[Fun]| in the appropriate child.
+Extending this basic setup with matching is done by some kind of backtracking.
 
-Seen from a sufficient distance, our work is very close to discrimination trees -- we
-have simply re-presented discrimination trees in Haskell.
-But doing so is insightful, and there are also numerous differences of detail:
+Discrimination trees are heavily used by theorem provers, such as Coq, Isabelle, and Lean.
+Moreover, discrimination trees have been further developed in a number of ways.
+Vapire uses \emph{code trees} which are a kind of compiled form of discrimination
+tree where we store abstract machine instructions, rather than a data structure
+at each node of the tree \cite{voronkov:vampire}.
+Spass \cite{spass} uses \emph{substitution trees} \cite{substitution-trees},
+a refinement of discrimination trees that tries to share common \emph{sub-trees}
+not just common \emph{prefixes}. (It is not clear whether the extra complexity of
+substitution pays its way.)  Z3 uses \emph{E-matching code trees}, which solve
+for matching modulo an ever-growing equality relation, useful in saturation-based
+theorem provers.  All of these techniques except E-matching are surveyed in
+\citet{handbook:2001}.
+
+If we applied our ideas to |Term| we would get a single-field triemap which
+(just like |lookupDT|) would initially branch on |Fun|, and then go though
+a chain of |ListMap| constructors (which correspond to the |DNode| above).
+You have to squint pretty hard, but the net result is very similar, although
+it is arrived at by entirely different thought process.
+This different perspective is quite insightful:
 \begin{itemize}
 \item We present our triemaps as a library written in a statically typed functional
   language, whereas the discrimination tree literature tends to assume an implementation in C,
@@ -1961,9 +1992,10 @@ a single built-in data type of terms.
   over polymorphic types like lists (\Cref{sec:class}).
 \end{itemize}
 
-\sg{Maybe talk about section 14 of the handbook, where different ways (such as delayed
-equality constraints) are proposed to deal with non-linearity instead of
-numbering all pattern variable occurrences, which loses sharing.}
+Many of the insights of the term indexing world re-appear, in different guise,
+in our triemaps.   For example, when a variable is repeated in a pattern we can
+eagerly check for equality during the match, or instead gather an equality constraint
+and check those constraints at the end \cite[Section 26.14]{handbook:2001}.
 
 \subsection{Haskell triemaps}
 
