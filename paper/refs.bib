@@ -36,6 +36,7 @@
    title = {Compilation by Transformation in Non-Strict Functional Languages},
    year = {1995},
 }
+
 @article{hinze,
   author    = {Ralf Hinze},
   title     = {Generalizing generalized tries},
@@ -48,4 +49,104 @@
   timestamp = {Fri, 10 Jun 2011 14:42:13 +0200},
   biburl    = {https://dblp.org/rec/journals/jfp/Hinze00a.bib},
   bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+
+@article{hinze:generalized,
+  author    = {Ralf Hinze},
+  title     = {Generalizing Generalized Tries},
+  journal   = {Journal of Functional Programming},
+  volume    = {10},
+  number    = {4},
+  pages     = {327-351},
+  year      = {2000}
+}
+
+@book{handbook:2001,
+  author = {R Sekar and IV Ramakrishnan and A Voronkov},
+  title = {Handbook of Automated Reasoning},
+  volume = {2},
+  year = {2001},
+  publisher = {Elsevier}
+}
+
+@article{voronkov:vampire,
+ author = {A Voronkov},
+ title = {The anatomy of Vampire: Implementing bottom-up procedures with code trees},
+ journal = {Journal of Automated Reasoning},
+ volume = {15}, issue = {2},
+ pages = {237-265},
+ year = {1995}
+}
+
+@inproceedings{substitution-trees,
+  author = {Graf, P and Meyer, C},
+  title = {Advanced indexing operations on substitution trees},
+  booktitle = {Proc International Conference on Automated Deduction (CADE'96), LNCS 1104},
+  editor = {McRobbie, MA and Slaney JK},
+  year = {1996},
+  page = {553–567},
+  publisher = {Springer}
+}
+
+@inproceedings{e-matching-code-trees,
+  author = {Leonardo de Moura and Nikolaj Bjørner},
+  title = {Efficient E-Matching for SMT solvers},
+  booktitle = {Proc International Conference on Automated Deduction (CADE)},
+  pages = {183-198},
+  publisher = {Springer},
+  year = {2007}
+}
+
+@inproceedings{spass,
+  author = {Weidenbach, Christoph and Dimova, Dilyana and Fietzke, Arnaud and Kumar, Rohit and Suda, Martin and Wischnewski, Patrick},
+  year = {2009},
+  title = {SPASS Version 3.5},
+  booktitle = {Proc International Conference on Automated Deduction (CADE)},
+  publisher = {Springer},
+  pages = {140–145}
+}
+
+@inproceedings{associated-types,
+author = {Chakravarty, Manuel M. T. and Keller, Gabriele and Jones, Simon Peyton},
+title = {Associated Type Synonyms},
+year = {2005},
+isbn = {1595930647},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/1086365.1086397},
+doi = {10.1145/1086365.1086397},
+abstract = {Haskell programmers often use a multi-parameter type class in which one or more type parameters are functionally dependent on the first. Although such functional dependencies have proved quite popular in practice, they express the programmer's intent somewhat indirectly. Developing earlier work on associated data types, we propose to add functionally dependent types as type synonyms to type-class bodies. These associated type synonyms constitute an interesting new alternative to explicit functional dependencies.},
+booktitle = {Proceedings of the Tenth ACM SIGPLAN International Conference on Functional Programming},
+pages = {241–253},
+numpages = {13},
+keywords = {associated types, type classes, type inference, generic programming, type functions},
+location = {Tallinn, Estonia},
+series = {ICFP '05}
+}
+
+@InProceedings{rewrite-rules,
+author = {Peyton Jones, Simon and Tolmach, Andrew and Hoare, Tony},
+title = {Playing by the rules: rewriting as a practical optimisation technique in GHC},
+organization = {ACM SIGPLAN},
+booktitle = {2001 Haskell Workshop},
+year = {2001},
+month = {September},
+publisher = {ACM},
+abstract = {We describe a facility for improving optimization of Haskell programs using rewrite rules. Library authors can use rules to express domain-specific optimizations that the compiler cannot discover for itself. The compiler can also generate rules internally to propagate information obtained from automated analyses. The rewrite mechanism is fully implemented in the released Glasgow Haskell Compiler.
+
+Our system is very simple, but can be effective in optimizing real programs. We describe two practical applications involving short-cut deforestation, for lists and for rose trees, and document substantial performance improvements on a range of programs.},
+url = {https://www.microsoft.com/en-us/research/publication/playing-by-the-rules-rewriting-as-a-practical-optimisation-technique-in-ghc/},
+edition = {2001 Haskell Workshop},
+}
+
+@InProceedings{alpha-hashing,
+author = {Maziarz, Krzysztof and Ellis, Tom and Lawrence, Alan and Fitzgibbon, Andrew and Peyton Jones, Simon},
+title = {Hashing Modulo Alpha-Equivalence},
+organization = {ACM},
+booktitle = {ACM SIGPLAN Conference on Programming Language Design and Implementation (PLDI'21)},
+year = {2021},
+month = {June},
+abstract = {In many applications one wants to identify identical subtrees of a program syntax tree.  This identification should ideally be robust to alpha-renaming of the program, but no existing technique has been shown to achieve this with good efficiency (better than O(n^2) in expression size). We present a new, asymptotically efficient way to hash modulo alpha-equivalence. A key insight of our method is to use a weak (commutative) hash combiner at exactly one point in the construction, which admits an algorithm with O(n*(log n)^2) time complexity. We prove that the use of the commutative combiner nevertheless yields a strong hash with low collision probability.},
+publisher = {ACM},
+url = {https://www.microsoft.com/en-us/research/publication/hashing-modulo-alpha-equivalence-2/},
 }

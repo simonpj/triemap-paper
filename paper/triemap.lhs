@@ -2038,6 +2038,6 @@ benchmarks such as \benchname{space\_app1}.
 % \item Matching multiple strings.
 % \end{itemize}
 
-\bibliography{triemap}
+\bibliography{refs}
 
 \end{document}
