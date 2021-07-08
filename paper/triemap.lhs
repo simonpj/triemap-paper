@@ -429,10 +429,10 @@ Our contributions are as follows:
 \item We describe the language-agnostic Variable Trie-Map (VTM) data
   structure, with the semantics as described above (and made more precise in
   \cref{sec:vtm}). The keys in a VTM support local bound variables via
-  on-the-fly conversion to de Bruijn levels, necessary to support polymorphic
-  types or $\lambda$-expressions. Looking up in a VTM is linear in the size of
-  the key, regardless of the size of the VTM itself. The operations on a VTM
-  are proved to uphold the sensible properties described in
+  on-the-fly conversion to de Bruijn levels~\cite{debruijn}, necessary to
+  support polymorphic types or $\lambda$-expressions. Looking up in a VTM is
+  linear in the size of the key, regardless of the size of the VTM itself. The
+  operations on a VTM are proved to uphold the sensible properties described in
   \cref{sec:vtm-properties}.
 \item Some languages require not only the matching behavior above, but also a
   \emph{unification} operation, where we find not only keys that match, but
@@ -536,7 +536,7 @@ particular instances of the general task.
 
 Beyond just the basic finite maps we have described, our practical setting
 in GHC demands more: we want to a lookup that does \emph{matching}.  GHC supports
-so-called \emph{rewrite rules} \cite{rewrite-rules}, which the user can specify like this:
+so-called \emph{rewrite rules}~\cite{rewrite-rules}, which the user can specify like this:
 \begin{code}
 prag_begin RULES "map/map" forall f g xs. map f (map g xs) = map (f . g) xs prag_end
 \end{code}
@@ -1181,24 +1181,13 @@ lookupBVM :: Var -> BoundVarMap -> Maybe BoundVarKey
 lookupBVM v (BVM {bvm_map = bvm }) = Map.lookup v bvm
 \end{code}
 We maintain a |BoundVarMap|
-that maps each lambda-bound variable to its de-Bruijn level\footnote{
+that maps each lambda-bound variable to its de-Bruijn level%
+\footnote{
   The de-Bruijn \emph{index} of the occurrence of a variable $v$ counts the number
   of lambdas between the occurrence of $v$ and its binding site.  The de-Bruijn \emph{level}
   of $v$ counts the number of lambdas between the root of the expression and $v$'s binding site.
-  It is convenient for us to use \emph{levels}.
-  \simon{What can we cite?  Sebastian had a couple of suggestions, but both are informal.}
-  \sg{We should cite the original deBruijn paper. See Figure 1 here, which is explained just below:
-      \url{http://alexandria.tue.nl/repository/freearticles/597619.pdf}
-      reference depth corresponds to DB index. But it appears that the DB level is defined entirely different.}
-  }, of type |BoundVarKey|.
-% \sg{We are using de Bruijn \emph{levels}, not \emph{indices}. A Var occurrence
-% with De Bruijn indices would count the number of lambdas between the occ and
-% its binding site. Levels, on the other hand, count the number of lambdas from
-% the root of the expr to the binding site. So within the const function
-% $\lambda x. \lambda y. y$, the occ of $y$ has DB index 0, but DB level 1.
-% Indices are favorable when doing subsitution which I presume we don't. See
-% also \url{https://randall-holmes.github.io/Watson/babydocs/node26.html} and
-% \url{https://mail.haskell.org/pipermail/haskell-cafe/2007-May/025424.html}.}
+  It is convenient for us to use \emph{levels}.}
+\cite{debruijn}, of type |BoundVarKey|.
 The key we look up --- the first argument of |lkExprL| --- becomes
 a |DBExprL|, which is a pair of a |BoundVarMap| and an
 |ExprL|.
@@ -1291,15 +1280,6 @@ see \Cref{fig:library}. We need to be able to return a bag because there may
 be multiple matches. Even if we are returning the most-specific matches,
 there may be multiple incomparable ones.
 
-% \sg{Why does lookupMExpr return a Bag? I thought we care for most-specific
-% matches? Shouldn't it then return a DAG of matches, or a tree, or at least a
-% list? Bag means no order at all... Later code assumes we can call map on Bags,
-% but Bag isn't defined anywhere. Maybe just return a list?
-% (A long time later, after I read 5.7) Ah, so it really is unordered. Fair
-% enough, but it would help to say as much.}
-% \simon{Any better now?}
-% Yes.
-
 \subsection{Canonical patterns and pattern keys}
 
 In \Cref{sec:binders} we saw how we could use de-Bruijn levels to
@@ -1332,21 +1312,6 @@ de-Bruijn notation), so the canonicalised patterns become
 $$
    f~\pv{}~\pv{}~True      \qquad and \qquad  f~\pv{}~\pv{}~False
 $$
-
-\sg{I found that point \emph{very} confusing. In contrast to binding occs in
-lambdas, those occs are not binding at all! Their binding site is in the list of
-pattern vars. Hence it is completely obvious to me that we need the subscript.
-The following paragraph comes to the same conclusion, but justifies it by saying
-that the first occ of every pattern var is the binding occ. I mean, I see
-that we \emph{can} omit the index on $\pv{}$, because it is redundant by the
-numbering we propose, but \emph{should} we really omit it? It's probably
-important for identifying whether the PV is flexible or rigid, fair enough...
-
-Why is the current design better than the simple and obvious solution where we
-label all $\pv{}$ with an index and don't bother having $\pvo{}$ altogether?
-Handling flex-rigid vs. rigid-rigid constraints is pretty standard in
-unification literature... Why can't we do it similarly?}
-
 What if the variable occurs more than once? For example, suppose we are matching
 the pattern $([x],\, f\, x\,x\,x)$ against the target expression
 $(f\,e_1\,e_2\,e_3)$.  At the first occurrence of the pattern variable $x$
@@ -1371,16 +1336,14 @@ respectively.  The subscripts are essential to keep these two patterns distinct.
 
 The trouble with canonicalising our patterns (to share the structure of the patterns)
 is that matching will produce a substitution mapping patttern \emph{keys} to
-expressions, rather that mapping pattern \emph{variables} to values.  For example,
-suppose we start with the pattern $([x,y], f \,x\, y\, y\, x)$ from the
-end of the last section. Its canonical form is $(f \,\pv{}\, \pv{}\, \pvo{2}\, \pvo{1})$.
-If we match that against a target $(f\,e_1\,e_2\,e_2\,e_1)$ we will produce a substitution $[\pvo{1} \mapsto e_1, \pvo{2} \mapsto e_2]$.
-But  what we \emph{want} is a |Match| (\Cref{sec:match-api}),
-that gives a list of (pattern-variable, expression) pairs $[(x, e_1), (y,e_2)]$.
-\sg{What is the difference between ,,expression'' and ,,value''
-here? I think for a Match, you have to give the value in addition to the list of
-pairs.}\simon{True, we should say ``expression'' here; fixed.  And indeed a Match includes the value
-as well as the substitution, see 5.2. I'm not sure what to say to make this clearer.}
+expressions, rather that mapping pattern \emph{variables} to expressions.
+For example, suppose we start with the pattern $([x,y], f \,x\, y\, y\, x)$
+from the end of the last section. Its canonical form is
+$(f \,\pv{}\, \pv{}\, \pvo{2}\, \pvo{1})$. If we match that against a
+target $(f\,e_1\,e_2\,e_2\,e_1)$ we will produce a substitution
+$[\pvo{1} \mapsto e_1, \pvo{2} \mapsto e_2]$. But what we \emph{want} is
+a |Match| (\Cref{sec:match-api}), that gives a list of (pattern-variable,
+expression) pairs $[(x, e_1), (y,e_2)]$.
 
 Somehow we must accumulate a \emph{pattern-key map} that, for each
 individual entry in triemap, maps its pattern keys back to the corresponding
@@ -1434,17 +1397,6 @@ The trie |MExprMapX| has four fields, one for each case in the pattern.
 The first two fields deal with literals and applications, just as before. The third deals with the \emph{binding} occurrence
 of a pattern variable $\pv{}$, and the fourth with a \emph{bound} occurrence of
 a pattern variable $\pvo{i}$.
-
-\sg{I think that most queries will have multiple Apps at the top-level and the
-head will be a variable. It is a shame that we have to chase n pointers for an
-n-ary application to get to the head! I think it would would be much more
-efficient to store the list of App args in mm\_fvar, like}
-\begin{spec}
-         , mm_fvar :: Map Var (ListMap Expr v)
-\end{spec}
-\sg{(NB: PatVars can't occur in app heads that way. If we want them to, we have to give
-mm\_pvar a similar treatment.) IIRC, that is what Lean's DiscTree does, and it's
-also how we implement RULE matching (grep for ru\_fn)...}
 
 The core lookup function looks like this:
 %{
@@ -1648,15 +1600,6 @@ are no more-specific matches (namely |pat_var_occs| and |look_at_e|).  It is a h
 consequence of the trie structure that this simple (and efficient in execution terms) change suffices
 to return the most-specific matches.
 
-\sg{But that notion of most-specific is biased towards specificity happening
-early in the App chain, if I'm not mistaken. So given the map $\{(([x],
-f~x~True), 1), (([y], f~True~y), 2)\}$, the most-specific match of $f~True~True$
-will be $2$: the second pattern is more specific in the first App arg, while
-the first one has simply an unbound patvar in that position. But actually I'd
-consider $1$ just as specific, albeit incomparable to $2$. In effect, you're
-forcing a lexicographic ordering on patterns where I don't think there should
-be one.}
-
 \subsection{Unification}
 
 \section{Evaluation} \label{sec:eval}
@@ -1838,28 +1781,35 @@ increase $P$ on completely random expressions. As written above, realistic
 work loads often have shared prefixes like \benchname{lookup\_all\_app1}, where
 we already saw that |ExprMap| outperforms |Map|. The fact that |Map| performance
 depends on $P$ makes it an extremely workload dependent pick, leading to
-compiler performance that is difficult to predict.
-\simon{Why does |Map| outpace eventually?}
-\sg{I elaborated. My first hypothesis was actually wrong, proving that
-it's not so simple. Should we also include finer-grained measurements for
-\benchname{lookup\_all\_app1} in \Cref{fig:runtime-finer} to prove the point?} \\
-|HashMap| shows performance consistent with |ExprMap| but is a bit slower, as
-before.
+compiler performance that is difficult to predict. |HashMap| shows performance
+consistent with |ExprMap| but is a bit slower, as before. There is no subtle
+scaling factor like $P$; just plain predictable $\mathcal{O}(E)$ like |ExprMap|.
 
 Returning to \Cref{fig:runtime}, we see that folding over |ExprMap|s is
 considerably slower than over |Map| or |HashMap|. The complex tree structure is
 difficult to traverse and involves quite a few indirections.
-\simon{Not expected by me!  A factor of TEN!?  WHat is going on?}
-\sg{I don't know... I mean, it's huge code, quite cache inefficient and all,
-but I looked at the Core and didn't see something out of the ordinary like
-a lack of eta expansion. Maybe we could squeeze out a few cycles by SATing,
-thus specialising for the (+) folding operator. That's what Map does.
-We can't do SAT, because the function argument is not static in the em\_app
-recursion; thus foldExpr would still need to be recursive and the whole
-exercise was for nothing.}
 This is in stark contrast to the situation with |Map|, where it's just a
 textbook in-order traversal over the search tree. Folding over |HashMap| is not
 quite as fast, but still much more efficient than folding over |ExprMap|.
+
+We think that |ExprMap| dies by a thousand paper cuts: The lazy folding
+function means that we allocate a lot of thunks for intermediate results that
+we end up forcing in the case of our folding function |(+)| anyway. That is a
+price that |Map| and |HashMap| pay, too, but not nearly as much as the
+implementation of |foldExpr| does.
+Furthermore, there's the polymorphic recursion in the head case of |em_app|
+with a different folding function |(foldTM f)|, which allocates on each call
+and makes it impossible to specialise |foldExpr| for a fixed folding function
+like |(+)| with the static argument transformation~\cite{santos}. Hence
+we tried to single out the issue by ensuring that |Map| and |ExprMap| in
+fact don't specialise for |(+)| when running the benchmarks, by means of an
+\texttt{NOINLINE} pragma.
+Another possible reason might be that the code generated for |foldExpr| is quite
+a lot larger than the code for |Map|, say, so it is not unlikely that we are
+measuring caching effects.
+We are positive there are numerous ways in which the performance of |foldExpr|
+can be improved, but believe it is unlikely to exceed or just reach the
+performance of |Map|.
 
 \subsubsection*{Building}
 
@@ -1870,24 +1820,29 @@ map size $M$ and expression size $E$. The data suggests that in comparison to
 |Map|, $E$ indeed affects insert performance of |ExprMap| linearly. By contrast,
 $M$ does not seem to affect insert performance at all.
 
-The small advantage that |ExprMap| seems to have over |Map| and |HashMap| doesn't carry
-over to its naïve |fromList| implementation, though. |Map|'s |fromList| sorts
-the input list and then builds the search tree in one linear sweep \sg{Wrong}.
-|HashMap| can make use of transient mutability and perform destructive inserts
+The small edge that |ExprMap| seems to have over |Map| and |HashMap|
+doesn't carry over to its naïve |fromList| implementation, though. |Map| clearly
+wins the \benchname{fromList} benchmark. That is surprising, given that |Map|'s
+|fromList| quickly falls back to a list fold like |ExprMap| on unsorted inputs.
+|HashMap| makes use of transient mutability and performs destructive inserts
 on the map data structure during the call to |fromList|, knowing that such
-mutability can't be observed by the caller.
-\simon{Again this is a surprise to me.  Doing a sort (with all those comparisons)
-  seems very costly compared to simply inserting into a triemap.}
-\sg{Hah, |Map| actually does something different. It still tries to exploit
-    sorted sub-sequences, I think, but those are rare in random input.
-    When it encounters the first non-sorted key-value pair, it falls back to
-    a sequence of inserts into the map. Maybe it produces less garbage in doing
-    so? Unsure...}
+mutability can't be observed by the caller, but still performs worse than
+|ExprMap| or |Map| for larger $N$. Rehashing can't be the reason, because
+hash array mapped tries never need to be rehashed.
 
-As such, |Map| clearly wins the \benchname{fromList} benchmark. It is a bit
-surprising that |HashMap| seems to lose against |ExprMap| for larger $N$.
-Rehashing can't be the reason, because hash array mapped tries never need to be
-rehashed.
+Cursory investigation of |ExprMap| suggests that it spents much more time in
+garbage collection than |Map|; over the course of our test program reproducing
+the $N = 1000$ case, the generational garbage collector had to copy more than
+thrice as many bytes. One reason is that the (fixed) input list of
+expressions will quickly end up in the old generation and |Map|'s internal nodes
+simply store pointers to those expressions. That produces much less short-lived
+garbage than |ExprMap|, which allocates one large |EM| constructor for each
+|Expr| node in the shared prefix. If a minor GC is triggered during the call to
+|fromList|, some of the garbage will end up in the old generation, resulting in
+more costly major GCs. |criterion| performs a minor GC before each measurement
+of a benchmark, so we tried to increase the size of the young generation in
+order to prevent intermittent major GC during measurements. It appears that
+brings perf on par with |Map|, but still doesn't win.
 
 We expect |ExprMap| to catch up in \benchname{fromList\_app1}. And indeed it
 does, outperforming |Map| for larger $N$ which pays for having to compare
@@ -1899,14 +1854,10 @@ What would a non-naïve version of |fromList| for |ExprMap| look like? Perhaps
 the process could be sped up considerably by partitioning the input list
 according to the different fields of |ExprMap| like |em_lam| and then calling
 the |fromList| implementations of the individual fields in turn. The process
-would be very similar to discrimination sort \cite{discr-sort}, which is a
+would be very similar to discrimination sort~\cite{discr-sort}, which is a
 generalisation of radix sort to tree-like data and very close to tries.
-Indeed, the \hackage{discrimination} library provides such an optimised |toMap|
-implementation.
-\simon{but that is, in effect, precisely what insert does!! That's why I'm surprised it's so slow.}
-\sg{Not quite. Every insert has to descent down the tree all over again from
-    the root. I think it would actually be quite a bit faster to implement
-    |fromList| like I described.}
+Indeed, the \hackage{discrimination} library provides such an optimised
+$\mathcal{O}(N)$ |toMap| implementation for ordered maps.
 
 \subsection{Space}
 
@@ -2001,10 +1952,6 @@ further and try to save work when keys have common \emph{sub-trees};
 but the extra complexity does not seem to pay its way in practice, and
 substitution trees do not appear to be used in production applications.
 \simon{Leonardo, is that true; I think it's what you said.}
-\sg{Is that so? I see it is used in Z3:
-\url{https://github.com/Z3Prover/z3/blob/master/src/ast/substitution/substitution_tree.h}
-But it only has a single use site, in
-\url{https://github.com/Z3Prover/z3/blob/21e59f7c6e5033006265fc6bc16e2c9f023db0e8/src/muz/transforms/dl_mk_rule_inliner.h}.}
 
 Seen from a sufficient distance, our work is very close to discrimination trees -- we
 have simply re-presented discrimination trees in Haskell.
