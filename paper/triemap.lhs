@@ -377,7 +377,12 @@ instance Eq Expr where
 %% Note: \begin{abstract}...\end{abstract} environment must come
 %% before \maketitle command
 \begin{abstract}
-TrieMaps are great.
+  In applications such as compilers and theorem provers, we often want to match
+  a target term against multiple patterns (representing rewrite rules or axioms)
+  simultaneously. Efficient matching of this kind is well studied in the theorem-prover
+  communnity, but much less so in the context of statically typed functional progamming.
+  Doing so yields an interesting new viewpoint --- and a practically useful design
+  pattern, with good runtime performance.
 \end{abstract}
 
 %% \maketitle
@@ -1101,7 +1106,7 @@ un-primed, names for the user-visible |ExprMap| and |ListMap| constructors.
 
 The singleton-map optimisation makes a big difference in practice.
 
-\subsection{Generic programming}
+\subsection{Generic programming}\label{sec:generic}
 
 We have not described a triemap \emph{library}; rather we have described a \emph{design pattern}.
 More precisely, given a new algebraic data type |X|, we have described a systematic way
@@ -2037,20 +2042,24 @@ trie key extraction, like the \hackage{TrieMap} package. None of these
 libraries describe how to index on expression data structures modulo
 $\alpha$-equivalence or how to perform matching lookup.
 
-Tries have been utilised for memoisation in the past. The earliest such
-attempt we could find was being taken by Hinze~\cite{hinze:generalized},
-which describes our informal approach of deriving a trie from a first-order,
-possibly parameterised and nested data type in great detail, including the
+Memoisation has been a prominent application of tries in Haskell
+\cite{hinze:memo,conal:blog1,conal:blog2}.
+Given a function |f|, the idea is to build an \emph{infinite},
+lazily-evaluated trie, that maps every possible argument |x| to (a thunk for)
+$|(f x)|$.  Now, a function call becomes a lookup in the trie.
+The ideas are implemented in the \hackage{MemoTrie} library.
+
+A second strand of work concerns generic, or polytypic, approaches to
+generating tries, which nicely complements the design-pattern approach
+of this paper (\Cref{sec:generic}).
+Hinze~\cite{hinze:generalized} describes the polytypic approach,
+for possibly parameterised and nested data type in some detail, including the
 realisation that we need the generalisations |alter| and |unionWith| in order to
 define |insert| and |union|.
-
-The ideas of Hinze manifest in the \hackage{MemoTrie} library. A
-generalisation of those ideas then led to \hackage{functor-combo}. The
+A generalisation of those ideas then led to \hackage{functor-combo}. The
 \hackage{representable-tries} library observes that trie maps are representable
 functors and then vice versa tries to characterise the sub-class of
-representable functors for which there exists a trie map implementation. Again,
-the data type generic approach has been taken far deeper before than in this
-paper, but none of the libraries try to view tries for matching lookup.
+representable functors for which there exists a trie map implementation.
 
 The \hackage{twee-lib} library defines a simple term index data structure based
 on discrimination trees for the \varid{twee} equation theorem prover. We would
@@ -2067,6 +2076,10 @@ space usage in benchmarks such as \benchname{space\_app1}.
 It is however unclear how to extend \varid{twee}'s |Index| to support
 $\alpha$-equivalence, hence we did not consider it for our benchmarks in
 \Cref{sec:eval}.
+
+\begin{acks}
+We warmly thank Leonardo de Moura and Edward Yang for their very helpful feedback.
+\end{acks}
 
 % \subsection{Notes from Sebastian}
 %
