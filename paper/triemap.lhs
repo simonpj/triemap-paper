@@ -2052,7 +2052,7 @@ The ideas are implemented in the \hackage{MemoTrie} library.
 A second strand of work concerns generic, or polytypic, approaches to
 generating tries, which nicely complements the design-pattern approach
 of this paper (\Cref{sec:generic}).
-Hinze~\cite{hinze:generalized} describes the polytypic approach,
+\citet{hinze:generalized} describes the polytypic approach,
 for possibly parameterised and nested data type in some detail, including the
 realisation that we need the generalisations |alter| and |unionWith| in order to
 define |insert| and |union|.
@@ -2088,6 +2088,18 @@ We warmly thank Leonardo de Moura and Edward Yang for their very helpful feedbac
 %
 % \item Matching multiple strings.
 % \end{itemize}
+
+\section{Conclusion}
+
+We presented trie maps as an efficient data structure for representing a set of
+expressions modulo $\alpha$-equivalence, re-discovering polytypic deriving
+mechanisms described by~\citet{hinze:generalized}. Subsequently, we showed how to
+extend this data structure to make it aware of pattern variables in order to
+interpret stored expressions as patterns. The key innovation is that the
+resulting trie map allows efficient matching lookup of a target expression
+against stored patterns. This pattern store is quite close to discrimination
+trees~\cite{handbook:2001}, drawing a nice connection to term indexing problems
+in the automated theorem proving community.
 
 \bibliography{refs}
 
