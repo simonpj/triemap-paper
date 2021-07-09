@@ -380,7 +380,7 @@ instance Eq Expr where
   In applications such as compilers and theorem provers, we often want to match
   a target term against multiple patterns (representing rewrite rules or axioms)
   simultaneously. Efficient matching of this kind is well studied in the theorem prover
-  community, but much less so in the context of statically typed functional progamming.
+  community, but much less so in the context of statically typed functional programming.
   Doing so yields an interesting new viewpoint --- and a practically useful design
   pattern, with good runtime performance.
 \end{abstract}
@@ -417,21 +417,21 @@ a fast, constant-time operation.  That assumption is false for tree-structured k
 Another time that a compiler may want to look up a tree-structured key is
 when rewriting expressions: it wants to see if any rewrite rule matches the
 sub-expression in hand and subsequently rewrite with the instantiated right-hand
-side (RHS) of the rule. For a compiler developer to accomodate such a feature,
+side (RHS) of the rule. For a compiler developer to accommodate such a feature,
 we need an extended version of a finite map in which we can insert a collection
 of rewrite rules, expressed as (\varid{pattern},~\varid{rhs}) pairs, and
 then look up an expression in the map, getting a hit if one or more of the
 patterns \emph{match} the expression. If there is a large number of such
 (\varid{pattern},~\varid{rhs}) entries to check, we would like to do so faster
 than checking them one by one. Several parts of GHC, a Haskell compiler, need
-matching lookup, and currently use an inefficint linear algorithm to do so.
+matching lookup, and currently use an inefficient linear algorithm to do so.
 
 In principle it is well known how to build a finite map for a deeply-structured
 key: use a \emph{trie}.  For the
 matching task, use \emph{discrimination trees}, a variant of tries that are heavily used
 by the automated reasoning community (\Cref{sec:discrim-trees}).  In this paper we apply these
 ideas in the context of a statically-typed functional programming language, Haskell.
-This shift of context is surprisigly fruitful, and we make the following contributions:
+This shift of context is surprisingly fruitful, and we make the following contributions:
 \begin{itemize}
 \item Following \citet{hinze:generalized}, we develop a standard pattern for
   a statically typed triemap for an arbitrary new algebraic data type (\Cref{sec:basic}). In
@@ -439,7 +439,7 @@ This shift of context is surprisigly fruitful, and we make the following contrib
   fixed, generic tree type.
   In particular:
   \begin{itemize}
-    \item Supported by type classs, we can make good use of polymorphism to build triemaps
+    \item Supported by type class, we can make good use of polymorphism to build triemaps
       for polymorphic data types, such as lists (\Cref{sec:class}).
 
     \item We cover the full range of operations expected for finite maps:
@@ -694,7 +694,7 @@ We will return to lambdas in \Cref{sec:binders}.
 
 \subsection{The basic idea} \label{sec:basic}
 
-Here is a trie-based implemenation for |Expr|:
+Here is a trie-based implementation for |Expr|:
 %{
 %if style == newcode
 %format ExprMap = "ExprMap0"
@@ -759,7 +759,7 @@ key we are looking up in the finite map.)
 This definition is extremely short and natural. But it conceals a hidden
 complexity: \emph{it requires polymorphic recursion}. The recursive call to |lookupExpr e1|
 instantiates |v| to a different type than the parent function definition.
-Haskell supports polymorphic recurision readily, provided you give type signature to
+Haskell supports polymorphic recursion readily, provided you give type signature to
 |lookupExpr|, but not all languages do.
 
 \subsection{Modifying tries} \label{sec:alter} \label{sec:empty-infinite}
@@ -804,7 +804,7 @@ of updating the |fld| field of record |m| with new value |e|.
 In the |App| case we look up |e1| in |m_app|;
 we should find a |ExprMap| there, which we want to alter with |xt|.
 We can do that with a recursive call to |alterExpr|, using |liftXT|
-for impedence-matching.
+for impedance-matching.
 
 The |App| case shows why we need the generality of |alter|.
 Suppose we attempted to define an apparently-simpler |insert| operations.
@@ -831,7 +831,7 @@ left-subtree/right-subtree structure, so some careful rebalancing may be require
 But for tries there are no such worries --
 their structure is identical, and we can simply zip them together.  There is one
 wrinkle: just as we had to generalise |insert| to |alter|,
-to accomodate the nested map in |em_app|, so we need to generalise |union| to |unionWith|:
+to accommodate the nested map in |em_app|, so we need to generalise |union| to |unionWith|:
 \begin{code}
 unionWithExpr :: (v -> v -> v) -> ExprMap v -> ExprMap v -> ExprMap v
 \end{code}
@@ -1320,7 +1320,7 @@ ones when canonicalising.  So our pattern $([x],\, f\, x\,x\,x)$ might
 be canonicalised to $(f\,\pv{}\,\pvo{1}\,\pvo{1})$, where the first (or binding) occurrence
 is denoted $\pv{}$ and subsequent (bound) occurrences of pattern variable $i$ are denoted $\pvo{i}$.
 
-For pattern-variable occurrences we really do need the subcript! Consider the
+For pattern-variable occurrences we really do need the subscript! Consider the
 patterns $$([x,y], f\,x\,y\,y\,x) \qquad \text{and} \qquad ([p,q], f\,q\,p\,q\,p)$$
 which differ not only in the names of their pattern variables, but also in the
 order in which they occur in the pattern.
@@ -1331,7 +1331,7 @@ respectively.  The subscripts are essential to keep these two patterns distinct.
 \subsection{Undoing the pattern keys} \label{sec:patkeymap}
 
 The trouble with canonicalising our patterns (to share the structure of the patterns)
-is that matching will produce a substitution mapping patttern \emph{keys} to
+is that matching will produce a substitution mapping pattern \emph{keys} to
 expressions, rather that mapping pattern \emph{variables} to expressions.
 For example, suppose we start with the pattern $([x,y], f \,x\, y\, y\, x)$
 from the end of the last section. Its canonical form is
@@ -1355,7 +1355,7 @@ To summarise, suppose we want to build a matching trie for the following (patter
 $$
 (([x,y],\; f\;y\;(g\;y\;x)),\; v_1) \qquad \text{and} \qquad (([a],\; f\;a\;True),\;v_2)
 $$
-Then we will build a trie withe the following entries (key-value pairs):
+Then we will build a trie with the following entries (key-value pairs):
 $$
 ( (f \;\pv{}\;(g\;\pvo{1}\;\pv{})),\; ([(x,\pv{2}),(y,\pv{1})], v_1) )
   \qquad \text{and} \qquad
@@ -1438,7 +1438,7 @@ lookupMExpr e m = fmap rejig (lkMExpr e (emptyPatSubst, m))
 lookupPatKey :: PatSubst -> (PatVar,PatKey) -> (PatVar,Expr)
 lookupPatKey subst (pat_var, pat_key) = (pat_var, lookupPatSubst pat_key subst)
 \end{code}
-Here |lookupMExpr| is just an impedence-matching shim around
+Here |lookupMExpr| is just an impedance-matching shim around
 a call to |lkMExpr| that does all the work.  Notice that the
 input changed.  The latter returns a bag of |(PatSubst, (PatKeys, v))|
 values, which the function |rejig| converts into the
@@ -1995,7 +1995,7 @@ Extending this basic setup with matching is done by some kind of backtracking.
 
 Discrimination trees are heavily used by theorem provers, such as Coq, Isabelle, and Lean.
 Moreover, discrimination trees have been further developed in a number of ways.
-Vapire uses \emph{code trees} which are a kind of compiled form of discrimination
+Vampire uses \emph{code trees} which are a compiled form of discrimination
 tree that stores abstract machine instructions, rather than a data structure
 at each node of the tree \cite{voronkov:vampire}.
 Spass \cite{spass} uses \emph{substitution trees} \cite{substitution-trees},
@@ -2048,6 +2048,8 @@ Given a function |f|, the idea is to build an \emph{infinite},
 lazily-evaluated trie, that maps every possible argument |x| to (a thunk for)
 $|(f x)|$.  Now, a function call becomes a lookup in the trie.
 The ideas are implemented in the \hackage{MemoTrie} library.
+For memo tries, operations like alter, insert, union, and fold are all
+irrelevant: the infinite trie is built once, and then used only for lookup.
 
 A second strand of work concerns data type generic, or polytypic, approaches to
 generating tries, which nicely complements the design-pattern approach
