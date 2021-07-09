@@ -1,7 +1,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-import GenTrieMap
+import TrieMap
 import Arbitrary
 
 import Data.Maybe

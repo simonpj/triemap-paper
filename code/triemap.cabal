@@ -17,7 +17,7 @@ build-type:          Simple
 -- extra-source-files:  CHANGELOG.md
 
 library
-  exposed-modules:     GenTrieMap
+  exposed-modules:     TrieMap
 
   other-modules:       Bag
 

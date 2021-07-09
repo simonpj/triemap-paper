@@ -7,7 +7,7 @@
 
 {-# OPTIONS_GHC -Wincomplete-patterns #-}
 
-module GenTrieMap where
+module TrieMap where
 
 import qualified Data.List as List
 import Data.List( foldl' )

@@ -9,7 +9,7 @@
 
 module Bench where
 
-import GenTrieMap
+import TrieMap
 import Arbitrary
 
 import Test.QuickCheck.Gen

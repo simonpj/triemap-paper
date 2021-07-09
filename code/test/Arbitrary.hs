@@ -1,6 +1,6 @@
 module Arbitrary where
 
-import GenTrieMap
+import TrieMap
 
 import qualified Data.Set as Set
 import qualified Data.Tree.View

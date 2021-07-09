@@ -5,7 +5,7 @@
              RecordWildCards, ScopedTypeVariables,
              StandaloneDeriving, UndecidableInstances #-}
 
-module GenTrieMap where
+module TrieMap where
 
 import Data.List( foldl' )
 import qualified Data.Map as Map
