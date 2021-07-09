@@ -7,6 +7,16 @@
 
 {-# OPTIONS_GHC -Wincomplete-patterns #-}
 
+-- | This module presents
+--
+--   * The generic triemap transformers 'SEMap' and 'ListMap' from the paper
+--   * A trie map 'ExprMap' that is modelled after @ExprLMap@ from the paper,
+--     with an additional 'Lit' constructor in the 'Expr' type.
+--   * The matching trie map type 'MExprMap' from the paper.
+--   * A demonstration of how 'alterTM' can be further generalised to yield
+--     an implementation of the lensy 'at' combinator in a new sub-class
+--     'TrieMapLens'.
+--
 module TrieMap where
 
 import qualified Data.List as List
@@ -36,6 +46,11 @@ import Data.Functor.Const
                    Tests
 *                                                                      *
 ********************************************************************* -}
+
+-- Here are a few definitions intended for playing around with 'MExprMap'.
+-- It makes use of the 'Read' instance of 'Expr' to parse expressions.
+-- See the haddock on that 'Read' instance for more details on what
+-- assumptions the parser makes.
 
 item1, item2, item3, item4, item5 :: (String, [Var], Expr)
 item1 = ("item1", ["a"], read "a I")

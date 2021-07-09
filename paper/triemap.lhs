@@ -432,25 +432,29 @@ This shift of context is surprisigly fruitful, and we make the following contrib
     \item Supported by type classs, we can make good use of polymorphism to build triemaps
       for polymorphic data types, such as lists (\Cref{sec:class}).
 
-    \item We cover the full range of operations expected for finite maps: not only insertion and lookup, but alter, union, map, filter, and fold (\Cref{sec:basic}).
+    \item We cover the full range of operations expected for finite maps:
+      not only |insert|ion and |lookup|, but |alter|, |union|, and |fold|
+      (\Cref{sec:basic}). Other operations like |map| and |filter| are easily
+      implemented, too.
 
-    \item We develop a generic optimisation for singleton maps, which can be generalised
-      to work for arbitrary triemaps (\Cref{sec:singleton}).
+    \item We develop a generic optimisation for singleton maps that
+      compresses leaf paths. Intriguingly, the resulting triemap
+      \emph{transformer} can be easily mixed into arbitrary triemap definitions
+      (\Cref{sec:singleton}).
 
    \end{itemize}
-\item We show how to make our triemaps insensitive to \emph{alpha-equivalence} in
+\item We show how to make our triemaps insensitive to \emph{$\alpha$-renamings} in
        keys that include binding forms (\Cref{sec:binders}).
-       Accounting for alpha-equivalence is not hard, but it is crucial for
+       Accounting for $\alpha$-equivalence is not hard, but it is crucial for
        the applications in compilers.
 
-     \item We extend our triemaps to support \emph{matching} lookups (\Cref{sec:matching}).
-       This is an important
-       step, because the only readily-available alternative is linear lookup.  The code is
-       short, but surprisingly tricky.
+\item We extend our triemaps to support \emph{matching} lookups (\Cref{sec:matching}).
+  This is an important step, because the only readily-available alternative is
+  linear lookup. The code is short, but surprisingly tricky.
 
-     \item We present measurements that compare the performance of our triemaps (ignoring
-       their matching capability) with traditional finite-map implementations
-       in Haskell (\Cref{sec:eval}).
+\item We present measurements that compare the performance of our triemaps (ignoring
+  their matching capability) with traditional finite-map implementations in
+  Haskell (\Cref{sec:eval}).
 \end{itemize}
 Our contribution is not so much a clever new idea as an exposition of
 some old ideas in a new context, perhaps providing some new perspective on those
@@ -517,8 +521,8 @@ type Var = String
 \end{code}
 %}
 % Convention: object language expressions like add x y in math mode
-The data type |Expr| is capable of representing expressions like $(add x y)$ and
-$(\lambda x. add x y)$. We will use this data type throughout the paper, because it
+The data type |Expr| is capable of representing expressions like $(add\,x\,y)$ and
+$(\lambda{}x.\,add\,x\,y)$. We will use this data type throughout the paper, because it
 has all the features that occur in real expression data types: free variables like $add$,
 represented by a |Var| node;
 lambdas which can bind variables (|Lam|), and occurrences of those bound variables (|Var|);
@@ -535,11 +539,10 @@ key is a type.  Both types and expressions are simply trees, and so are
 particular instances of the general task.
 
 In the context of a compiler, where the keys are expressions or types,
-the keys may contain internal \emph{binders}, such as the binder |x| in |(\x -> x)|.
-If so, we would expect insertion and lookup to be insensitive to
-$\alpha$-renaming, so we could, for example,
-insert with key |(\x -> x)| and look up with key |(\y -> y)|, to find the
-inserted value.
+the keys may contain internal \emph{binders}, such as the binder |x| in
+$(\lambda{}x.x)$. If so, we would expect insertion and lookup to be insensitive
+to $\alpha$-renaming, so we could, for example, insert with key $(\lambda{}x.x)$
+and look up with key $(\lambda{}y.y)$, to find the inserted value.
 
 \subsection{Lookup modulo matching} \label{sec:matching-intro}
 
@@ -565,7 +568,7 @@ becomes |map (double . square) nums|; we would replace the former expression
 with the latter in the code under consideration.
 
 Of course, the pattern might itself have bound variables, and we would
-like to be insensitive to alpha-conversion for those. For example:
+like to be insensitive to $\alpha$-conversion for those. For example:
 \begin{code}
 prag_begin RULES "map/id"  map (\x -> x) = \y -> y prag_end
 \end{code}
@@ -615,8 +618,10 @@ deleteEM :: Expr -> ExprMap v -> ExprMap v
 deleteEM e = alterEM e (\_ -> Nothing)
 \end{code}
 You might wonder whether, for the purposes of this paper, we could just define |insert|,
-leaving |alter| for the Appendix, but as we will see in \Cref{sec:alter}, our
-approach using tries fundamentally requires the generality of |alter|.
+leaving |alter| for the Supplemental%
+\footnote{In the supplemental file \texttt{TrieMap.hs}},
+but as we will see in \Cref{sec:alter}, our approach using tries fundamentally
+requires the generality of |alter|.
 
 We would also like to support other standard operations on finite maps, including
 \begin{itemize}
@@ -802,8 +807,7 @@ lookup, and doing so pays dividends when the key is a data type with
 many constructors, each with many fields.  However, the details are
 fiddly and not illuminating, so we omit them here.  Indeed, for the
 same reason, in the rest of this paper we will typically omit the code
-for |alter|, though the full code is available in the
-Appendix.
+for |alter|, though the full code is available in the Supplemental.
 
 \subsection{Unions of maps}
 
@@ -1190,7 +1194,7 @@ The construction of \Cref{sec:generalised}, to handle empty and singleton maps,
 applies without difficulty to this generalised map.
 
 And that is really all there is to it: it is remarkably easy to extend the basic
-trie idea to be insensitive to alpha-conversion.
+trie idea to be insensitive to $\alpha$-conversion.
 
 \section{Tries that match} \label{sec:matching}
 
@@ -1360,10 +1364,10 @@ in after we have dealt with matching.
 With these thoughts in mind, our matching trie has this definition:
 \begin{code}
 type PatKeys    = [(PatVar,PatKey)]
-type MExprMap v = MExprMapX (PatKeys, v)
+type MExprLMap v = MExprLMapX (PatKeys, v)
 
-data MExprMapX v
-    = MM  {  mm_app   :: MExprMap (MExprMap v)
+data MExprLMapX v
+    = MM  {  mm_app   :: MExprLMap (MExprLMap v)
           ,  mm_fvar  :: Map Var v
           ,  mm_pvar  :: Maybe v     -- First occurrence of a pattern var
           ,  mm_xvar  :: PatOccs v   -- Subsequent occurrence of a pattern var
@@ -1371,10 +1375,10 @@ data MExprMapX v
     | EmptyMM
 type PatOccs v = [(PatKey,v)]
 \end{code}
-The client-visible |MExprMap| with values of type |v|
-is a matching trie |MExprMapX| with values of type |(PatKeys,v)|,
+The client-visible |MExprLMap| with values of type |v|
+is a matching trie |MExprLMapX| with values of type |(PatKeys,v)|,
 as described in \Cref{sec:patkeymap}.
-The trie |MExprMapX| has four fields, one for each case in the pattern.
+The trie |MExprLMapX| has four fields, one for each case in the pattern.
 The first two fields deal with free variables and applications, just as before.
 The third deals with the \emph{binding} occurrence of a pattern variable
 $\pv{}$, and the fourth with a \emph{bound} occurrence of a pattern variable
@@ -1386,7 +1390,7 @@ The core lookup function looks like this:
 %format lkMExpr = "lkMExpr0"
 %endif
 \begin{code}
-lkMExpr :: forall v. Expr -> (PatSubst, MExprMapX v) -> Bag (PatSubst, v)
+lkMExpr :: forall v. Expr -> (PatSubst, MExprLMapX v) -> Bag (PatSubst, v)
 \end{code}
 As well as the target expression |Expr| and the trie, the lookup function also takes
 a |PatSubst| that gives the bindings for pattern variable bound so far.
@@ -1416,7 +1420,7 @@ lookupPatSubst pat_key (PS { ps_subst = subst })
 Given |lkMExpr| we can write |lookupMExpr|,
 the externally-callable lookup function:
 \begin{code}
-lookupMExpr :: Expr -> MExprMap v -> Bag (Match v)
+lookupMExpr :: Expr -> MExprLMap v -> Bag (Match v)
 lookupMExpr e m = fmap rejig (lkMExpr e (emptyPatSubst, m))
   where
     rejig :: (PatSubst, (PatKeys, v)) -> Match v
@@ -1437,7 +1441,7 @@ never occurs.
 
 Now we can return to the recursive function that does all the work: |lkMExpr|:
 \begin{code}
-lkMExpr :: forall v. Expr -> (PatSubst, MExprMapX v) -> Bag (PatSubst, v)
+lkMExpr :: forall v. Expr -> (PatSubst, MExprLMapX v) -> Bag (PatSubst, v)
 lkMExpr e (psubst, mt)
   = pat_var_bndr `Bag.union` pat_var_occs `Bag.union` look_at_e
   where
@@ -1460,7 +1464,7 @@ lkMExpr e (psubst, mt)
                      lkT (D dbe t1) (tsubst, mem_fun mt)
 \end{code}
 The bag of results is the union of three possibilities, as follows. (Keep in
-mind that a |MExprMap| represents \emph{many} patterns simultaneously.)
+mind that a |MExprLMap| represents \emph{many} patterns simultaneously.)
 \begin{itemize}
 \item |pat_var_bndr|: we consult the |mm_pvar|, if it contains |Just v| then
   at least one of the patterns in this trie has a pattern binder $\pv{}$ at
@@ -1492,7 +1496,7 @@ a bit of puzzling out, and is worth comparing with its predecessor in \Cref{sec:
 type PatKeyMap = BoundVarMap   -- We re-use BoundVarMap
 
 xtMExpr :: Set PatVar -> Expr -> (PatKeyMap -> XT a)
-         -> PatKeyMap -> MExprMapX v -> MExprMapX v
+         -> PatKeyMap -> MExprLMapX v -> MExprLMapX v
 \end{code}
 It is unsurprising that the function is given the set of pattern variables, so that it
 can distinguish pattern variables from free variables.  It also takes a |PatKeyMap|, the
@@ -1503,9 +1507,9 @@ Given this workhorse, we can build the client-visible |insert| function\footnote
 \begin{code}
 insertMExpr :: forall v. [Var]     -- Pattern variables
                          -> Expr   -- Pattern
-                         -> v -> MExprMap v -> MExprMap v
+                         -> v -> MExprLMap v -> MExprLMap v
 insertMExpr pat_vs e v mm
-  = xtExpr (Set.fromList pat_vs) e xt emptyBVM mm
+  = xtMExpr (Set.fromList pat_vs) e xt emptyBVM mm
   where
     xt :: PatKeyMap -> XT (PatKeys, v)
     xt pkm _ = Just (map inst_key pat_vs, v)
@@ -1517,12 +1521,12 @@ insertMExpr pat_vs e v mm
                          Just pk -> (x, pk)
 \end{code}
 This is the code that builds the |PatKeys| in the range of the map.
-It does so using the |PatKeyMap| accumulated by |xtExpr| and
+It does so using the |PatKeyMap| accumulated by |xtMExpr| and
 finally passed to the local function |xt|.
 
-Now we can define the workhorse, |xtExpr|:
+Now we can define the workhorse, |xtMExpr|:
 \begin{code}
-xtExpr pvs e xt pkm mm
+xtMExpr pvs e xt pkm mm
   = case e of
       App e1 e2 -> mm { mm_app = xtMExpr pvs e1 (liftXTS (xtMExpr pvs e2 xt))
                                          pkm (mm_app mm) }
@@ -1539,8 +1543,8 @@ xtExpr pvs e xt pkm mm
              -> -- A free variable
                 mm { mm_fvar = Map.alter (xt pkm) x (mm_fvar mm) }
 
-liftXTS :: (PatKeyMap -> MExprMap v -> MExprMap v)
-        -> PatKeyMap -> Maybe (MExprMap v) -> Maybe (MExprMap v)
+liftXTS :: (PatKeyMap -> MExprLMap v -> MExprLMap v)
+        -> PatKeyMap -> Maybe (MExprLMap v) -> Maybe (MExprLMap v)
 liftXTS xt pkeys Nothing  = Just (xt pkeys EmptyMM)
 liftXTS xt pkeys (Just m) = Just (xt pkeys m)
 
@@ -1618,7 +1622,7 @@ Not bad for a data structure that we can also extend to support matching lookup!
 
 \begin{table}
 
-  \caption{Benchmarks of different operations over our trie map |ExprMap| (TM),
+  \caption{Benchmarks of different operations over our trie map |ExprLMap| (TM),
   ordered maps |Map Expr| (OM) and hash maps |HashMap Expr| (HM), varying the
   size parameter $N$.  Each map is of size $N$ (so $M=N$) and the expressions
   it contains are also each of size $N$ (so $E=N$).
@@ -1643,9 +1647,12 @@ Not bad for a data structure that we can also extend to support matching lookup!
   \label{fig:runtime}
 \end{table}
 
-We measured the runtime performance of the |ExprMap| data structure on a
-selection of workloads, conducted using the \hackage{criterion} benchmarking
-library%
+We measured the runtime performance of the (non-matching) |ExprLMap| data
+structure%
+\footnote{Called just |ExprMap| in the supplemental, also supporting an
+additional |Lit Var| constructor in |Expr|.}
+on a selection of workloads, conducted using the \hackage{criterion}
+benchmarking library%
 \footnote{The benchmark machine runs Ubuntu 18.04 on an Intel Core i5-8500 with
 16GB RAM. All programs were compiled with \texttt{-O2 -fproc-alignment=64} to
 eliminate code layout flukes and run with \texttt{+RTS -A128M -RTS} for 128MB
@@ -1660,13 +1667,13 @@ constructors, and drawn from a pseudo-random source with a fixed (and thus
 deterministic) seed. $N$ is varied between 10 and 1000.
 
 We compare three different non-matching map implementations, simply because we
-were not aware of other map data structures with matching lookup and we wanted
-to compare apples to apples.
-The (non-matching) |ExprMap| forms the baseline. Asymptotics are given with
-respect to map size $n$ and key expression size $k$:
+were not aware of other map data structures with matching lookup modulo
+$\alpha$-equivalence and we wanted to compare apples to apples.
+The |ExprLMap| forms the baseline. Asymptotics are given with respect to map
+size $n$ and key expression size $k$:
 
 \begin{itemize}
-  \item |ExprMap| (designated ``TM'' in \Cref{fig:runtime}) is the trie map
+  \item |ExprLMap| (designated ``TM'' in \Cref{fig:runtime}) is the trie map
         implementation from this paper. Insertion and lookup and have to perform
         a full traversal of the key, so performance should scale with
         $\mathcal{O}(k)$, where $k$ is the key |Expr| that is accessed.
@@ -1677,7 +1684,7 @@ respect to map size $n$ and key expression size $k$:
         total of $\mathcal{O}(k \log n)$ factor compared to both other maps.
   \item |HashMap Expr| (designated ``HM'') is an implementation of hash array
         mapped tries \cite{hamt} from the \hackage{unordered-containers}
-        library. Like |ExprMap|, map access incurs a full traversal of the key
+        library. Like |ExprLMap|, map access incurs a full traversal of the key
         to compute a hash and then a $\mathcal{O}(\log_{32} n)$ lookup in the
         array mapped trie. The log factor can be treated like a constant for all
         intents an purposes, so lookup and insert is effectively in
@@ -1703,32 +1710,32 @@ where |"$"| is a name that doesn't otherwise occur in the generated expressions.
         initial map and immediately looks it up afterwards. The lookup is to
         ensure that any work delayed by laziness is indeed forced.
   \item The \benchname{fromList*} family benchmarks a naïve |fromList|
-        implementation on |ExprMap| against the tuned |fromList| implementations
+        implementation on |ExprLMap| against the tuned |fromList| implementations
         of the other maps, measuring map creation performance from batches.
   \item \benchname{fold} simply sums up all values that are stored in the map
         (which stores |Int|s).
 \end{itemize}
 
 \subsubsection*{Querying}
-The results show that lookup in |ExprMap| often wins against |Map Expr| and
+The results show that lookup in |ExprLMap| often wins against |Map Expr| and
 |HashMap Expr|. The margin is small on the completely random |Expr|s of
-\benchname{lookup\_all}, but realistic applications of |ExprMap| often store
+\benchname{lookup\_all}, but realistic applications of |ExprLMap| often store
 |Expr|s with some kind of shared structure. The \benchname{\_lam} and
-\benchname{\_app1} variants show that |ExprMap| can win substantially against
-an ordered map representation: |ExprMap| looks at the shared prefix exactly
+\benchname{\_app1} variants show that |ExprLMap| can win substantially against
+an ordered map representation: |ExprLMap| looks at the shared prefix exactly
 once one lookup, while |Map| has to traverse the shared prefix of length
 $\mathcal{O}(N)$ on each of its $\mathcal{O}(\log N)$ comparisons. As
-a result, the gap between |ExprMap| and |Map| widens as $N$ increases,
+a result, the gap between |ExprLMap| and |Map| widens as $N$ increases,
 confirming an asymptotic difference. The advantage is less pronounced in
-the \benchname{\_app2} variant, presumably because |ExprMap| can't share
+the \benchname{\_app2} variant, presumably because |ExprLMap| can't share
 the common prefix here: it turns into an unsharable suffix in the pre-order
 serialisation, blowing up the trie map representation compared to its sibling
 \benchname{\_app1}.
 
-Although |HashMap| loses on most benchmarks compared to |ExprMap| and |Map|, most
-measurements were consistently at most a factor of two slower than |ExprMap|.
+Although |HashMap| loses on most benchmarks compared to |ExprLMap| and |Map|, most
+measurements were consistently at most a factor of two slower than |ExprLMap|.
 We believe that is due to the fact that it is enough to traverse the |Expr| once
-to compute the hash, thus it is expected to scale similarly as |ExprMap|.
+to compute the hash, thus it is expected to scale similarly as |ExprLMap|.
 
 Comparing the \benchname{lookup\_all*} measurements of the same map data
 structure on different size parameters $N$ reveals a roughly cubic correlation
@@ -1777,11 +1784,11 @@ sizes than expression sizes!
 
 Let us look at what happens if we vary map size $M$ and expression
 size $E$ independently for \benchname{lookup\_all}. The results in
-\Cref{fig:runtime-finer} show that |ExprMap| scales better than |Map| when we
+\Cref{fig:runtime-finer} show that |ExprLMap| scales better than |Map| when we
 increase $M$ and leave $E$ constant. The difference is even more pronounced than
 in \Cref{fig:runtime}, in which $N = M = E$.
 
-The time measurements for |ExprMap| appear to grow almost linearly with $M$.
+The time measurements for |ExprLMap| appear to grow almost linearly with $M$.
 Considering that the number of lookups also increases $M$-fold, it seems the
 cost of a single lookup remained almost constant, despite the fact that we store
 varying numbers of expressions in the trie map. That is exactly the strength
@@ -1792,26 +1799,26 @@ captures the common short circuiting semantics of the lexicographic order on
 |Expr|. It denotes the size of the longest shared prefix of all expressions.
 
 By contrast, fixing $M$ but increasing $E$ makes |Map| easily catch up
-on lookup performance with |ExprMap|, ultimately outpacing it. The shared prefix
+on lookup performance with |ExprLMap|, ultimately outpacing it. The shared prefix
 factor $P$ for |Map| remains essentially constant relative to $E$: larger
 expressions still are likely to differ very early because they are random.
 Increasing $M$ will introduce more clashes and is actually more likely to
 increase $P$ on completely random expressions. As written above, realistic
 work loads often have shared prefixes like \benchname{lookup\_all\_app1}, where
-we already saw that |ExprMap| outperforms |Map|. The fact that |Map| performance
+we already saw that |ExprLMap| outperforms |Map|. The fact that |Map| performance
 depends on $P$ makes it an extremely workload dependent pick, leading to
 compiler performance that is difficult to predict. |HashMap| shows performance
-consistent with |ExprMap| but is a bit slower, as before. There is no subtle
-scaling factor like $P$; just plain predictable $\mathcal{O}(E)$ like |ExprMap|.
+consistent with |ExprLMap| but is a bit slower, as before. There is no subtle
+scaling factor like $P$; just plain predictable $\mathcal{O}(E)$ like |ExprLMap|.
 
-Returning to \Cref{fig:runtime}, we see that folding over |ExprMap|s is
+Returning to \Cref{fig:runtime}, we see that folding over |ExprLMap|s is
 considerably slower than over |Map| or |HashMap|. The complex tree structure is
 difficult to traverse and involves quite a few indirections.
 This is in stark contrast to the situation with |Map|, where it's just a
 textbook in-order traversal over the search tree. Folding over |HashMap|
 performs similarly to |Map|.
 
-We think that |ExprMap| folding performance dies by a thousand paper cuts: The
+We think that |ExprLMap| folding performance dies by a thousand paper cuts: The
 lazy fold implementation means that we allocate a lot of thunks for intermediate
 results that we end up forcing anyway in the case of our folding operator |(+)|.
 That is a price that |Map| and |HashMap| pay, too, but not nearly as much as the
@@ -1820,7 +1827,7 @@ Furthermore, there's the polymorphic recursion in the head case of |em_app|
 with a different folding function |(foldTM f)|, which allocates on each call
 and makes it impossible to specialise |foldExpr| for a fixed folding function
 like |(+)| with the static argument transformation~\cite{santos}. Hence
-we tried to single out the issue by ensuring that |Map| and |ExprMap| in
+we tried to single out the issue by ensuring that |Map| and |ExprLMap| in
 fact don't specialise for |(+)| when running the benchmarks, by means of a
 \texttt{NOINLINE} pragma.
 Another possible reason might be that the code generated for |foldExpr| is quite
@@ -1831,32 +1838,32 @@ can be improved, but believe it is unlikely to exceed or just reach the
 performance of |Map|.
 
 \subsubsection*{Building}
-The \benchname{insert\_lookup\_one} benchmark demonstrates that |ExprMap| also
+The \benchname{insert\_lookup\_one} benchmark demonstrates that |ExprLMap| also
 wins on insert performance, although the defeat against |Map| for size
 parameters beyond 1000 is looming. Again, \Cref{fig:runtime-finer} decouples
 map size $M$ and expression size $E$. The data suggests that in comparison to
-|Map|, $E$ indeed affects insert performance of |ExprMap| linearly. By contrast,
+|Map|, $E$ indeed affects insert performance of |ExprLMap| linearly. By contrast,
 $M$ does not seem to affect insert performance at all.
 
-The small edge that |ExprMap| seems to have over |Map| and |HashMap|
+The small edge that |ExprLMap| seems to have over |Map| and |HashMap|
 doesn't carry over to its naïve |fromList| implementation, though. |Map| wins
-the \benchname{fromList} benchmark, albeit with |ExprMap| as a close second.
+the \benchname{fromList} benchmark, albeit with |ExprLMap| as a close second.
 That is a bit surprising, given that |Map|'s |fromList| quickly falls back to a
-list fold like |ExprMap| on unsorted inputs, while |HashMap| has a less naïve
+list fold like |ExprLMap| on unsorted inputs, while |HashMap| has a less naïve
 implementation: it makes use of transient mutability and performs destructive
 inserts on the map data structure during the call to |fromList|, knowing that
 such mutability can't be observed by the caller. Yet, it still performs worse
-than |ExprMap| or |Map| for larger $E$, as can be seen in
+than |ExprLMap| or |Map| for larger $E$, as can be seen in
 \Cref{fig:runtime-finer}.
 
 % % Not an issue anymore with -A128M
-% Cursory investigation of |ExprMap| suggests that it spends much more time in
+% Cursory investigation of |ExprLMap| suggests that it spends much more time in
 % garbage collection than |Map|; over the course of a test program reproducing
 % the $N = 1000$ case, the generational garbage collector had to copy more than
 % thrice as many bytes. One reason is that the (fixed) input list of
 % expressions will quickly end up in the old generation and |Map|'s internal nodes
 % simply store pointers to those expressions. That produces much less short-lived
-% garbage than |ExprMap|, which allocates one large |EM| constructor for each
+% garbage than |ExprLMap|, which allocates one large |EM| constructor for each
 % |Expr| node in the shared prefix. If a minor GC is triggered during the call to
 % |fromList|, some of the garbage will end up in the old generation, resulting in
 % more costly major GCs. |criterion| performs a minor GC before each measurement
@@ -1864,14 +1871,14 @@ than |ExprMap| or |Map| for larger $E$, as can be seen in
 % order to prevent intermittent major GC during measurements. It appears that
 % brings perf on par with |Map|, but still doesn't win.
 
-We expected |ExprMap| to take the lead in \benchname{fromList\_app1}. And indeed
+We expected |ExprLMap| to take the lead in \benchname{fromList\_app1}. And indeed
 it does, outperforming |Map| for larger $N$ which pays for having to compare the
 shared prefix repeatedly. But |HashMap| is good for another surprise and keeps
-on outperforming |ExprMap| for small $N$.
+on outperforming |ExprLMap| for small $N$.
 
-What would a non-naïve version of |fromList| for |ExprMap| look like? Perhaps
+What would a non-naïve version of |fromList| for |ExprLMap| look like? Perhaps
 the process could be sped up considerably by partitioning the input list
-according to the different fields of |ExprMap| like |em_lam| and then calling
+according to the different fields of |ExprLMap| like |em_lam| and then calling
 the |fromList| implementations of the individual fields in turn. The process
 would be very similar to discrimination sort~\cite{discr-sort}, which is a
 generalisation of radix sort to tree-like data and very close to tries.
@@ -1879,7 +1886,7 @@ Indeed, the \hackage{discrimination} library provides such an optimised
 $\mathcal{O}(N)$ |toMap| implementation for ordered maps.
 
 The \benchname{union*} benchmarks don't reveal anything new; |Map| and |HashMap|
-win for small $N$, but |ExprMap| wins in the long run, especially when there's
+win for small $N$, but |ExprLMap| wins in the long run, especially when there's
 a sharable prefix involved.
 
 \subsection{Space}
@@ -1889,7 +1896,7 @@ a sharable prefix involved.
   \caption{Varying expression size $E$ and map size $M$ while measuring the
   memory footprint of the different map implementions on 4 different expression
   populations. Measurements of |Map| (OM) and |HashMap| (HM) are displayed as
-  relative multiples of the absolute measurements on |ExprMap| (TM). Lower is
+  relative multiples of the absolute measurements on |ExprLMap| (TM). Lower is
   better. \dag indicates heap overflow.}
   \resizebox{\textwidth}{!}{%
     \begin{tabular}{rr rrr rrr rrr rrr}
@@ -1922,7 +1929,7 @@ a sharable prefix involved.
   \label{fig:space}
 \end{table}
 
-We also measured the memory footprint of |ExprMap| compared to |Map| and
+We also measured the memory footprint of |ExprLMap| compared to |Map| and
 |HashMap|. The results are shown in \Cref{fig:space}. All four benchmarks simply
 measure the size on the heap in bytes of a map consisting of $M$ expressions of
 size $E$. They only differ in whether or not the expressions have a shared
@@ -1932,13 +1939,13 @@ while the other three benchmarks build maps with common prefixes, as discussed i
 
 In \benchname{space}, prefix sharing is highly unlikely for reasons discussed
 in the last section: Randomness dictates that most expressions diverge quite
-early in their prefix. As a result, |ExprMap| consumes slightly more space
-than both |Map| and |ExprMap|, the latter of which wins every single instance.
+early in their prefix. As a result, |ExprLMap| consumes slightly more space
+than both |Map| and |ExprLMap|, the latter of which wins every single instance.
 The difference here is ultimately due to the fact that inner nodes in the trie
-allocate more space than inner nodes in |Map| or |ExprMap|.
+allocate more space than inner nodes in |Map| or |ExprLMap|.
 
 However, in \benchname{space\_app1} and \benchname{space\_lam}, we can see that
-|ExprMap| is able to exploit the shared prefixes to great effect: For big
+|ExprLMap| is able to exploit the shared prefixes to great effect: For big
 $M$, the memory footprint of \benchname{space\_app1} approaches that of
 \benchname{space} because the shared prefix is only stored once. In the other
 dimension along $E$, memory footprint still increases by similar factors as
@@ -1946,7 +1953,7 @@ in \benchname{space}. The \benchname{space\_lam} family does need a bit more
 bookkeeping for the de Bruijn numbering, so the results aren't quite as close to
 \benchname{space\_app1}, but it's still an easy win over |Map| and |HashMap|.
 
-For \benchname{space\_app2}, |ExprMap| can't share any prefixes because the
+For \benchname{space\_app2}, |ExprLMap| can't share any prefixes because the
 shared structure turns into a suffix in the pre-order serialisation. As a result,
 |Map| and |HashMap| allocate less space, all consistent constant factors apart
 from each other. |HashMap| wins here again.
@@ -1985,7 +1992,7 @@ The map is implemented like this:
   lookupDT (f:fs)  (DNode m)  = case Map.lookup f m of
                                   Just dt -> lookupDT fs dt
                                   Nothing -> Nothing
-  lookup _ _ = Nothing
+  lookupDT _       _          = Nothing
 \end{code}
 Each layer of the tree branches on the first |Fun|, and looks up
 the rest of the |[Fun]| in the appropriate child.
@@ -2014,14 +2021,14 @@ it is arrived at by entirely different thought process.
 % \item We present our triemaps as a library written in a statically typed functional
 %  language, whereas the discrimination tree literature tends to assume an implementation in C,
 %   and gives algorithms in pseudocode.
-% 
+%
 % \item Our triemaps provide a full range of operations, including alter, union, and fold,
 %  wheres the automated-reasoning applications focus almost exclusively on insert and lookup.
 %
 % \item We build triemaps for many
 % different data types, whereas the discrimination tree literature tends to assume
 % a single built-in data type of terms.
-% 
+%
 % \item We use type classes and polymorphism to make it easy to build triemaps
 %   over polymorphic types like lists (\Cref{sec:class}).
 % \end{itemize}
@@ -2062,10 +2069,14 @@ expression data type
 \begin{code}
 data Expr = App Con [Expr] | Var Var
 \end{code}
-In contrast to our |ExprMap|, \varid{twee}'s |Index| does path compression not
-only for paths ending in leaves (as we do) but also for internal paths, as is common for radix trees.
-That is an interesting optimisation that could decrease space usage in
-benchmarks such as \benchname{space\_app1}.
+In contrast to our |ExprLMap|, \varid{twee}'s |Index| does path compression not
+only for paths ending in leaves (as we do) but also for internal paths, as is
+common for radix trees. That is an interesting optimisation that could decrease
+space usage in benchmarks such as \benchname{space\_app1}.
+
+It is however unclear how to extend \varid{twee}'s |Index| to support
+$\alpha$-equivalence, hence we did not consider it for our benchmarks in
+\Cref{sec:eval}.
 
 % \subsection{Notes from Sebastian}
 %
