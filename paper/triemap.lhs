@@ -675,9 +675,8 @@ with matching lookup}.  For our purposes they are non-starters.
 What other standard solutions are there, apart from linear search?
 The theorem proving and automated reasoning community has been working with huge sets
 of rewrite rules, just as we describe, for many years.
-They have developed \emph{discrimination trees} for this job, which
-embody essentially the same core ideas as those we present below.  But there are many
-differences, as we discuss later in \Cref{sec:related}.
+They have developed term indexing techniques for the job \cite[Chapter 26]{handbook:2001},
+which attack the same problem from a rather different angle, as we discuss in \Cref{sec:discrim-trees}.
 
 \section{Tries} \label{sec:Expr}
 
