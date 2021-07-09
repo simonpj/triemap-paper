@@ -222,18 +222,7 @@ type PatVarSet = Set.Set Var
 type PatKey    = BoundVarKey
 type PatKeys   = DeBruijnEnv  -- Maps PatVar :-> PatKey
 
-type PatOccs a = [(PatKey,a)]
-
-xtPatVarOcc :: PatKey -> XT a -> PatOccs a -> PatOccs a
-xtPatVarOcc key f []
-  = xtCons key (f Nothing) []
-xtPatVarOcc key f ((key1,x):prs)
-  | key == key1 = xtCons key (f (Just x)) prs
-  | otherwise   = (key1,x) : xtPatVarOcc key f prs
-
-xtCons :: PatKey -> Maybe a -> PatOccs a -> PatOccs a
-xtCons _   Nothing  tmpl_occs = tmpl_occs
-xtCons key (Just x) tmpl_occs = (key,x) : tmpl_occs
+type PatOccs v = IntMap.IntMap v  -- Maps PatKey -> v
 
 ---------------
 data PatSubst = TS { ts_subst :: IntMap.IntMap Expr     -- Maps PatKey -> Expr
@@ -329,6 +318,7 @@ class Eq (TrieKey tm) => TrieMap tm where
    alterTM        :: TrieKey tm -> XT v -> tm v -> tm v
    unionWithTM    :: (v -> v -> v) -> tm v -> tm v -> tm v
    foldTM         :: (v -> a -> a) -> tm v -> a -> a
+   -- fromListWithTM :: (v -> v -> v) -> [(TrieKey tm, v)] -> tm v
 
 --   mapTM    :: (a->b) -> tm a -> tm b
 --   filterTM :: (a -> Bool) -> tm a -> tm a
@@ -389,6 +379,7 @@ instance TrieMap tm => TrieMap (SEMap tm) where
   alterTM     = alterSEM
   unionWithTM = unionWithSEM
   foldTM      = foldSEM
+  -- fromListWithTM = fromListWithSEM
 
 lookupSEM :: TrieMap tm => TrieKey tm -> SEMap tm v -> Maybe v
 lookupSEM !_  EmptySEM = Nothing
@@ -437,6 +428,10 @@ foldSEM _ EmptySEM        z = z
 foldSEM f (SingleSEM _ v) z = f v z
 foldSEM f (MultiSEM tm)   z = foldTM f tm z
 
+-- fromListWithSEM :: TrieMap tm => (v -> v -> v) -> [(TrieKey tm, v)] -> SEMap tm v
+-- fromListWithSEM _ [] = EmptySEM
+-- fromListWithSEM _ [(k,v)] = SingleSEM k v
+-- fromListWithSEM f kvs = MultiSEM $ fromListWithTM f kvs
 
 {- *********************************************************************
 *                                                                      *
@@ -515,6 +510,7 @@ instance TrieMap ExprMap' where
   alterTM     = alterExpr
   unionWithTM = unionWithExpr
   foldTM      = foldExpr
+  -- fromListWithTM = fromListWithExpr
 
 emptyExprMap :: ExprMap a
 emptyExprMap = EmptySEM
@@ -640,7 +636,7 @@ mkEmptyMExprMapX :: MExprMapX a
 mkEmptyMExprMapX
   = MEM { mem_tvar   = Nothing
         , mem_fvar   = emptyFVM
-        , mem_xvar   = []
+        , mem_xvar   = IntMap.empty
         , mem_bvar   = emptyBVM
         , mem_fun    = emptyMExprMapX
         , mem_tycon  = Map.empty
@@ -673,7 +669,7 @@ lkT (D dbe ty) (psubst, MEM { .. })
                    = Bag.empty
 
      tmpl_var_occs = Bag.fromList [ (psubst, x)
-                                  | (tmpl_var, x) <- mem_xvar
+                                  | (tmpl_var, x) <- IntMap.toList mem_xvar
                                   , deBruijnize (lookupPatSubst tmpl_var psubst)
                                     `eqDBExpr` (D dbe ty)
                                   ]
@@ -694,7 +690,7 @@ xtT tmpls (D dbe ty) f tkeys m@(MEM {..})
   where
    go (Var tv)
       -- Second or subsequent occurrence of a template tyvar
-      | Just xv <- lookupDBE tv tkeys  = m { mem_xvar = xtPatVarOcc xv (f tkeys) mem_xvar }
+      | Just xv <- lookupDBE tv tkeys  = m { mem_xvar = IntMap.alter (f tkeys) xv mem_xvar }
 
       -- First occurrence of a template tyvar
       | tv `Set.member` tmpls = m { mem_tvar = f (extendDBE tv tkeys) mem_tvar  }

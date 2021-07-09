@@ -58,7 +58,7 @@
 
 % suppress some built-in formatting of lhs2TeX:
 %format not = "\varid{not}"
-%format == = "\mathop{==}"
+%format == = "{}\mathop{==}{}"
 %format /= = "\mathop{{/}{=}}"
 %format && = "\mathop{\&\&}"
 %format ++ = "\mathop{++}"

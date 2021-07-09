@@ -303,10 +303,15 @@ instance Eq Expr where
 
 \begin{document}
 
-\newcommand{\simon}[1]{[{\bf SLPJ}: {\color{red} #1}]}
-\newcommand{\js}[1]{{\bf JS}: {\color{olive} #1} {\bf End JS}}
-\newcommand{\rae}[1]{{\bf RAE}: {\color{dkblue} #1} {\bf End RAE}}
-\newcommand{\sg}[1]{{\bf SG}: {\color{darkbrown} #1} {\bf End SG}}
+%\newcommand{\simon}[1]{[{\bf SLPJ}: {\color{red} #1}]}
+%\newcommand{\js}[1]{{\bf JS}: {\color{olive} #1} {\bf End JS}}
+%\newcommand{\rae}[1]{{\bf RAE}: {\color{dkblue} #1} {\bf End RAE}}
+%\newcommand{\sg}[1]{{\bf SG}: {\color{darkbrown} #1} {\bf End SG}}
+\newcommand{\simon}[1]{}
+\newcommand{\js}[1]{}
+\newcommand{\rae}[1]{}
+\newcommand{\sg}[1]{}
+
 
 \newcommand{\bv}[1]{\#_{#1}}    % Lambda-bound variable occurrence
 \newcommand{\pv}[1]{\$_{#1}}    % Pattern variable binder
@@ -832,7 +837,7 @@ With that generalisation, the code is as follows:
 unionWithExpr f  (EM { em_var = m1_var, em_app = m1_app })
                  (EM { em_var = m2_var, em_app = m2_app })
   = EM  { em_var = Map.unionWith f m1_var m2_var
-         , em_app = unionWithExpr (unionWithExpr f) m1_app m2_app }
+        , em_app = unionWithExpr (unionWithExpr f) m1_app m2_app }
 \end{code}
 It could hardly be simpler.
 
@@ -1001,7 +1006,6 @@ instance TrieMap tm => TrieMap (ListMap tm) where
    lookupTM = lookupList
    ...
 \end{code}
-
 \subsection{Singleton maps, and empty maps revisited} \label{sec:singleton}
 
 Suppose we start with an empty map, and insert a value
@@ -1074,7 +1078,7 @@ instance TrieMap tm => TrieMap (SEMap tm) where
   emptyTM  = EmptySEM
   lookupTM = lookupSEM
   alterTM  = alterSEM
-  dots
+  ...
 \end{code}
 Adding a new item to a triemap can turn |EmptySEM| into |SingleSEM| and |SingleSEM|
 into |MultiSEM|; and deleting an item from a |SingleSEM| turns it back into |EmptySEM|.
@@ -1373,7 +1377,7 @@ data MExprLMapX v
           ,  mm_xvar  :: PatOccs v   -- Subsequent occurrence of a pattern var
           }
     | EmptyMM
-type PatOccs v = [(PatKey,v)]
+type PatOccs v = Map PatKey v
 \end{code}
 The client-visible |MExprLMap| with values of type |v|
 is a matching trie |MExprLMapX| with values of type |(PatKeys,v)|,
@@ -1451,9 +1455,9 @@ lkMExpr e (psubst, mt)
                       Nothing -> Bag.empty
 
      pat_var_occs :: Bag (PatSubst, v)
-     pat_var_occs = Bag.fromList [ (psubst, v)
-                                 | (pat_var, v) <- mm_xvar mt
-                                 , e == lookupPatSubst pat_var psubst ]
+     pat_var_occs = Bag.fromList  [  (psubst, v)
+                                  |  (pat_var, v) <- Map.toList (mm_xvar mt)
+                                  ,  e == lookupPatSubst pat_var psubst ]
 
      look_at_e :: Bag (PatSubst, v)
      look_at_e = case e of
@@ -1528,12 +1532,12 @@ Now we can define the workhorse, |xtMExpr|:
 \begin{code}
 xtMExpr pvs e xt pkm mm
   = case e of
-      App e1 e2 -> mm { mm_app = xtMExpr pvs e1 (liftXTS (xtMExpr pvs e2 xt))
-                                         pkm (mm_app mm) }
+      App e1 e2 -> mm { mm_app = xtMExpr  pvs e1 (liftXTS (xtMExpr pvs e2 xt))
+                                          pkm (mm_app mm) }
 
       Var x | Just xv <- lookupBVM x pkm
              -> -- Second or subsequent occurrence of a pattern variable
-                mm { mm_xvar = xtPatVarOcc xv (xt pkm) (mm_xvar mm) }
+                mm { mm_xvar = Map.alter (xt pkm) xv (mm_xvar mm) }
 
              | x `Set.member` pvs
              -> -- First occurrence of a pattern variable
@@ -1542,22 +1546,6 @@ xtMExpr pvs e xt pkm mm
              | otherwise
              -> -- A free variable
                 mm { mm_fvar = Map.alter (xt pkm) x (mm_fvar mm) }
-
-liftXTS :: (PatKeyMap -> MExprLMap v -> MExprLMap v)
-        -> PatKeyMap -> Maybe (MExprLMap v) -> Maybe (MExprLMap v)
-liftXTS xt pkeys Nothing  = Just (xt pkeys EmptyMM)
-liftXTS xt pkeys (Just m) = Just (xt pkeys m)
-
-xtPatVarOcc :: PatKey -> XT v -> PatOccs v -> PatOccs v
-xtPatVarOcc key f []
-  = xtCons key (f Nothing) []
-xtPatVarOcc key f ((key1,x):prs)
-  | key == key1 = xtCons key (f (Just x)) prs
-  | otherwise   = (key1,x) : xtPatVarOcc key f prs
-
-xtCons :: PatKey -> Maybe a -> PatOccs a -> PatOccs a
-xtCons _   Nothing  pat_occs = pat_occs
-xtCons key (Just x) pat_occs = (key,x) : pat_occs
 \end{code}
 
 \subsection{Further developments: most specific match, and unification}
@@ -1694,9 +1682,11 @@ Benchmarks ending in \benchname{\_lam}, \benchname{\_app1}, \benchname{\_app2}
 add a shared prefix to each of the expressions before building the initial
 map:
 \begin{itemize}
-  \item \benchname{\_lam} wraps $N$ layers of $|(Lam "$")|$ around each expression
-  \item \benchname{\_app1} wraps $N$ layers of $|(Var "$" `App`)|$ around each expression
-  \item \benchname{\_app2} wraps $N$ layers of $|(`App` Var "$")|$ around each expression
+  \item \benchname{\_lam} wraps $N$ layers of |(Lam "$")| around each expression
+  \item \benchname{\_app1} wraps $N$ layers of |(Lit "$"^^^`App`)| around each expression%
+    \footnote{Recall that |Lit| is only present in the Supplemental and works
+    like a constant occurrence of a free variable.}
+  \item \benchname{\_app2} wraps $N$ layers of |(`App`^^^Lit "$")| around each expression
 \end{itemize}
 where |"$"| is a name that doesn't otherwise occur in the generated expressions.
 
