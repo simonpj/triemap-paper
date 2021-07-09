@@ -379,8 +379,8 @@ instance Eq Expr where
 \begin{abstract}
   In applications such as compilers and theorem provers, we often want to match
   a target term against multiple patterns (representing rewrite rules or axioms)
-  simultaneously. Efficient matching of this kind is well studied in the theorem-prover
-  communnity, but much less so in the context of statically typed functional progamming.
+  simultaneously. Efficient matching of this kind is well studied in the theorem prover
+  community, but much less so in the context of statically typed functional progamming.
   Doing so yields an interesting new viewpoint --- and a practically useful design
   pattern, with good runtime performance.
 \end{abstract}
@@ -2049,13 +2049,13 @@ lazily-evaluated trie, that maps every possible argument |x| to (a thunk for)
 $|(f x)|$.  Now, a function call becomes a lookup in the trie.
 The ideas are implemented in the \hackage{MemoTrie} library.
 
-A second strand of work concerns generic, or polytypic, approaches to
+A second strand of work concerns data type generic, or polytypic, approaches to
 generating tries, which nicely complements the design-pattern approach
 of this paper (\Cref{sec:generic}).
 \citet{hinze:generalized} describes the polytypic approach,
-for possibly parameterised and nested data type in some detail, including the
-realisation that we need the generalisations |alter| and |unionWith| in order to
-define |insert| and |union|.
+for possibly parameterised and nested data types in some detail, including the
+realisation that we need |alter| and |unionWith| in order to define |insert| and
+|union|.
 A generalisation of those ideas then led to \hackage{functor-combo}. The
 \hackage{representable-tries} library observes that trie maps are representable
 functors and then vice versa tries to characterise the sub-class of
