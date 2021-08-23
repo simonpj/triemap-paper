@@ -980,7 +980,7 @@ Suppose our expressions had multi-argument apply nodes, |AppV|, thus
 data Expr = dots | AppV Expr [Expr]
 \end{code}
 %}
-Then we would need to built a trie keyed by a \emph{list} of |Expr|.
+Then we would need to build a trie keyed by a \emph{list} of |Expr|.
 A list is just another algebraic data type, built with nil and cons,
 so we \emph{could} use exactly the same approach, thus
 \begin{code}
@@ -1679,7 +1679,7 @@ size $n$ and key expression size $k$:
         library. Like |ExprLMap|, map access incurs a full traversal of the key
         to compute a hash and then a $\mathcal{O}(\log_{32} n)$ lookup in the
         array mapped trie. The log factor can be treated like a constant for all
-        intents an purposes, so lookup and insert is effectively in
+        intents and purposes, so lookup and insert is effectively in
         $\mathcal{O}(k)$.
 \end{itemize}
 Benchmarks ending in \benchname{\_lam}, \benchname{\_app1}, \benchname{\_app2}
