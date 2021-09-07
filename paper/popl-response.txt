@@ -12,7 +12,7 @@ a la Bird & Paterson.  Their idea is ingenious, but no production
 compiler uses it in practice, because using de Bruijn notation imposes
 complex and pervasive changes on the rest of the compiler -- and
 especially so if the de Bruijn nesting is expressed in the types.  You
-ask "would you want to convert on the fly"?  Because it's unacceptable
+ask "why would you want to convert on the fly"?  Because it's unacceptable
 to impose the de-Bruijn-ised data structure on the rest of the
 compiler.  Perhaps we are missing something -- we would welcome
 further detail on this comment.
