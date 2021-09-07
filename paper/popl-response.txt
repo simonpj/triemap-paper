@@ -1,0 +1,27 @@
+We thank the reviewers for their helpful reviews.
+
+Our main innovation is indeed Section 5 on matching, which seems
+to be standard in the automated reasoning community (albeit, as the
+related work section says) in a very restricted context, but essentially
+unknown in the functional programming community.  To answer Reviewer A,
+we independently reinvented discrimination trees before discovering the
+automated reasoning literature.
+
+We don't really understand Reviewer A's suggestion of using de Bruijn
+a la Bird & Paterson.  Their idea is ingenious, but no production
+compiler uses it in practice, because using de Bruijn notation imposes
+complex and pervasive changes on the rest of the compiler -- and
+especially so if the de Bruijn nesting is expressed in the types.  You
+ask "would you want to convert on the fly"?  Because it's unacceptable
+to impose the de-Bruijn-ised data structure on the rest of the
+compiler.  Perhaps we are missing something -- we would welcome
+further detail on this comment.
+
+Reviewer B makes the sensible suggestion that the paper might be
+better as a functional pearl.  But you say "it woud require
+substantial work to focus on explanation and showcasing of the
+underlying ideas".  We put quite a bit of effort into the
+presentation, and you describe it as "well written, clearly presenting
+each new concept, and sheding some interesting insights into old
+ideas".  Can you give us any brief guidance about where substantial
+work would be needed for the functional pearl route?
