@@ -1,11 +1,11 @@
 We thank the reviewers for their helpful reviews.
 
-Our main innovation is indeed Section 5 on matching, which seems
-to be standard in the automated reasoning community (albeit, as the
-related work section says) in a very restricted context, but essentially
-unknown in the functional programming community.  To answer Reviewer A,
-we independently reinvented discrimination trees before discovering the
-automated reasoning literature.
+Our main innovation is indeed Section 5 on matching, which seems to be
+essentially unknown in the functional programming community.  It is
+standard in the automated reasoning community (albeit, as the related
+work section says, in a very restricted context); but to answer
+Reviewer A, we independently reinvented discrimination trees before
+discovering the automated reasoning literature!
 
 We don't really understand Reviewer A's suggestion of using de Bruijn
 a la Bird & Paterson.  Their idea is ingenious, but no production
