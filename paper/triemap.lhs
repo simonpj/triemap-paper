@@ -1465,11 +1465,10 @@ lkMExpr e (psubst, mt)
 
      look_at_e :: Bag (PatSubst, v)
      look_at_e = case e of
-        Var x     -> case Map.lookup x (mm_fvar mt) of
+        Var x      -> case Map.lookup x (mm_fvar mt) of
                         Just v  -> Bag.single (psubst,v)
                         Nothing -> Bag.empty
-        App e1 e2 -> Bag.concatMap (lkT (D dbe t2)) $
-                     lkT (D dbe t1) (tsubst, mem_fun mt)
+        App e1 e2  -> (tsubst, mem_fun mt) |> lkMExpr (D dbe t1) >=> lkMExpr (D dbe t2)
 \end{code}
 The bag of results is the union of three possibilities, as follows. (Keep in
 mind that a |MExprLMap| represents \emph{many} patterns simultaneously.)
