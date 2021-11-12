@@ -1049,11 +1049,11 @@ data SEMap tm v  = EmptySEM
 \end{code}
 The code for lookup practically writes itself:
 \begin{code}
-lookupSEMap :: TrieMap tm => TrieKey tm -> SEMap tm v -> Maybe v
-lookupSEMap _   EmptySEM                       = Nothing
-lookupSEMap tk  (SingleSEM pk v)  | tk == pk   = Just v
-                                  | otherwise  = Nothing
-lookupSEMap tk  (MultiSEM tm)                  = lookupTM tk tm
+lookupSEM :: TrieMap tm => TrieKey tm -> SEMap tm v -> Maybe v
+lookupSEM _   EmptySEM                       = Nothing
+lookupSEM tk  (SingleSEM pk v)  | tk == pk   = Just v
+                                | otherwise  = Nothing
+lookupSEM tk  (MultiSEM tm)                  = lookupTM tk tm
 \end{code}
 Notice that in the |SingleSEM| case we need equality on the key type |TrieKey tm|,
 to tell if the key being looked up, |tk| is the same as the key in
