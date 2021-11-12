@@ -1040,7 +1040,8 @@ But we will have to tiresomely repeat these extra data constructors, |EmptyX| an
 for each new data type |X| for which we want a triemap.
 For example we would have to add |EmptyList| and |SingleList| to the |ListMap| data type
 of \Cref{sec:class}.
-It is better instead to abstract over the enclosed triemap, like this:
+It is better instead to abstract over the enclosed triemap, as follows%
+\footnote{|SEMap| stands for \enquote{singleton and empty map}.}:
 \begin{code}
 data SEMap tm v  = EmptySEM
                  | SingleSEM (TrieKey tm) v
