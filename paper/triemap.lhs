@@ -1732,11 +1732,11 @@ We believe that is due to the fact that it is enough to traverse the |Expr| once
 to compute the hash, thus it is expected to scale similarly as |ExprLMap|.
 
 Comparing the \benchname{lookup\_all*} measurements of the same map data
-structure on different size parameters $N$ reveals a roughly cubic correlation
+structure on different size parameters $N$ reveals a roughly quadratic correlation
 throughout all implementations, give or take a logarithmic factor.
-That seems plausible given that $N$ linearly affects map size, expression size
-and number of lookups. But realistic workloads tend to have much larger map
-sizes than expression sizes!
+That seems plausible given that $N$ linearly affects expression size and map
+size (and thus, number of lookups). But realistic workloads tend to have much
+larger map sizes than expression sizes!
 
 \begin{table}
   \centering
@@ -1776,7 +1776,7 @@ sizes than expression sizes!
   \label{fig:runtime-finer}
 \end{table}
 
-Let us look at what happens if we vary map size $M$ and expression
+Let us see what happens if we vary map size $M$ and expression
 size $E$ independently for \benchname{lookup\_all}. The results in
 \Cref{fig:runtime-finer} show that |ExprLMap| scales better than |Map| when we
 increase $M$ and leave $E$ constant. The difference is even more pronounced than
