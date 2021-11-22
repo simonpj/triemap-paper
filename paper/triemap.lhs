@@ -1040,7 +1040,8 @@ But we will have to tiresomely repeat these extra data constructors, |EmptyX| an
 for each new data type |X| for which we want a triemap.
 For example we would have to add |EmptyList| and |SingleList| to the |ListMap| data type
 of \Cref{sec:class}.
-It is better instead to abstract over the enclosed triemap, like this:
+It is better instead to abstract over the enclosed triemap, as follows%
+\footnote{|SEMap| stands for \enquote{singleton and empty map}.}:
 \begin{code}
 data SEMap tm v  = EmptySEM
                  | SingleSEM (TrieKey tm) v
@@ -1048,11 +1049,11 @@ data SEMap tm v  = EmptySEM
 \end{code}
 The code for lookup practically writes itself:
 \begin{code}
-lookupSEMap :: TrieMap tm => TrieKey tm -> SEMap tm v -> Maybe v
-lookupSEMap _   EmptySEM                       = Nothing
-lookupSEMap tk  (SingleSEM pk v)  | tk == pk   = Just v
-                                  | otherwise  = Nothing
-lookupSEMap tk  (MultiSEM tm)                  = lookupTM tk tm
+lookupSEM :: TrieMap tm => TrieKey tm -> SEMap tm v -> Maybe v
+lookupSEM _   EmptySEM                       = Nothing
+lookupSEM tk  (SingleSEM pk v)  | tk == pk   = Just v
+                                | otherwise  = Nothing
+lookupSEM tk  (MultiSEM tm)                  = lookupTM tk tm
 \end{code}
 Notice that in the |SingleSEM| case we need equality on the key type |TrieKey tm|,
 to tell if the key being looked up, |tk| is the same as the key in
@@ -1465,11 +1466,10 @@ lkMExpr e (psubst, mt)
 
      look_at_e :: Bag (PatSubst, v)
      look_at_e = case e of
-        Var x     -> case Map.lookup x (mm_fvar mt) of
+        Var x      -> case Map.lookup x (mm_fvar mt) of
                         Just v  -> Bag.single (psubst,v)
                         Nothing -> Bag.empty
-        App e1 e2 -> Bag.concatMap (lkT (D dbe t2)) $
-                     lkT (D dbe t1) (tsubst, mem_fun mt)
+        App e1 e2  -> (tsubst, mem_fun mt) |> lkMExpr (D dbe t1) >=> lkMExpr (D dbe t2)
 \end{code}
 The bag of results is the union of three possibilities, as follows. (Keep in
 mind that a |MExprLMap| represents \emph{many} patterns simultaneously.)
@@ -1732,11 +1732,11 @@ We believe that is due to the fact that it is enough to traverse the |Expr| once
 to compute the hash, thus it is expected to scale similarly as |ExprLMap|.
 
 Comparing the \benchname{lookup\_all*} measurements of the same map data
-structure on different size parameters $N$ reveals a roughly cubic correlation
+structure on different size parameters $N$ reveals a roughly quadratic correlation
 throughout all implementations, give or take a logarithmic factor.
-That seems plausible given that $N$ linearly affects map size, expression size
-and number of lookups. But realistic workloads tend to have much larger map
-sizes than expression sizes!
+That seems plausible given that $N$ linearly affects expression size and map
+size (and thus, number of lookups). But realistic workloads tend to have much
+larger map sizes than expression sizes!
 
 \begin{table}
   \centering
@@ -1776,7 +1776,7 @@ sizes than expression sizes!
   \label{fig:runtime-finer}
 \end{table}
 
-Let us look at what happens if we vary map size $M$ and expression
+Let us see what happens if we vary map size $M$ and expression
 size $E$ independently for \benchname{lookup\_all}. The results in
 \Cref{fig:runtime-finer} show that |ExprLMap| scales better than |Map| when we
 increase $M$ and leave $E$ constant. The difference is even more pronounced than
