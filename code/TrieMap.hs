@@ -340,13 +340,13 @@ infixr 1 >.>
 
 
 (|>) :: a -> (a->b) -> b     -- Reverse application
-infixr 1 |>
+infixl 0 |>
 x |> f = f x
 
 (|>>) :: TrieMap m2 => (XT (m2 a) -> m1 (m2 a) -> m1 (m2 a))
                     -> (m2 a -> m2 a)
                     -> m1 (m2 a) -> m1 (m2 a)
-infixr 1 |>>
+infixl 1 |>>
 (|>>) f g = f (Just . g . deMaybe)
 
 deMaybe :: TrieMap m => Maybe (m a) -> m a
