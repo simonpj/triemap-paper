@@ -1,14 +1,14 @@
 {-# LANGUAGE ScopedTypeVariables, TypeApplications, DerivingStrategies,
              GeneralizedNewtypeDeriving #-}
 
-module Bag ( Bag, Bag.union, single, empty, fromList, toList, fromMaybe
+module Bag ( Bag, Bag.union, single, empty, fromList, toList
            , Bag.null, Bag.concatMap, Bag.any ) where
 
 import Data.List as List
 import Data.Coerce
 
 newtype Bag a = MkBag [a]
-  deriving newtype (Functor, Applicative, Monad)
+  deriving newtype Functor
 
 union :: forall a. Bag a -> Bag a -> Bag a
 union = coerce ((++) @a)
@@ -24,9 +24,6 @@ fromList = MkBag
 
 toList :: Bag a -> [a]
 toList = coerce
-
-fromMaybe :: Maybe a -> Bag a
-fromMaybe = maybe empty single
 
 null :: Bag a -> Bool
 null (MkBag []) = True
