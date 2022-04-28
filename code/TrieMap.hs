@@ -163,6 +163,10 @@ data ModAlpha a = A !DeBruijnEnv !a
 deBruijnize :: a -> ModAlpha a
 deBruijnize e = A emptyDBE e
 
+addBndr :: Var -> ModAlpha a -> ModAlpha a
+addBndr v (A dbe a) = (A (extendDBE dbe v) a)
+{-# INLINE addBndr #-}
+
 instance Eq (ModAlpha a) => Eq (ModAlpha [a]) where
     A _   []     == A _    []       = True
     A env (x:xs) == A env' (x':xs') = A env x  == A env' x' &&
@@ -198,8 +202,8 @@ eqDBExpr (A env1 (Var tv1)) (A env2 (Var tv2))
 eqDBExpr (A _ (Lit tc1)) (A _ (Lit tc2))
   = tc1 == tc2
 
-eqDBExpr (A env1 (Lam tv1 t1)) (A env2 (Lam tv2 t2))
-  = eqDBExpr (A (extendDBE tv1 env1) t1)
+eqDBExpr a1@(A env1 (Lam tv1 t1)) a2@(A env2 (Lam tv2 t2))
+  = eqDBExpr (t1 <$ addBndr v1 a A (extendDBE tv1 env1) t1)
            (A (extendDBE tv2 env2) t2)
 
 eqDBExpr _ _ = False
@@ -299,9 +303,13 @@ canonPV (P pvs dbe v)
   | not (v `Set.member` pvs)   = P pvs dbe               Nothing
   | Just pv <- lookupDBE v dbe = P pvs dbe               (Just pv)
   | otherwise                  = P pvs (extendDBE v dbe) (Just (dbe_next dbe))
+{-# INLINE canonPV #-}
 
 
 newtype Ctx a = C (ModAlpha (ModPatKeys a))
+
+enterBndr :: Ctx Var -> Ctx ()
+enterBndr (C ma) =
 
 {- *********************************************************************
 *                                                                      *
