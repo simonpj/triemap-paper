@@ -21,8 +21,11 @@ module TrieMap where
 
 import qualified Data.List as List
 import Data.List( foldl' )
+import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.Set (Set)
 import qualified Data.Set as Set
+import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
 import Data.Kind
 import Control.Monad
@@ -98,14 +101,13 @@ anyFreeVarsOfExpr p ty
 
 {- *********************************************************************
 *                                                                      *
-               Bound variables
+               DeBruijn numbers
 *                                                                      *
 ********************************************************************* -}
 
-type BoundVarKey = Int
-
-data DeBruijnEnv = DBE { dbe_next :: !BoundVarKey
-                       , dbe_env  :: !(Map.Map Var BoundVarKey) }
+type DBNum = Int
+data DeBruijnEnv = DBE { dbe_next :: !DBNum
+                       , dbe_env  :: !(Map Var DBNum) }
 
 emptyDBE :: DeBruijnEnv
 emptyDBE = DBE { dbe_next = 0, dbe_env = Map.empty }
@@ -114,135 +116,8 @@ extendDBE :: Var -> DeBruijnEnv -> DeBruijnEnv
 extendDBE tv (DBE { dbe_next = bv, dbe_env = env })
   = DBE { dbe_next = bv+1, dbe_env = Map.insert tv bv env }
 
-lookupDBE :: Var -> DeBruijnEnv -> Maybe BoundVar
+lookupDBE :: Var -> DeBruijnEnv -> Maybe DBNum
 lookupDBE v (DBE { dbe_env = env }) = Map.lookup v env
-
--- | @DeBruijn a@ represents @a@ modulo alpha-renaming.  This is achieved
--- by equipping the value with a 'DeBruijnEnv', which tracks an on-the-fly deBruijn
--- numbering.  This allows us to define an 'Eq' instance for @DeBruijn a@, even
--- if this was not (easily) possible for @a@.  Note: we purposely don't
--- export the constructor.  Make a helper function if you find yourself
--- needing it.
-data DeBruijn a = D !DeBruijnEnv a
-
--- | Synthesizes a @DeBruijn a@ from an @a@, by assuming that there are no
--- bound binders (an empty 'DeBruijnEnv').  This is usually what you want if there
--- isn't already a 'DeBruijnEnv' in scope.
-deBruijnize :: a -> DeBruijn a
-deBruijnize e = D emptyDBE e
-
-instance Eq (DeBruijn a) => Eq (DeBruijn [a]) where
-    D _   []     == D _    []       = True
-    D env (x:xs) == D env' (x':xs') = D env x  == D env' x' &&
-                                      D env xs == D env' xs'
-    _            == _               = False
-
-instance Eq (DeBruijn a) => Eq (DeBruijn (Maybe a)) where
-    D _   Nothing  == D _    Nothing   = True
-    D env (Just x) == D env' (Just x') = D env x  == D env' x'
-    _              == _                = False
-
-noCaptured :: DeBruijnEnv -> Expr -> Bool
--- True iff no free var of the type is bound by DeBruijnEnv
-noCaptured dbe ty
-  = not (anyFreeVarsOfExpr captured ty)
-  where
-    captured tv = isJust (lookupDBE tv dbe)
-
-instance Eq (DeBruijn Expr) where
-  (==) = eqDBExpr
-
-eqDBExpr :: DeBruijn Expr -> DeBruijn Expr -> Bool
-eqDBExpr (D env1 (App s1 t1)) (D env2 (App s2 t2))
-  = eqDBExpr (D env1 s1) (D env2 s2) &&
-    eqDBExpr (D env1 t1) (D env2 t2)
-
-eqDBExpr (D env1 (Var tv1)) (D env2 (Var tv2))
-  = case (lookupDBE tv1 env1, lookupDBE tv2 env2) of
-      (Just bvi1, Just bvi2) -> bvi1 == bvi2
-      (Nothing,   Nothing)   -> tv1 == tv2
-      _                      -> False
-
-eqDBExpr (D _ (Lit tc1)) (D _ (Lit tc2))
-  = tc1 == tc2
-
-eqDBExpr (D env1 (Lam tv1 t1)) (D env2 (Lam tv2 t2))
-  = eqDBExpr (D (extendDBE tv1 env1) t1)
-           (D (extendDBE tv2 env2) t2)
-
-eqDBExpr _ _ = False
-
-instance Show (DeBruijn Expr) where
-  show (D _ e) = show e
-
---
--- Ord Expr instance for benchmarks:
---
-
-instance Eq Expr where
-  a == b = deBruijnize a == deBruijnize b
-
-exprTag :: Expr -> Int
-exprTag Var{} = 0
-exprTag App{} = 1
-exprTag Lam{} = 2
-exprTag Lit{} = 3
-{-# INLINE exprTag #-}
-
-cmpDBExpr :: DeBruijn Expr -> DeBruijn Expr -> Ordering
-cmpDBExpr (D _ (Lit l1))       (D _ (Lit l2))
-  = compare l1 l2
-
-cmpDBExpr (D env1 (App f1 a1)) (D env2 (App f2 a2))
-  = cmpDBExpr (D env1 f1) (D env2 f2) Prelude.<> cmpDBExpr (D env1 a1) (D env2 a2)
-
-cmpDBExpr (D env1 (Lam v1 e1)) (D env2 (Lam v2 e2))
-  = cmpDBExpr (D (extendDBE v1 env1) e1) (D (extendDBE v2 env2) e2)
-
-cmpDBExpr (D env1 (Var v1))    (D env2 (Var v2))
-  = case (lookupDBE v1 env1, lookupDBE v2 env2) of
-      (Just bvi1, Just bvi2) -> compare bvi1 bvi2
-      (Nothing,   Nothing)   -> compare v1 v2
-      (Just _,    Nothing)   -> GT
-      (Nothing,   Just _)    -> LT
-cmpDBExpr (D _ e1) (D _ e2)
-  = compare (exprTag e1) (exprTag e2)
-
-instance Ord Expr where
-  compare a b = cmpDBExpr (deBruijnize a) (deBruijnize b)
-
-{- *********************************************************************
-*                                                                      *
-                   Template variables
-*                                                                      *
-********************************************************************* -}
-
-type PatVar    = Var
-type PatVarSet = Set.Set Var
-type PatKey    = BoundVarKey
-type PatKeys   = DeBruijnEnv  -- Maps PatVar :-> PatKey
-
-type PatOccs v = IntMap.IntMap v  -- Maps PatKey -> v
-
----------------
-data PatSubst = TS { ts_subst :: IntMap.IntMap Expr     -- Maps PatKey -> Expr
-                   , ts_next  :: PatKey }
-                   deriving Show
-
-emptyPatSubst :: PatSubst
-emptyPatSubst = TS { ts_subst = IntMap.empty
-                    , ts_next  = 0 }
-
-lookupPatSubst :: PatKey -> PatSubst -> Expr
-lookupPatSubst key (TS { ts_subst = subst })
-  = case IntMap.lookup key subst of
-      Just ty -> ty
-      Nothing -> error ("lookupPatSubst " ++ show key)
-
-extendPatSubst :: Expr -> PatSubst -> PatSubst
-extendPatSubst ty (TS { ts_subst = subst, ts_next = n })
-  = TS { ts_subst = IntMap.insert n ty subst
-       , ts_next  = n+1 }
 
 
 {- *********************************************************************
@@ -251,8 +126,8 @@ extendPatSubst ty (TS { ts_subst = subst, ts_next = n })
 *                                                                      *
 ********************************************************************* -}
 
-type BoundVar = BoundVarKey  -- Bound variables are deBruijn numbered
-type BoundVarMap a = IntMap.IntMap a
+type BoundVar    = DBNum   -- Bound variables are deBruijn leveled
+type BoundVarMap = IntMap
 
 emptyBVM :: BoundVarMap a
 emptyBVM = IntMap.empty
@@ -274,7 +149,99 @@ lkBoundVarOcc var (tsubst, env) = case lookupBVM var env of
 alterBoundVarOcc :: BoundVar -> XT a -> BoundVarMap a -> BoundVarMap a
 alterBoundVarOcc tv xt tm = IntMap.alter xt tv tm
 
+-- | @ModAlpha a@ represents @a@ modulo alpha-renaming.  This is achieved
+-- by equipping the value with a 'DeBruijnEnv', which tracks an on-the-fly deBruijn
+-- numbering.  This allows us to define an 'Eq' instance for @ModAlpha a@, even
+-- if this was not (easily) possible for @a@.  Note: we purposely don't
+-- export the constructor.  Make a helper function if you find yourself
+-- needing it.
+data ModAlpha a = A !DeBruijnEnv !a
 
+-- | Synthesizes a @ModAlpha a@ from an @a@, by assuming that there are no
+-- bound binders (an empty 'DeBruijnEnv').  This is usually what you want if there
+-- isn't already a 'DeBruijnEnv' in scope.
+deBruijnize :: a -> ModAlpha a
+deBruijnize e = A emptyDBE e
+
+instance Eq (ModAlpha a) => Eq (ModAlpha [a]) where
+    A _   []     == A _    []       = True
+    A env (x:xs) == A env' (x':xs') = A env x  == A env' x' &&
+                                      A env xs == A env' xs'
+    _            == _               = False
+
+instance Eq (ModAlpha a) => Eq (ModAlpha (Maybe a)) where
+    A _   Nothing  == A _    Nothing   = True
+    A env (Just x) == A env' (Just x') = A env x  == A env' x'
+    _              == _                = False
+
+noCaptured :: DeBruijnEnv -> Expr -> Bool
+-- True iff no free var of the type is bound by DeBruijnEnv
+noCaptured dbe ty
+  = not (anyFreeVarsOfExpr captured ty)
+  where
+    captured tv = isJust (lookupDBE tv dbe)
+
+instance Eq (ModAlpha Expr) where
+  (==) = eqDBExpr
+
+eqDBExpr :: ModAlpha Expr -> ModAlpha Expr -> Bool
+eqDBExpr (A env1 (App s1 t1)) (A env2 (App s2 t2))
+  = eqDBExpr (A env1 s1) (A env2 s2) &&
+    eqDBExpr (A env1 t1) (A env2 t2)
+
+eqDBExpr (A env1 (Var tv1)) (A env2 (Var tv2))
+  = case (lookupDBE tv1 env1, lookupDBE tv2 env2) of
+      (Just bvi1, Just bvi2) -> bvi1 == bvi2
+      (Nothing,   Nothing)   -> tv1 == tv2
+      _                      -> False
+
+eqDBExpr (A _ (Lit tc1)) (A _ (Lit tc2))
+  = tc1 == tc2
+
+eqDBExpr (A env1 (Lam tv1 t1)) (A env2 (Lam tv2 t2))
+  = eqDBExpr (A (extendDBE tv1 env1) t1)
+           (A (extendDBE tv2 env2) t2)
+
+eqDBExpr _ _ = False
+
+instance Show (ModAlpha Expr) where
+  show (A _ e) = show e
+
+--
+-- Ord Expr instance for benchmarks:
+--
+
+instance Eq Expr where
+  a == b = deBruijnize a == deBruijnize b
+
+exprTag :: Expr -> Int
+exprTag Var{} = 0
+exprTag App{} = 1
+exprTag Lam{} = 2
+exprTag Lit{} = 3
+{-# INLINE exprTag #-}
+
+cmpDBExpr :: ModAlpha Expr -> ModAlpha Expr -> Ordering
+cmpDBExpr (A _ (Lit l1))       (A _ (Lit l2))
+  = compare l1 l2
+
+cmpDBExpr (A env1 (App f1 a1)) (A env2 (App f2 a2))
+  = cmpDBExpr (A env1 f1) (A env2 f2) Prelude.<> cmpDBExpr (A env1 a1) (A env2 a2)
+
+cmpDBExpr (A env1 (Lam v1 e1)) (A env2 (Lam v2 e2))
+  = cmpDBExpr (A (extendDBE v1 env1) e1) (A (extendDBE v2 env2) e2)
+
+cmpDBExpr (A env1 (Var v1))    (A env2 (Var v2))
+  = case (lookupDBE v1 env1, lookupDBE v2 env2) of
+      (Just bvi1, Just bvi2) -> compare bvi1 bvi2
+      (Nothing,   Nothing)   -> compare v1 v2
+      (Just _,    Nothing)   -> GT
+      (Nothing,   Just _)    -> LT
+cmpDBExpr (A _ e1) (A _ e2)
+  = compare (exprTag e1) (exprTag e2)
+
+instance Ord Expr where
+  compare a b = cmpDBExpr (deBruijnize a) (deBruijnize b)
 
 {- *********************************************************************
 *                                                                      *
@@ -282,7 +249,8 @@ alterBoundVarOcc tv xt tm = IntMap.alter xt tv tm
 *                                                                      *
 ********************************************************************* -}
 
-type FreeVarMap a = Map.Map Var a
+type FreeVar = Var
+type FreeVarMap a = Map Var a
 
 emptyFVM :: FreeVarMap a
 emptyFVM = Map.empty
@@ -304,6 +272,36 @@ lkFreeVarOcc var (tsubst, env) = case Map.lookup var env of
                                     Just x  -> Bag.single (tsubst,x)
                                     Nothing -> Bag.empty
 
+{- *********************************************************************
+*                                                                      *
+                   Pattern variables
+*                                                                      *
+********************************************************************* -}
+
+type PatVar    = Int
+type PatVarMap = IntMap
+
+data PatSubst = PatVarMap Expr -- Maps PatVar :-> Expr
+
+emptyPatSubst :: PatSubst
+emptyPatSubst = IntMap.empty
+
+lookupPatSubst :: PatVar -> PatSubst -> Expr
+lookupPatSubst key subst
+  = case IntMap.lookup key subst of
+      Just ty -> ty
+      Nothing -> error ("lookupPatSubst " ++ show key)
+
+data ModPatKeys a = P !(Set Var) !DeBruijnEnv !a
+
+canonPV :: ModPatKeys Var -> ModPatKeys (Maybe PatVar)
+canonPV (P pvs dbe v)
+  | not (v `Set.member` pvs)   = P pvs dbe               Nothing
+  | Just pv <- lookupDBE v dbe = P pvs dbe               (Just pv)
+  | otherwise                  = P pvs (extendDBE v dbe) (Just (dbe_next dbe))
+
+
+newtype Ctx a = C (ModAlpha (ModPatKeys a))
 
 {- *********************************************************************
 *                                                                      *
@@ -496,7 +494,7 @@ data ExprMap' a
        , em_fvar :: FreeVarMap a     -- Occurrence of a completely free tyvar
 
        , em_app  :: ExprMap (ExprMap a)
-       , em_lit  :: Map.Map Lit a
+       , em_lit  :: Map Lit a
        , em_lam  :: ExprMap a
        }
 
@@ -504,7 +502,7 @@ deriving instance (Show (TrieKey ExprMap'), Show v)
                => Show (ExprMap' v)
 
 instance TrieMap ExprMap' where
-  type TrieKey ExprMap' = DeBruijn Expr
+  type TrieKey ExprMap' = ModAlpha Expr
   emptyTM     = mkEmptyExprMap
   lookupTM    = lookupExpr
   alterTM     = alterExpr
@@ -523,27 +521,27 @@ mkEmptyExprMap
        , em_lit  = Map.empty
        , em_lam  = emptyExprMap }
 
-lookupExpr :: DeBruijn Expr -> ExprMap' v -> Maybe v
-lookupExpr (D dbe e) (EM { .. })
+lookupExpr :: ModAlpha Expr -> ExprMap' v -> Maybe v
+lookupExpr (A dbe e) (EM { .. })
   = case e of
       Var x     -> case lookupDBE x dbe of
                      Just bv -> em_bvar |> lookupBVM bv
                      Nothing -> em_fvar |> Map.lookup x
-      App e1 e2 -> em_app |>  lookupTM (D dbe e1)
-                          >=> lookupTM (D dbe e2)
+      App e1 e2 -> em_app |>  lookupTM (A dbe e1)
+                          >=> lookupTM (A dbe e2)
       Lit lit   -> em_lit |> Map.lookup lit
-      Lam x e   -> em_lam |> lookupTM (D (extendDBE x dbe) e)
+      Lam x e   -> em_lam |> lookupTM (A (extendDBE x dbe) e)
 
-alterExpr :: DeBruijn Expr -> XT v -> ExprMap' v -> ExprMap' v
-alterExpr (D dbe e) xt m@(EM {..})
+alterExpr :: ModAlpha Expr -> XT v -> ExprMap' v -> ExprMap' v
+alterExpr (A dbe e) xt m@(EM {..})
   = case e of
       Var x -> case lookupDBE x dbe of
                   Just bv -> m { em_bvar = alterBoundVarOcc bv xt em_bvar }
                   Nothing -> m { em_fvar = alterFreeVarOcc  x  xt em_fvar }
 
       Lit lit   -> m { em_lit = em_lit |> Map.alter xt lit }
-      App e1 e2 -> m { em_app = em_app |> alterTM (D dbe e1) |>> alterTM (D dbe e2) xt }
-      Lam x e   -> m { em_lam = em_lam |> alterTM (D (extendDBE x dbe) e) xt }
+      App e1 e2 -> m { em_app = em_app |> alterTM (A dbe e1) |>> alterTM (A dbe e2) xt }
+      Lam x e   -> m { em_lam = em_lam |> alterTM (A (extendDBE x dbe) e) xt }
 
 unionWithExpr :: (v -> v -> v) -> ExprMap' v -> ExprMap' v -> ExprMap' v
 unionWithExpr f m1 m2
@@ -616,13 +614,13 @@ exprMapToTree = Node "." . go_sem (\v -> [ Node (show v) [] ])
 data MExprMapX a
   = EmptyMEM
   | MEM { mem_tvar   :: Maybe a          -- First occurrence of a template tyvar
-        , mem_xvar   :: PatOccs a       -- Subsequent occurrence of a template tyvar
+        , mem_xvar   :: PatVarMap a       -- Subsequent occurrence of a template tyvar
 
         , mem_bvar   :: BoundVarMap a    -- Occurrence of a lam-bound tyvar
         , mem_fvar   :: FreeVarMap a     -- Occurrence of a completely free tyvar
 
         , mem_fun    :: MExprMapX (MExprMapX a)
-        , mem_tycon  :: Map.Map Lit a
+        , mem_tycon  :: Map Lit a
         , mem_lam    :: MExprMapX a
         }
 
@@ -642,10 +640,10 @@ mkEmptyMExprMapX
         , mem_tycon  = Map.empty
         , mem_lam    = emptyMExprMapX }
 
-lkT :: DeBruijn Expr -> (PatSubst, MExprMapX a) -> Bag (PatSubst, a)
-lkT (D dbe ty) (psubst, EmptyMEM)
+lkT :: ModAlpha Expr -> (PatSubst, MExprMapX a) -> Bag (PatSubst, a)
+lkT (A dbe ty) (psubst, EmptyMEM)
   = Bag.empty
-lkT (D dbe ty) (psubst, MEM { .. })
+lkT (A dbe ty) (psubst, MEM { .. })
   = tmpl_var_bndr `Bag.union` rest
   where
      rest = tmpl_var_occs `Bag.union` go ty
@@ -655,11 +653,11 @@ lkT (D dbe ty) (psubst, MEM { .. })
      go (Var tv)
        | Just bv <- lookupDBE tv dbe = lkBoundVarOcc bv (psubst, mem_bvar)
        | otherwise                   = lkFreeVarOcc  tv (psubst, mem_fvar)
-     go (App t1 t2) = Bag.concatMap (lkT (D dbe t2)) $
-                      lkT (D dbe t1) (psubst, mem_fun)
+     go (App t1 t2) = Bag.concatMap (lkT (A dbe t2)) $
+                      lkT (A dbe t1) (psubst, mem_fun)
      go (Lit tc)    = lkTC tc psubst mem_tycon
 
-     go (Lam tv ty) = lkT (D (extendDBE tv dbe) ty) (psubst, mem_lam)
+     go (Lam tv ty) = lkT (A (extendDBE tv dbe) ty) (psubst, mem_lam)
 
      tmpl_var_bndr | Just x <- mem_tvar
                    , no_more_specific_matches    -- This one line does overlap!
@@ -671,21 +669,21 @@ lkT (D dbe ty) (psubst, MEM { .. })
      tmpl_var_occs = Bag.fromList [ (psubst, x)
                                   | (tmpl_var, x) <- IntMap.toList mem_xvar
                                   , deBruijnize (lookupPatSubst tmpl_var psubst)
-                                    `eqDBExpr` (D dbe ty)
+                                    `eqDBExpr` (A dbe ty)
                                   ]
 
-lkTC :: Lit -> PatSubst -> Map.Map Lit a -> Bag (PatSubst, a)
+lkTC :: Lit -> PatSubst -> Map Lit a -> Bag (PatSubst, a)
 lkTC tc psubst tc_map = case Map.lookup tc tc_map of
                            Nothing -> Bag.empty
                            Just x  -> Bag.single (psubst,x)
 
-xtT :: PatVarSet -> DeBruijn Expr
-    -> (PatKeys -> XT a)
-    -> PatKeys -> MExprMapX a -> MExprMapX a
-xtT tmpls (D dbe ty) f tkeys EmptyMEM
-  = xtT tmpls (D dbe ty) f tkeys mkEmptyMExprMapX
+xtT :: Set Var -> ModAlpha Expr
+    -> (PatVar -> XT a)
+    -> PatVar -> MExprMapX a -> MExprMapX a
+xtT pvs (A dbe ty) f tkeys EmptyMEM
+  = xtT pvs (A dbe ty) f tkeys mkEmptyMExprMapX
 
-xtT tmpls (D dbe ty) f tkeys m@(MEM {..})
+xtT pvs (A dbe ty) f tkeys m@(MEM {..})
   = go ty
   where
    go (Var tv)
@@ -693,7 +691,7 @@ xtT tmpls (D dbe ty) f tkeys m@(MEM {..})
       | Just xv <- lookupDBE tv tkeys  = m { mem_xvar = IntMap.alter (f tkeys) xv mem_xvar }
 
       -- First occurrence of a template tyvar
-      | tv `Set.member` tmpls = m { mem_tvar = f (extendDBE tv tkeys) mem_tvar  }
+      | tv `Set.member` pvs = m { mem_tvar = f (extendDBE tv tkeys) mem_tvar  }
 
       -- Occurrence of a lam-bound var
       | Just bv <- lookupDBE tv dbe = m { mem_bvar = alterBoundVarOcc bv (f tkeys) mem_bvar }
@@ -702,18 +700,18 @@ xtT tmpls (D dbe ty) f tkeys m@(MEM {..})
       | otherwise = m { mem_fvar = alterFreeVarOcc  tv (f tkeys) mem_fvar }
 
    go (Lit tc)  = m { mem_tycon = xtTC tc (f tkeys) mem_tycon }
-   go (App t1 t2) = m { mem_fun   = xtT tmpls (D dbe t1)
-                                         (liftXT (xtT tmpls (D dbe t2) f))
+   go (App t1 t2) = m { mem_fun   = xtT pvs (A dbe t1)
+                                         (liftXT (xtT pvs (A dbe t2) f))
                                          tkeys mem_fun }
-   go (Lam tv ty) = m { mem_lam = xtT tmpls (D (extendDBE tv dbe) ty)
+   go (Lam tv ty) = m { mem_lam = xtT pvs (A (extendDBE tv dbe) ty)
                                              f tkeys mem_lam }
 
 
-xtTC :: Lit -> XT a -> Map.Map Lit a ->  Map.Map Lit a
+xtTC :: Lit -> XT a -> Map Lit a ->  Map Lit a
 xtTC tc f m = Map.alter f tc m
 
-liftXT :: (PatKeys -> MExprMapX a -> MExprMapX a)
-        -> PatKeys -> Maybe (MExprMapX a) -> Maybe (MExprMapX a)
+liftXT :: (PatVar -> MExprMapX a -> MExprMapX a)
+        -> PatVar -> Maybe (MExprMapX a) -> Maybe (MExprMapX a)
 liftXT insert tkeys Nothing  = Just (insert tkeys emptyMExprMapX)
 liftXT insert tkeys (Just m) = Just (insert tkeys m)
 
@@ -724,7 +722,7 @@ liftXT insert tkeys (Just m) = Just (insert tkeys m)
 *                                                                      *
 ********************************************************************* -}
 
-type Match a = ([(PatVar, PatKey)], a)
+type Match a = ([(Var, PatVar)], a)
 type MExprMap a = MExprMapX (Match a)
 
 emptyMExprMap :: MExprMap a
@@ -738,21 +736,21 @@ insertMExprMap tmpl_tvs ty x tm
   where
     tmpl_set = Set.fromList tmpl_tvs
 
-    f :: PatKeys -> XT (Match a)
+    f :: PatVar -> XT (Match a)
     f tkeys _ = Just (map inst_key tmpl_tvs, x)
      -- The "_" means just overwrite previous value
      where
-        inst_key :: Var -> (PatVar, PatKey)
+        inst_key :: Var -> (Var, PatVar)
         inst_key tv = case lookupDBE tv tkeys of
                          Nothing  -> error ("Unbound tmpl var " ++ tv)
                          Just key -> (tv, key)
 
-lookupMExprMap :: Expr -> MExprMap a -> [ ([(PatVar,Expr)], a) ]
+lookupMExprMap :: Expr -> MExprMap a -> [ ([(Var,Expr)], a) ]
 lookupMExprMap ty tm
   = [ (map (lookup psubst) prs, x)
     | (psubst, (prs, x)) <- Bag.toList $ lkT (deBruijnize ty) (emptyPatSubst, tm) ]
   where
-    lookup :: PatSubst -> (PatVar, PatKey) -> (PatVar, Expr)
+    lookup :: PatSubst -> (Var, PatVar) -> (Var, Expr)
     lookup psubst (tv, key) = (tv, lookupPatSubst key psubst)
 
 mkMExprMap :: [([Var], Expr, a)] -> MExprMap a
@@ -847,7 +845,7 @@ lens_em_fvar xf em@(EM { .. }) = xf em_fvar <&> \fvar' -> em { em_fvar = fvar' }
 lens_em_app :: Lens' (ExprMap' a) (ExprMap (ExprMap a))
 lens_em_app xf em@(EM { .. }) = xf em_app <&> \app' -> em { em_app = app' }
 
-lens_em_lit :: Lens' (ExprMap' a) (Map.Map Lit a)
+lens_em_lit :: Lens' (ExprMap' a) (Map Lit a)
 lens_em_lit xf em@(EM { .. }) = xf em_lit <&> \lit' -> em { em_lit = lit' }
 
 lens_em_lam :: Lens' (ExprMap' a) (ExprMap a)
@@ -857,18 +855,18 @@ nullExpr :: ExprMap' v -> Bool
 nullExpr (EM {..}) =  Prelude.null em_fvar && Prelude.null em_bvar
                    && Prelude.null em_lit && nullTM em_app && nullTM em_lam
 
-atExpr :: DeBruijn Expr -> Lens' (ExprMap' v) (Maybe v)
-atExpr (D dbe e) = case e of
+atExpr :: ModAlpha Expr -> Lens' (ExprMap' v) (Maybe v)
+atExpr (A dbe e) = case e of
   Var x     -> case lookupDBE x dbe of
                   Just bv -> lens_em_bvar . at bv -- NB: at from microlens's `At (IntMap v)` instance
                   Nothing -> lens_em_fvar . at x
   Lit lit   -> lens_em_lit . at lit
-  App e1 e2 -> lens_em_app . atTM (D dbe e1) . nonEmpty . atTM (D dbe e2)
-  Lam x e   -> lens_em_lam . atTM (D (extendDBE x dbe) e)
+  App e1 e2 -> lens_em_app . atTM (A dbe e1) . nonEmpty . atTM (A dbe e2)
+  Lam x e   -> lens_em_lam . atTM (A (extendDBE x dbe) e)
 
 -- We would have to define these microlens instances for every TrieMapLens. It's
 -- weirdly redundant, I'm only doing so for ExprMap' here:
-type instance Index (ExprMap' v) = DeBruijn Expr
+type instance Index (ExprMap' v) = ModAlpha Expr
 type instance IxValue (ExprMap' v) = v
 instance Ixed (ExprMap' v) where
   ix = ixAt -- defined in microlens
@@ -958,11 +956,11 @@ instance (Pretty a, Pretty b) => Pretty (a,b) where
 instance Pretty a => Pretty [a] where
   ppr xs = brackets (commaSep (map ppr xs))
 
-instance (Pretty k, Pretty a) => Pretty (Map.Map k a) where
+instance (Pretty k, Pretty a) => Pretty (Map k a) where
    ppr m = brackets $ commaSep [ ppr k <+> text ":->" <+> ppr v
                                | (k,v) <- Map.toList m ]
 
-instance Pretty a => Pretty (IntMap.IntMap a) where
+instance Pretty a => Pretty (IntMap a) where
    ppr m = brackets $ vcat [ ppr k <+> text ":->" <+> ppr v
                            | (k,v) <- IntMap.toList m ]
 
@@ -978,8 +976,8 @@ instance Pretty DeBruijnEnv where
                      braces (sep [ text "dbe_next =" <+> ppr dbe_next
                                  , text "dbe_env =" <+> ppr dbe_env ])
 
-instance (Pretty a) => Pretty (DeBruijn a) where
-  ppr (D bv a) = text "D" PP.<> braces (sep [ppr bv, ppr a])
+instance (Pretty a) => Pretty (ModAlpha a) where
+  ppr (A bv a) = text "D" PP.<> braces (sep [ppr bv, ppr a])
 
 instance (Pretty v, Pretty (tm v), Pretty (TrieKey tm))
       => Pretty (SEMap tm v) where
@@ -1006,7 +1004,3 @@ instance Pretty a => Pretty (MExprMap a) where
                     , text "mem_tycon =" <+> ppr mem_tycon
                     , text "mem_lam =" <+> ppr mem_lam ])
 -}
-
-instance Pretty PatSubst where
-   ppr (TS { ts_subst = subst, ts_next = next })
-     = text "TS" PP.<> parens (int next) <+> ppr subst
