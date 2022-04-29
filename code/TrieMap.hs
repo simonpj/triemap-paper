@@ -10,9 +10,8 @@
 -- | This module presents
 --
 --   * The generic triemap transformers 'SEMap' and 'ListMap' from the paper
---   * A trie map 'ExprMap' that is modelled after @ExprLMap@ from the paper,
---     with an additional 'Lit' constructor in the 'Expr' type.
---   * The matching trie map type 'MExprMap' from the paper.
+--   * A trie map 'ExprMap' that is modelled after @ExprLMap@ from the paper.
+--   * The matching trie map type 'PatMap' from the paper.
 --   * A demonstration of how 'alterTM' can be further generalised to yield
 --     an implementation of the lensy 'at' combinator in a new sub-class
 --     'TrieMapLens'.
@@ -80,12 +79,10 @@ initM items = foldl ins emptyMExprMap items
 ********************************************************************* -}
 
 type Var    = String
-type Lit    = String
 
 data Expr = Var Var
           | App Expr Expr
           | Lam Var Expr
-          | Lit Lit
 
 anyFreeVarsOfExpr :: (Var -> Bool) -> Expr -> Bool
 -- True if 'p' returns True of any free variable
@@ -97,7 +94,6 @@ anyFreeVarsOfExpr p e
                    | otherwise          = p v
     go bvs (App e1 e2) = go bvs e1 || go bvs e2
     go bvs (Lam v e)   = go (Set.insert v bvs) e
-    go _   (Lit _)     = False
 
 {- *********************************************************************
 *                                                                      *
@@ -196,9 +192,6 @@ eqDBExpr (A env1 (Var tv1)) (A env2 (Var tv2))
       (Nothing,   Nothing)   -> tv1 == tv2
       _                      -> False
 
-eqDBExpr (A _ (Lit tc1)) (A _ (Lit tc2))
-  = tc1 == tc2
-
 eqDBExpr a1@(A env1 (Lam tv1 t1)) a2@(A env2 (Lam tv2 t2))
   = eqDBExpr (A (extendDBE tv1 env1) t1)
            (A (extendDBE tv2 env2) t2)
@@ -219,13 +212,9 @@ exprTag :: Expr -> Int
 exprTag Var{} = 0
 exprTag App{} = 1
 exprTag Lam{} = 2
-exprTag Lit{} = 3
 {-# INLINE exprTag #-}
 
 cmpDBExpr :: ModAlpha Expr -> ModAlpha Expr -> Ordering
-cmpDBExpr (A _ (Lit l1))       (A _ (Lit l2))
-  = compare l1 l2
-
 cmpDBExpr (A env1 (App f1 a1)) (A env2 (App f2 a2))
   = cmpDBExpr (A env1 f1) (A env2 f2) Prelude.<> cmpDBExpr (A env1 a1) (A env2 a2)
 
@@ -509,7 +498,6 @@ data ExprMap' a
        , em_fvar :: FreeVarMap a     -- Occurrence of a completely free tyvar
 
        , em_app  :: ExprMap (ExprMap a)
-       , em_lit  :: Map Lit a
        , em_lam  :: ExprMap a
        }
 
@@ -533,7 +521,6 @@ mkEmptyExprMap
   = EM { em_fvar = emptyFVM
        , em_bvar = emptyBVM
        , em_app  = emptyExprMap
-       , em_lit  = Map.empty
        , em_lam  = emptyExprMap }
 
 lookupExpr :: ModAlpha Expr -> ExprMap' v -> Maybe v
@@ -544,7 +531,6 @@ lookupExpr (A dbe e) (EM { .. })
                      Nothing -> em_fvar |> Map.lookup x
       App e1 e2 -> em_app |>  lookupTM (A dbe e1)
                           >=> lookupTM (A dbe e2)
-      Lit lit   -> em_lit |> Map.lookup lit
       Lam x e   -> em_lam |> lookupTM (A (extendDBE x dbe) e)
 
 alterExpr :: ModAlpha Expr -> XT v -> ExprMap' v -> ExprMap' v
@@ -554,7 +540,6 @@ alterExpr (A dbe e) xt m@(EM {..})
                   Just bv -> m { em_bvar = alterBoundVarOcc bv xt em_bvar }
                   Nothing -> m { em_fvar = alterFreeVarOcc  x  xt em_fvar }
 
-      Lit lit   -> m { em_lit = em_lit |> Map.alter xt lit }
       App e1 e2 -> m { em_app = em_app |> alterTM (A dbe e1) |>> alterTM (A dbe e2) xt }
       Lam x e   -> m { em_lam = em_lam |> alterTM (A (extendDBE x dbe) e) xt }
 
@@ -562,17 +547,15 @@ unionWithExpr :: (v -> v -> v) -> ExprMap' v -> ExprMap' v -> ExprMap' v
 unionWithExpr f m1 m2
   = EM { em_bvar = IntMap.unionWith f (em_bvar m1) (em_bvar m2)
        , em_fvar = Map.unionWith f (em_fvar m1) (em_fvar m2)
-       , em_lit  = Map.unionWith f (em_lit m1) (em_lit m2)
        , em_app  = unionWithTM (unionWithTM f) (em_app m1) (em_app m2)
        , em_lam  = unionWithTM f (em_lam m1) (em_lam m2) }
 
 foldExpr :: forall a v. (v -> a -> a) -> ExprMap' v -> a -> a
 foldExpr f (EM {..}) z
   = let !z1 = foldTM f em_lam z in
-    let !z2 = foldr f z1 em_lit in
-    let !z3 = foldTM (\em z -> z `seq` foldTM f em z) em_app z2 in
-    let !z4 = foldFVM f em_fvar z3 in
-    foldBVM f em_bvar z4
+    let !z2 = foldTM (\em z -> z `seq` foldTM f em z) em_app z1 in
+    let !z3 = foldFVM f em_fvar z2 in
+    foldBVM f em_bvar z3
 
 
 -- | For debugging purposes. Draw with 'containers:Data.Tree.drawTree' or
@@ -606,8 +589,7 @@ exprMapToTree = Node "." . go_sem (\v -> [ Node (show v) [] ])
     go_sem go_val (MultiSEM em) = go_em go_val em
 
     go_em go_val EM{..} = concat
-      [ go_lit  go_val em_lit
-      , go_fvar go_val em_fvar
+      [ go_fvar go_val em_fvar
       , go_bvar go_val em_bvar
       , go_lam  go_val em_lam
       , go_app  go_val em_app
@@ -654,7 +636,6 @@ data MExprMap a
   | MEM { mem_pvar   :: PatVarMap a      -- Occurrence of a pattern var
         , mem_bvar   :: BoundVarMap a    -- Occurrence of a lam-bound var
         , mem_fvar   :: FreeVarMap a     -- Occurrence of a completely free var
-        , mem_lit  :: Map Lit a
         , mem_fun    :: MExprMap (MExprMap a)
         , mem_lam    :: MExprMap a
         }
@@ -670,7 +651,6 @@ mkEmptyMExprMapX
   = MEM { mem_pvar = emptyPVM
         , mem_fvar = emptyFVM
         , mem_bvar = emptyBVM
-        , mem_lit  = Map.empty
         , mem_fun  = emptyMExprMap
         , mem_lam  = emptyMExprMap }
 
@@ -686,14 +666,9 @@ lookupInsts ae@(A benv e) (ms, MEM { .. })
      decompose (Var v) = case lookupDBE v benv of
        Just bv -> lkBoundVarOcc bv (ms, mem_bvar)
        Nothing -> lkFreeVarOcc  v  (ms, mem_fvar)
-     decompose (Lit l)   = lkTC l ms mem_lit
      decompose (App e1 e2) = Bag.concatMap (lookupInsts (A benv e2)) $
                              lookupInsts (A benv e1) (ms, mem_fun)
 
-lkTC :: Lit -> MatchState -> Map Lit a -> Bag (MatchState, a)
-lkTC tc ms tc_map = case Map.lookup tc tc_map of
-                           Nothing -> Bag.empty
-                           Just x  -> Bag.single (ms,x)
      decompose (Lam v e) = lookupInsts (A (extendDBE v benv) e) (ms, mem_lam)
 
 alterPat :: ModAlpha Expr -> (PatVarEnv -> XT a) -> PatVarEnv -> MExprMap a -> MExprMap a
@@ -710,12 +685,9 @@ alterPat ae@(A benv e) f penv m@(MEM {..})
        -- Subsequent occ
      Bound bv            -> m { mem_bvar = alterBoundVarOcc bv (f penv) mem_bvar }
      Free fv             -> m { mem_fvar = alterFreeVarOcc v (f penv) mem_fvar }
-   go (Lit l)             = m { mem_lit  = xtTC l (f penv) mem_lit }
    go (App e1 e2)         = m { mem_fun  = alterPat (A benv e1) (liftXT (alterPat (A benv e2) f)) penv mem_fun }
    go (Lam v e')          = m { mem_lam  = alterPat (A (extendDBE v benv) e') f penv mem_lam }
 
-xtTC :: Lit -> XT a -> Map Lit a ->  Map Lit a
-xtTC tc f m = Map.alter f tc m
 
 liftXT :: (PatVarEnv -> MExprMap a -> MExprMap a)
         -> PatVarEnv -> Maybe (MExprMap a) -> Maybe (MExprMap a)
@@ -893,22 +865,18 @@ lens_em_fvar xf em@(EM { .. }) = xf em_fvar <&> \fvar' -> em { em_fvar = fvar' }
 lens_em_app :: Lens' (ExprMap' a) (ExprMap (ExprMap a))
 lens_em_app xf em@(EM { .. }) = xf em_app <&> \app' -> em { em_app = app' }
 
-lens_em_lit :: Lens' (ExprMap' a) (Map Lit a)
-lens_em_lit xf em@(EM { .. }) = xf em_lit <&> \lit' -> em { em_lit = lit' }
-
 lens_em_lam :: Lens' (ExprMap' a) (ExprMap a)
 lens_em_lam xf em@(EM { .. }) = xf em_lam <&> \lam' -> em { em_lam = lam' }
 
 nullExpr :: ExprMap' v -> Bool
 nullExpr (EM {..}) =  Prelude.null em_fvar && Prelude.null em_bvar
-                   && Prelude.null em_lit && nullTM em_app && nullTM em_lam
+                   && nullTM em_app && nullTM em_lam
 
 atExpr :: ModAlpha Expr -> Lens' (ExprMap' v) (Maybe v)
 atExpr (A dbe e) = case e of
   Var x     -> case lookupDBE x dbe of
                   Just bv -> lens_em_bvar . at bv -- NB: at from microlens's `At (IntMap v)` instance
                   Nothing -> lens_em_fvar . at x
-  Lit lit   -> lens_em_lit . at lit
   App e1 e2 -> lens_em_app . atTM (A dbe e1) . nonEmpty . atTM (A dbe e2)
   Lam x e   -> lens_em_lam . atTM (A (extendDBE x dbe) e)
 
@@ -934,7 +902,6 @@ appPrec = lamPrec+1
 -- | Example output: @F (λa. G) (H I) (λb. J b)@
 instance Show Expr where
   showsPrec _ (Var v)      = showString v
-  showsPrec _ (Lit l)      = showString l
   showsPrec p (App f arg)  = showParen (p > appPrec) $
     showsPrec appPrec f . showString " " . showsPrec (appPrec+1) arg
   showsPrec p (Lam b body) = showParen (p > lamPrec) $
@@ -958,9 +925,7 @@ instance Read Expr where
     [ do
         Read.Ident v <- Read.lexP
         guard (all isAlphaNum v)
-        pure $ if isLower (head v)
-          then Var v
-          else Lit v
+        pure $ Var v
     , Read.prec appPrec $ do
         -- Urgh. Just ignore the code here as long as it works
         let spaces1 = greedyMany1 (ReadP.satisfy isSpace)
@@ -1038,7 +1003,6 @@ instance Pretty a => Pretty (ExprMap' a) where
                     [ text "em_bvar =" <+> ppr em_bvar
                     , text "em_fvar =" <+> ppr em_fvar
                     , text "em_app ="  <+> ppr em_app
-                    , text "em_lit ="  <+> ppr em_lit
                     , text "em_lam ="  <+> ppr em_lam ])
 
 {-
@@ -1048,6 +1012,5 @@ instance Pretty a => Pretty (PatMap a) where
                     , text "mem_bvar =" <+> ppr mem_bvar
                     , text "mem_fvar =" <+> ppr mem_fvar
                     , text "mem_fun =" <+> ppr mem_fun
-                    , text "mem_lit =" <+> ppr mem_lit
                     , text "mem_lam =" <+> ppr mem_lam ])
 -}
