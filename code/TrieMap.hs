@@ -67,10 +67,10 @@ ty1 = read "I I"
 ty2 = read "C C"
 ty3 = read "C I"
 
-ins :: MExprMap String -> (String, [Var], Expr) -> MExprMap String
-ins m (s,tvs,key) = insertMExprMap tvs key s m
+ins :: PatMap String -> (String, [Var], Expr) -> PatMap String
+ins m (s,pvs,pat) = insertPM pvs pat s m
 
-initM :: [(String,[Var],Expr)] -> MExprMap String
+initM :: [(String,[Var],Expr)] -> PatMap String
 initM items = foldl ins emptyMExprMap items
 
 {- *********************************************************************
@@ -649,35 +649,35 @@ equate pv (A benv e) ms = case hasMatch pv ms of
     | noCaptured benv e          -> Just (addMatch pv e ms)
     | otherwise                  -> Nothing
 
-data MExprMapX a
+data MExprMap a
   = EmptyMEM
   | MEM { mem_pvar   :: PatVarMap a      -- Occurrence of a pattern var
         , mem_bvar   :: BoundVarMap a    -- Occurrence of a lam-bound var
         , mem_fvar   :: FreeVarMap a     -- Occurrence of a completely free var
-        , mem_fun    :: MExprMapX (MExprMapX a)
         , mem_lit  :: Map Lit a
-        , mem_lam    :: MExprMapX a
+        , mem_fun    :: MExprMap (MExprMap a)
+        , mem_lam    :: MExprMap a
         }
 
 deriving instance (Show v)
-               => Show (MExprMapX v)
+               => Show (MExprMap v)
 
-emptyMExprMapX :: MExprMapX a
-emptyMExprMapX = EmptyMEM
+emptyMExprMap :: MExprMap a
+emptyMExprMap = EmptyMEM
 
-mkEmptyMExprMapX :: MExprMapX a
+mkEmptyMExprMapX :: MExprMap a
 mkEmptyMExprMapX
   = MEM { mem_pvar = emptyPVM
         , mem_fvar = emptyFVM
         , mem_bvar = emptyBVM
-        , mem_fun  = emptyMExprMapX
         , mem_lit  = Map.empty
-        , mem_lam  = emptyMExprMapX }
+        , mem_fun  = emptyMExprMap
+        , mem_lam  = emptyMExprMap }
 
-lkT :: ModAlpha Expr -> (MatchState, MExprMapX a) -> Bag (MatchState, a)
-lkT _ (_, EmptyMEM)
+lookupInsts :: ModAlpha Expr -> (MatchState, MExprMap a) -> Bag (MatchState, a)
+lookupInsts _ (_, EmptyMEM)
   = Bag.empty
-lkT ae@(A benv e) (ms, MEM { .. })
+lookupInsts ae@(A benv e) (ms, MEM { .. })
   = match mem_pvar `Bag.union` decompose e
   where
      match = Bag.mapMaybe match_one . Bag.fromList . IntMap.toList
@@ -686,22 +686,21 @@ lkT ae@(A benv e) (ms, MEM { .. })
      decompose (Var v) = case lookupDBE v benv of
        Just bv -> lkBoundVarOcc bv (ms, mem_bvar)
        Nothing -> lkFreeVarOcc  v  (ms, mem_fvar)
-     decompose (App e1 e2) = Bag.concatMap (lkT (A benv e2)) $
-                             lkT (A benv e1) (ms, mem_fun)
      decompose (Lit l)   = lkTC l ms mem_lit
-
-     decompose (Lam v e) = lkT (A (extendDBE v benv) e) (ms, mem_lam)
+     decompose (App e1 e2) = Bag.concatMap (lookupInsts (A benv e2)) $
+                             lookupInsts (A benv e1) (ms, mem_fun)
 
 lkTC :: Lit -> MatchState -> Map Lit a -> Bag (MatchState, a)
 lkTC tc ms tc_map = case Map.lookup tc tc_map of
                            Nothing -> Bag.empty
                            Just x  -> Bag.single (ms,x)
+     decompose (Lam v e) = lookupInsts (A (extendDBE v benv) e) (ms, mem_lam)
 
-xtT :: ModAlpha Expr -> (PatVarEnv -> XT a) -> PatVarEnv -> MExprMapX a -> MExprMapX a
-xtT e f penv EmptyMEM
-  = xtT e f penv mkEmptyMExprMapX
+alterPat :: ModAlpha Expr -> (PatVarEnv -> XT a) -> PatVarEnv -> MExprMap a -> MExprMap a
+alterPat e f penv EmptyMEM
+  = alterPat e f penv mkEmptyMExprMapX
 
-xtT ae@(A benv e) f penv m@(MEM {..})
+alterPat ae@(A benv e) f penv m@(MEM {..})
   = go e
   where
    go (Var v) = case viewOcc benv penv v of
@@ -712,16 +711,15 @@ xtT ae@(A benv e) f penv m@(MEM {..})
      Bound bv            -> m { mem_bvar = alterBoundVarOcc bv (f penv) mem_bvar }
      Free fv             -> m { mem_fvar = alterFreeVarOcc v (f penv) mem_fvar }
    go (Lit l)             = m { mem_lit  = xtTC l (f penv) mem_lit }
-   go (App e1 e2)         = m { mem_fun  = xtT (A benv e1) (liftXT (xtT (A benv e2) f)) penv mem_fun }
-   go (Lam v e')          = m { mem_lam  = xtT (A (extendDBE v benv) e') f penv mem_lam }
-
+   go (App e1 e2)         = m { mem_fun  = alterPat (A benv e1) (liftXT (alterPat (A benv e2) f)) penv mem_fun }
+   go (Lam v e')          = m { mem_lam  = alterPat (A (extendDBE v benv) e') f penv mem_lam }
 
 xtTC :: Lit -> XT a -> Map Lit a ->  Map Lit a
 xtTC tc f m = Map.alter f tc m
 
-liftXT :: (PatVarEnv -> MExprMapX a -> MExprMapX a)
-        -> PatVarEnv -> Maybe (MExprMapX a) -> Maybe (MExprMapX a)
-liftXT alter penv Nothing  = Just (alter penv emptyMExprMapX)
+liftXT :: (PatVarEnv -> MExprMap a -> MExprMap a)
+        -> PatVarEnv -> Maybe (MExprMap a) -> Maybe (MExprMap a)
+liftXT alter penv Nothing  = Just (alter penv emptyMExprMap)
 liftXT alter penv (Just m) = Just (alter penv m)
 
 
@@ -732,16 +730,16 @@ liftXT alter penv (Just m) = Just (alter penv m)
 ********************************************************************* -}
 
 type Match a = ([(Var, PatVar)], a)
-type MExprMap a = MExprMapX (Match a)
+type PatMap a = MExprMap (Match a)
 
-emptyMExprMap :: MExprMap a
-emptyMExprMap = emptyMExprMapX
+emptyPatMap :: PatMap a
+emptyPatMap = emptyMExprMap
 
-insertMExprMap :: forall a. [Var]   -- Pattern variables
-                         -> Expr    -- Patern
-                         -> a -> MExprMap a -> MExprMap a
-insertMExprMap pvars e x tm
-  = xtT (deBruijnize e) f (emptyPVE (Set.fromList pvars)) tm
+insertPM :: forall a. [Var]   -- Pattern variables
+                      -> Expr -- Pattern
+                      -> a -> PatMap a -> PatMap a
+insertPM pvars e x tm
+  = alterPat (deBruijnize e) f (emptyPVE (Set.fromList pvars)) tm
   where
     f :: PatVarEnv -> XT (Match a)
     f penv _ = Just (map inst_key pvars, x)
@@ -752,59 +750,19 @@ insertMExprMap pvars e x tm
                          Nothing  -> error ("Unbound PatVar " ++ v)
                          Just pv -> (v, pv)
 
-lookupMExprMap :: Expr -> MExprMap a -> [ ([(Var,Expr)], a) ]
-lookupMExprMap e tm
+matchPM :: Expr -> PatMap a -> [ ([(Var,Expr)], a) ]
+matchPM e tm
   = [ (map (lookup (getMatchingSubst ms)) prs, x)
-    | (ms, (prs, x)) <- Bag.toList $ lkT (deBruijnize e) (emptyMS, tm) ]
+    | (ms, (prs, x)) <- Bag.toList $ lookupInsts (deBruijnize e) (emptyMS, tm) ]
   where
     lookup :: PatSubst -> (Var, PatVar) -> (Var, Expr)
     lookup subst (v, pv) = (v, lookupPatSubst pv subst)
 
-mkMExprMap :: [([Var], Expr, a)] -> MExprMap a
-mkMExprMap = foldr (\(tmpl_vs, e, a) -> insertMExprMap tmpl_vs e a) emptyMExprMap
+mkPatMap :: [([Var], Expr, a)] -> PatMap a
+mkPatMap = foldr (\(tmpl_vs, e, a) -> insertPM tmpl_vs e a) emptyMExprMap
 
-mkMExprSet :: [([Var], Expr)] -> MExprMap Expr
-mkMExprSet = mkMExprMap . map (\(tmpl_vs, e) -> (tmpl_vs, e, e))
-
-
-xtT :: Set Var -> ModAlpha Expr
-    -> (PatVar -> XT a)
-    -> PatVar -> MExprMapX a -> MExprMapX a
-xtT pvs (A dbe ty) f tkeys EmptyMEM
-  = xtT pvs (A dbe ty) f tkeys mkEmptyMExprMapX
-
-xtT pvs (A dbe ty) f tkeys m@(MEM {..})
-  = go ty
-  where
-   go (Var tv)
-      -- Second or subsequent occurrence of a template tyvar
-      | Just xv <- lookupDBE tv tkeys  = m { mem_xvar = IntMap.alter (f tkeys) xv mem_xvar }
-
-      -- First occurrence of a template tyvar
-      | tv `Set.member` pvs = m { mem_tvar = f (extendDBE tv tkeys) mem_tvar  }
-
-      -- Occurrence of a lam-bound var
-      | Just bv <- lookupDBE tv dbe = m { mem_bvar = alterBoundVarOcc bv (f tkeys) mem_bvar }
-
-      -- A completely free variable
-      | otherwise = m { mem_fvar = alterFreeVarOcc  tv (f tkeys) mem_fvar }
-
-   go (Lit tc)  = m { mem_tycon = xtTC tc (f tkeys) mem_tycon }
-   go (App t1 t2) = m { mem_fun   = xtT pvs (A dbe t1)
-                                         (liftXT (xtT pvs (A dbe t2) f))
-                                         tkeys mem_fun }
-   go (Lam tv ty) = m { mem_lam = xtT pvs (A (extendDBE tv dbe) ty)
-                                             f tkeys mem_lam }
-
-
-xtTC :: Lit -> XT a -> Map Lit a ->  Map Lit a
-xtTC tc f m = Map.alter f tc m
-
-liftXT :: (PatVar -> MExprMapX a -> MExprMapX a)
-        -> PatVar -> Maybe (MExprMapX a) -> Maybe (MExprMapX a)
-liftXT insert tkeys Nothing  = Just (insert tkeys emptyMExprMapX)
-liftXT insert tkeys (Just m) = Just (insert tkeys m)
-
+mkPatSet :: [([Var], Expr)] -> PatMap Expr
+mkPatSet = mkPatMap . map (\(tmpl_vs, e) -> (tmpl_vs, e, e))
 
 {- *********************************************************************
 *                                                                      *
@@ -1084,10 +1042,9 @@ instance Pretty a => Pretty (ExprMap' a) where
                     , text "em_lam ="  <+> ppr em_lam ])
 
 {-
-instance Pretty a => Pretty (MExprMap a) where
+instance Pretty a => Pretty (PatMap a) where
   ppr (EM {..}) = text "EM" <+> braces (vcat
-                    [ text "mem_tvar =" <+> ppr mem_tvar
-                    , text "mem_xvar =" <+> ppr mem_xvar
+                    [ text "mem_pvar =" <+> ppr mem_pvar
                     , text "mem_bvar =" <+> ppr mem_bvar
                     , text "mem_fvar =" <+> ppr mem_fvar
                     , text "mem_fun =" <+> ppr mem_fun
