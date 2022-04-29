@@ -34,7 +34,7 @@ prop_ExprMap_alter_miss =
 insertUC :: forall a. (Env, Expr, a) -> MExprMap a -> MExprMap a
 insertUC (env, ty, a) = insertMExprMap (boundVars env) ty a
 
-applyMatches :: Eq a => [ ([(PatVar,Expr)], a) ] -> [(Env, Expr, a)] -> [Expr]
+applyMatches :: Eq a => [ ([(Var,Expr)], a) ] -> [(Env, Expr, a)] -> [Expr]
 applyMatches matches inputs = [ applySubst subst ty | (subst, a) <- matches, (env, ty, b) <- inputs, a == b ]
 
 -- This property ensures that if we get any matches, that they substitute to the actual type that
@@ -73,7 +73,7 @@ distinctValues ((_,_,a):xs) = notIn a xs && distinctValues xs
     notIn a [] = True
     notIn a ((_,_,b):xs) = a /= b && notIn a xs
 
-applySubst :: [(PatVar, Expr)] -> Expr -> Expr
+applySubst :: [(Var, Expr)] -> Expr -> Expr
 applySubst subst e@Lit{}   = e
 applySubst subst e@(Var v) = fromMaybe e $ lookup v subst
 applySubst subst (App arg res) = App (applySubst subst arg) (applySubst subst res)
