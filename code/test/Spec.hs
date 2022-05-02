@@ -31,8 +31,8 @@ prop_ExprMap_alter_miss =
     let de2 = deBruijnize e2
     lookupTM de1 (alterTM de2 xt m) == lookupTM de1 m
 
-insertUC :: forall a. (Env, Expr, a) -> MExprMap a -> MExprMap a
-insertUC (env, ty, a) = insertMExprMap (boundVars env) ty a
+insertUC :: forall a. (Env, Expr, a) -> PatMap a -> PatMap a
+insertUC (env, ty, a) = insertPM (boundVars env) ty a
 
 applyMatches :: Eq a => [ ([(Var,Expr)], a) ] -> [(Env, Expr, a)] -> [Expr]
 applyMatches matches inputs = [ applySubst subst ty | (subst, a) <- matches, (env, ty, b) <- inputs, a == b ]
@@ -44,8 +44,8 @@ _prop_match
   = forAll genInputs $ \inputs ->
     forAll genClosedExpr $ \e ->
     distinctValues inputs ==>
-    let trie = foldr insertUC emptyMExprMap inputs
-        matches = lookupMExprMap e trie
+    let trie = foldr insertUC emptyPatMap inputs
+        matches = matchPM e trie
     in counterexample (show trie) $
        all (e ==) (applyMatches matches inputs)
 
@@ -54,13 +54,13 @@ _prop_match
 _prop_find =
   forAll genClosedExpr $ \e ->
   forAll (generalization e) $ \(tvs, typ) ->
-  let [(subst, ())] = lookupMExprMap e (insertMExprMap tvs typ () emptyMExprMap)
+  let [(subst, ())] = matchPM e (insertPM tvs typ () emptyPatMap)
   in e == applySubst subst typ
 
 -- | A regression test exemplifying that is_more_specific is broken:
 _prop_too_specific = do
-  let m = mkMExprSet [(["a", "b", "c"], read "F (a b) c"), (["ab"], read "F ab C")]
-      matches = lookupMExprMap (read "F (A B) C") m
+  let m = mkPatSet [(["a", "b", "c"], read "F (a b) c"), (["ab"], read "F ab C")]
+      matches = matchPM (read "F (A B) C") m
   counterexample ("Matching on `F (A B) C` returned wrong number of matches:\n" ++ show matches) $
     length matches == 2
 
@@ -74,7 +74,6 @@ distinctValues ((_,_,a):xs) = notIn a xs && distinctValues xs
     notIn a ((_,_,b):xs) = a /= b && notIn a xs
 
 applySubst :: [(Var, Expr)] -> Expr -> Expr
-applySubst subst e@Lit{}   = e
 applySubst subst e@(Var v) = fromMaybe e $ lookup v subst
 applySubst subst (App arg res) = App (applySubst subst arg) (applySubst subst res)
 applySubst subst (Lam v body) = Lam v (applySubst (del v subst) body)

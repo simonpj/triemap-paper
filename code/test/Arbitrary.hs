@@ -20,7 +20,7 @@ instance Show Env where
 
 idx2Var :: Int -> Var
 idx2Var n | n <= 26   = [chr (ord 'a' + n)]
-            | otherwise = "t" ++ show n
+          | otherwise = "t" ++ show n
 
 boundVars :: Env -> [Var]
 boundVars (Env n) = map idx2Var [0..n-1]
@@ -40,20 +40,20 @@ genClosedExpr = genOpenExpr emptyEnv
 genOpenExpr :: Env -> QC.Gen Expr
 genOpenExpr env = QC.sized $ \size ->
   QC.frequency $ concat
-    [ [ (1,                genLit env) ]
-    , [ (2,                genVar env) | not $ null $ boundVars env ]
-    , [ (size * 8 `div` 7, genApp env) ]
-    , [ (size `div` 4,     genLam env) ]
+    [ [ (1,                genFreeVar env)  ]
+    , [ (2,                genBoundVar env) | not $ null $ boundVars env ]
+    , [ (size * 8 `div` 7, genApp env)      ]
+    , [ (size `div` 4,     genLam env)      ]
     ]
 
 -- | This defn leads to good correlation between QC size and expr sizes
 appFactor :: Int -> Int
 appFactor n = n*16 `div` 31
 
-genLit, genVar, genApp, genLam :: Env -> QC.Gen Expr
-genLit _   = QC.elements (map (Lit . (:[])) ['A'..'Z'])
-genVar env = QC.elements (map Var (boundVars env))
-genApp env = App <$> QC.scale appFactor (genOpenExpr env)
+genFreeVar, genBoundVar, genApp, genLam :: Env -> QC.Gen Expr
+genFreeVar  env = QC.elements (map (Var . (:[])) ['A'..'Z']) -- upper case is never a bound var
+genBoundVar env = QC.elements (map Var (boundVars env))
+genApp      env = App <$> QC.scale appFactor (genOpenExpr env)
                  <*> QC.scale appFactor (genOpenExpr env)
 genLam env = withBoundVar env $ \v env' ->
   Lam v <$> QC.scale (subtract 1) (genOpenExpr env')
@@ -82,13 +82,11 @@ genClosedExprMap = do
   QC.resize (isqrt sz) $ mkExprMap <$> QC.vectorOf (isqrt sz) genClosedExpr
 
 exprDepth :: Expr -> Int
-exprDepth (Lit _) = 0
 exprDepth (Var _) = 0
 exprDepth (App f a) = 1 + max (exprDepth f) (exprDepth a)
 exprDepth (Lam _ e) = 1 + exprDepth e
 
 exprSize :: Expr -> Int
-exprSize (Lit _) = 1
 exprSize (Var _) = 1
 exprSize (App f a) = 1 + exprSize f + exprSize a
 exprSize (Lam _ e) = 1 + exprSize e
