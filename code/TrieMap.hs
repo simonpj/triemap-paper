@@ -1,7 +1,8 @@
 {-# LANGUAGE TypeFamilies, RankNTypes, FlexibleInstances, FlexibleContexts,
              RecordWildCards, ScopedTypeVariables,
-             StandaloneDeriving, UndecidableInstances,
-             LambdaCase, DeriveFunctor, ViewPatterns, TupleSections #-}
+             StandaloneDeriving, UndecidableInstances, TypeApplications,
+             LambdaCase, DeriveFunctor, ViewPatterns, TupleSections,
+             TypeFamilies, EmptyDataDecls #-}
 
 {-# LANGUAGE BangPatterns, StrictData #-} -- for benchmarks
 
@@ -18,6 +19,7 @@
 --
 module TrieMap where
 
+import qualified Data.Foldable as Foldable
 import qualified Data.List as List
 import Data.List( foldl' )
 import Data.Map (Map)
@@ -80,9 +82,37 @@ initM items = foldl ins emptyMExprMap items
 
 type Var    = String
 
-data Expr = Var Var
-          | App Expr Expr
-          | Lam Var Expr
+data Expr' p = Var (OccP p)
+             | App (RecP p) (RecP p)
+             | Lam (BindP p) (RecP p)
+
+type family BindP p
+type family OccP p
+type family RecP p
+
+data Vanilla
+type Expr = Expr' Vanilla
+type instance BindP Vanilla = Var
+type instance OccP  Vanilla = Var
+type instance RecP  Vanilla = Expr
+
+data Occ
+  = Free Var
+  | Bound BoundVar
+  | Pat PatVar
+  deriving Eq
+
+data CanonShallow
+type CExprShallow = Expr' CanonShallow
+type instance BindP CanonShallow = ()
+type instance OccP  CanonShallow = Occ
+type instance RecP  CanonShallow = Expr
+
+data CanonDeep
+type CExprDeep = Expr' CanonDeep
+type instance BindP CanonDeep = ()
+type instance OccP  CanonDeep = Occ
+type instance RecP  CanonDeep = CExprDeep
 
 anyFreeVarsOfExpr :: (Var -> Bool) -> Expr -> Bool
 -- True if 'p' returns True of any free variable
@@ -291,21 +321,32 @@ lookupPatSubst key subst
       Just ty -> ty
       Nothing -> error ("lookupPatSubst " ++ show key)
 
-data Occ
-  = Free Var
-  | Bound BoundVar
-  | Pat PatVar (Maybe PatVarEnv)
-
-viewOcc :: BoundVarEnv -> PatVarEnv -> Var -> Occ
-viewOcc benv penv@PVE{..} v
-  | Just bv <- lookupDBE v benv    = Bound bv
-  | not (v `Set.member` pve_pvs)   = Free v
-  | Just pv <- lookupDBE v pve_env = Pat pv  Nothing
-  | otherwise                      = Pat pv' (Just penv')
+canonOcc :: PatVarEnv -> BoundVarEnv -> Var -> (PatVarEnv, Occ)
+canonOcc pe@PVE{..} be v
+  | Just bv <- lookupDBE v be        = (pe,  Bound bv)
+  | not (v `Set.member` pve_pvs)     = (pe,  Free v)
+  | Just pv <- lookupDBE v pve_env   = (pe,  Pat pv)
+  | otherwise                        = (pe', Pat pv')
   where
-    pv'   = dbe_next pve_env
-    penv' = penv{pve_env = extendDBE v pve_env}
-{-# INLINE viewOcc #-}
+    pv' = dbe_next pve_env
+    pe' = pe{pve_env = extendDBE v pve_env}
+{-# INLINE canonOcc #-}
+
+canonShallow :: PatVarEnv -> BoundVarEnv -> Expr -> (PatVarEnv, BoundVarEnv, CExprShallow)
+canonShallow pe be (Lam b e) = (pe,  extendDBE b be, Lam () e)
+canonShallow pe be (App f a) = (pe,  be, App f a)
+canonShallow pe be (Var v)   = (pe', be, Var occ)
+  where (pe', occ) = canonOcc pe be v
+{-# INLINE canonShallow #-}
+
+canonDeep :: PatVarEnv -> BoundVarEnv -> Expr -> (PatVarEnv, CExprDeep)
+canonDeep pe be (Lam v e) = (pe', Lam () e')
+  where (pe', e') = canonDeep pe (extendDBE v be) e
+canonDeep pe be (App f a) = (pe2, App f' a')
+  where (pe1, f') = canonDeep pe  be f
+        (pe2, a') = canonDeep pe1 be a
+canonDeep pe be (Var v)   = (pe', Var occ)
+  where (pe', occ) = canonOcc pe be v
 
 {- *********************************************************************
 *                                                                      *
@@ -636,7 +677,7 @@ data MExprMap a
   | MEM { mem_pvar   :: PatVarMap a      -- Occurrence of a pattern var
         , mem_bvar   :: BoundVarMap a    -- Occurrence of a lam-bound var
         , mem_fvar   :: FreeVarMap a     -- Occurrence of a completely free var
-        , mem_fun    :: MExprMap (MExprMap a)
+        , mem_app    :: MExprMap (MExprMap a)
         , mem_lam    :: MExprMap a
         }
 
@@ -651,13 +692,13 @@ mkEmptyMExprMapX
   = MEM { mem_pvar = emptyPVM
         , mem_fvar = emptyFVM
         , mem_bvar = emptyBVM
-        , mem_fun  = emptyMExprMap
+        , mem_app  = emptyMExprMap
         , mem_lam  = emptyMExprMap }
 
-lookupInsts :: ModAlpha Expr -> (MatchState, MExprMap a) -> Bag (MatchState, a)
-lookupInsts _ (_, EmptyMEM)
+lookupMM :: ModAlpha Expr -> (MatchState, MExprMap a) -> Bag (MatchState, a)
+lookupMM _ (_, EmptyMEM)
   = Bag.empty
-lookupInsts ae@(A benv e) (ms, MEM { .. })
+lookupMM ae@(A benv e) (ms, MEM { .. })
   = match mem_pvar `Bag.union` decompose e
   where
      match = Bag.mapMaybe match_one . Bag.fromList . IntMap.toList
@@ -666,27 +707,24 @@ lookupInsts ae@(A benv e) (ms, MEM { .. })
      decompose (Var v) = case lookupDBE v benv of
        Just bv -> lkBoundVarOcc bv (ms, mem_bvar)
        Nothing -> lkFreeVarOcc  v  (ms, mem_fvar)
-     decompose (App e1 e2) = Bag.concatMap (lookupInsts (A benv e2)) $
-                             lookupInsts (A benv e1) (ms, mem_fun)
+     decompose (App e1 e2) = Bag.concatMap (lookupMM (A benv e2)) $
+                             lookupMM (A benv e1) (ms, mem_app)
 
-     decompose (Lam v e) = lookupInsts (A (extendDBE v benv) e) (ms, mem_lam)
+     decompose (Lam v e) = lookupMM (A (extendDBE v benv) e) (ms, mem_lam)
 
-alterPat :: ModAlpha Expr -> (PatVarEnv -> XT a) -> PatVarEnv -> MExprMap a -> MExprMap a
-alterPat e f penv EmptyMEM
-  = alterPat e f penv mkEmptyMExprMapX
+alterMM :: ModAlpha Expr -> (PatVarEnv -> XT a) -> PatVarEnv -> MExprMap a -> MExprMap a
+alterMM e f penv EmptyMEM
+  = alterMM e f penv mkEmptyMExprMapX
 
-alterPat ae@(A benv e) f penv m@(MEM {..})
+alterMM ae@(A benv e) f penv m@(MEM {..})
   = go e
   where
-   go (Var v) = case viewOcc benv penv v of
-     Pat pv (Just penv') -> m { mem_pvar = IntMap.alter (f penv') pv mem_pvar }
-       -- First occ
-     Pat pv Nothing      -> m { mem_pvar = IntMap.alter (f penv)  pv mem_pvar }
-       -- Subsequent occ
-     Bound bv            -> m { mem_bvar = alterBoundVarOcc bv (f penv) mem_bvar }
-     Free fv             -> m { mem_fvar = alterFreeVarOcc v (f penv) mem_fvar }
-   go (App e1 e2)         = m { mem_fun  = alterPat (A benv e1) (liftXT (alterPat (A benv e2) f)) penv mem_fun }
-   go (Lam v e')          = m { mem_lam  = alterPat (A (extendDBE v benv) e') f penv mem_lam }
+    go (Var v) | (penv', occ) <- canonOcc penv benv v = case occ of
+      Pat pv      -> m { mem_pvar = IntMap.alter (f penv') pv mem_pvar }
+      Bound bv    -> m { mem_bvar = alterBoundVarOcc bv (f penv) mem_bvar }
+      Free fv     -> m { mem_fvar = alterFreeVarOcc v (f penv) mem_fvar }
+    go (App e1 e2) = m { mem_app  = alterMM (A benv e1) (liftXT (alterMM (A benv e2) f)) penv mem_app }
+    go (Lam _ e')  = m { mem_lam  = alterMM (A benv e') f penv mem_lam }
 
 
 liftXT :: (PatVarEnv -> MExprMap a -> MExprMap a)
@@ -711,7 +749,7 @@ insertPM :: forall a. [Var]   -- Pattern variables
                       -> Expr -- Pattern
                       -> a -> PatMap a -> PatMap a
 insertPM pvars e x tm
-  = alterPat (deBruijnize e) f (emptyPVE (Set.fromList pvars)) tm
+  = alterMM (deBruijnize e) f (emptyPVE (Set.fromList pvars)) tm
   where
     f :: PatVarEnv -> XT (Match a)
     f penv _ = Just (map inst_key pvars, x)
@@ -725,7 +763,7 @@ insertPM pvars e x tm
 matchPM :: Expr -> PatMap a -> [ ([(Var,Expr)], a) ]
 matchPM e tm
   = [ (map (lookup (getMatchingSubst ms)) prs, x)
-    | (ms, (prs, x)) <- Bag.toList $ lookupInsts (deBruijnize e) (emptyMS, tm) ]
+    | (ms, (prs, x)) <- Bag.toList $ lookupMM (deBruijnize e) (emptyMS, tm) ]
   where
     lookup :: PatSubst -> (Var, PatVar) -> (Var, Expr)
     lookup subst (v, pv) = (v, lookupPatSubst pv subst)
@@ -738,46 +776,318 @@ mkPatSet = mkPatMap . map (\(tmpl_vs, e) -> (tmpl_vs, e, e))
 
 {- *********************************************************************
 *                                                                      *
-                  MExprMap
+                  Triangular substitutions
 *                                                                      *
 ********************************************************************* -}
 
-type Match a = ([(Var, PatVar)], a)
-type MExprMap a = MExprMapX (Match a)
+data TriSubst a = TS
+  { ts_reprs :: PatVarMap PatVar
+  , ts_rigid :: PatVarMap a }
 
-emptyMExprMap :: MExprMap a
-emptyMExprMap = emptyMExprMapX
+emptyTS :: TriSubst a
+emptyTS = TS { ts_reprs = emptyPVM, ts_rigid = emptyPVM }
 
-insertMExprMap :: forall a. [Var]   -- Pattern variables
-                         -> Expr    -- Patern
-                         -> a -> MExprMap a -> MExprMap a
-insertMExprMap tmpl_tvs ty x tm
-  = xtT tmpl_set (deBruijnize ty) f emptyDBE tm
+-- | Returns the representative of the equality class of the given 'PatVar' and
+-- a new 'TriSubst' with compressed paths.
+findTS :: PatVar -> TriSubst a -> (PatVar, TriSubst a)
+findTS v ts@TS{ts_reprs=reprs} = case IntMap.lookup v reprs of
+  Nothing -> (v, ts)
+  Just v'
+    | let !(v'', ts') = findTS v' ts
+    -> (v'', ts'{ts_reprs=IntMap.insert v v'' reprs})
+{-# INLINE findTS #-}
+
+-- | Merges the two equivalence classes represented by the given 'PatVar's.
+unionTS :: PatVar -> PatVar -> TriSubst a -> TriSubst a
+unionTS a b ts = ts{ts_reprs=IntMap.insert a b (ts_reprs ts)}
+{-# INLINE unionTS #-}
+
+lookupTS :: PatVar -> TriSubst a -> (Maybe a, TriSubst a)
+lookupTS v ts = (IntMap.lookup v' (ts_rigid ts'), ts')
   where
-    tmpl_set = Set.fromList tmpl_tvs
+    (v', ts') = findTS v ts
+{-# INLINE lookupTS #-}
 
-    f :: PatVar -> XT (Match a)
-    f tkeys _ = Just (map inst_key tmpl_tvs, x)
-     -- The "_" means just overwrite previous value
-     where
-        inst_key :: Var -> (Var, PatVar)
-        inst_key tv = case lookupDBE tv tkeys of
-                         Nothing  -> error ("Unbound tmpl var " ++ tv)
-                         Just key -> (tv, key)
-
-lookupMExprMap :: Expr -> MExprMap a -> [ ([(Var,Expr)], a) ]
-lookupMExprMap ty tm
-  = [ (map (lookup psubst) prs, x)
-    | (psubst, (prs, x)) <- Bag.toList $ lkT (deBruijnize ty) (emptyPatSubst, tm) ]
+insertTS :: PatVar -> a -> TriSubst a -> TriSubst a
+insertTS v x ts = ts'{ts_rigid=IntMap.insert v' x (ts_rigid ts')}
   where
-    lookup :: PatSubst -> (Var, PatVar) -> (Var, Expr)
-    lookup psubst (tv, key) = (tv, lookupPatSubst key psubst)
+    (v', ts') = findTS v ts
 
-mkMExprMap :: [([Var], Expr, a)] -> MExprMap a
-mkMExprMap = foldr (\(tmpl_vs, e, a) -> insertMExprMap tmpl_vs e a) emptyMExprMap
+{- *********************************************************************
+*                                                                      *
+                  V
+*                                                                      *
+********************************************************************* -}
 
-mkMExprSet :: [([Var], Expr)] -> MExprMap Expr
-mkMExprSet = mkMExprMap . map (\(tmpl_vs, e) -> (tmpl_vs, e, e))
+data V a = V !BoundVarEnv !PatVarEnv !a
+  deriving Functor
+
+eqVFoldable :: (Eq (V a), Foldable f) => V (f a) -> V (f a) -> Bool
+eqVFoldable va@(V _ _ as) vb@(V _ _ bs) =
+  map (<$ va) (Foldable.toList as) == map (<$ vb) (Foldable.toList bs)
+
+instance Eq (V a) => Eq (V [a]) where
+  (==) = eqVFoldable
+
+instance Eq (V a) => Eq (V (Maybe a)) where
+  (==) = eqVFoldable
+
+instance Eq (V Expr) where
+  (==) = eqVExpr
+
+eqVExpr :: V Expr -> V Expr -> Bool
+eqVExpr v1@(V _ _ (App s1 t1)) v2@(V _ _ (App s2 t2))
+  = eqVExpr (s1 <$ v1) (s2 <$ v2) &&
+    eqVExpr (t1 <$ v1) (t2 <$ v2)
+
+eqVExpr (V benv1 penv1 (Var v1)) (V benv2 penv2 (Var v2))
+  = snd (canonOcc penv1 benv1 v1) == snd (canonOcc penv2 benv2 v2)
+
+eqVExpr (V benv1 penv1 (Lam v1 e1)) (V benv2 penv2 (Lam v2 e2))
+  = eqVExpr (V (extendDBE v1 benv1) penv1 e1)
+            (V (extendDBE v2 benv2) penv2 e2)
+
+eqVExpr _ _ = False
+
+sameOcc :: Occ -> Occ -> Bool
+sameOcc (Free v1)  (Free v2)  = v1 == v2
+sameOcc (Bound v1) (Bound v2) = v1 == v2
+sameOcc (Pat v1)   (Pat v2)   = v1 == v2
+sameOcc _          _          = False
+
+instance Show (V Expr) where
+  show (V _ _ e) = show e
+
+getFinalPatEnv :: V Expr -> PatVarEnv
+getFinalPatEnv v@(V benv penv e) = case e' of
+  Var _   -> penv'
+  App f a -> getFinalPatEnv (V benv' (getFinalPatEnv (V benv' penv' f)) a)
+  Lam _ e -> getFinalPatEnv (V benv' penv' e)
+  where
+    (penv', benv', e') = canonShallow penv benv e
+
+{- *********************************************************************
+*                                                                      *
+                  Unifying ExprMap
+*                                                                      *
+********************************************************************* -}
+
+newtype UnifierState = US { us_subst :: TriSubst (V Expr) }
+
+emptyUS :: UnifierState
+emptyUS = US { us_subst = emptyTS }
+
+--hasSolution :: PatVar -> UnifierState -> (Maybe (V Expr), UnifierState)
+--hasSolution = coerce lookupTS
+
+solve :: PatVar -> CExprDeep -> UnifierState -> Maybe UnifierState
+solve = _
+
+unifyEC :: V Expr -> CExprDeep -> UnifierState -> Maybe UnifierState
+unifyEC = _
+
+unifyCC :: CExprDeep -> CExprDeep -> UnifierState -> Maybe UnifierState
+unifyCC = _
+--unify ve1@(V benv1 penv1 e1) ve2@(V benv2 penv2 e2) us = case (e1, e2) of
+--  (Var v1, e2') -> case  benv1 penv1 v1 of
+--    Pat pv mb_penv
+--      | Just _ <- mb_penv
+--      -> error ("can't unify un-canonicalised PatVar " ++ show pv)
+--      | (Just sol, us') <- hasSolution pv (us_left us)
+--      -> unify sol ve2 us'
+--      | pv `doesNotOccurIn` ve2
+--      , noCaptured benv2 e2
+--      -> Just us{us_subst=insertTS pv ve2 (us_left us)}
+--      | otherwise
+--      -> Nothing
+--    occ1
+--      | Var v2 <- e2' -> case viewOcc benv2 penv2 v2 of
+--          occ2 | sameOcc occ1 occ2 -> Just us
+--               | otherwise         -> Nothing
+--    _ -> Nothing
+--  (_, Var v2) -> unify ve2 ve1 us
+--  (App f1 a1, App f2 a2) -> unify (f1 <$ ve1) (f2 <$ ve2) us >>= unify (a1 <$ ve1) (a2 <$ ve2)
+--  (Lam v1 e1', Lam v2 e2') -> unify (add_bndr v1 (e1' <$ ve1)) (add_bndr v2 (e2' <$ ve2)) us
+--  _ -> Nothing
+--  where
+--    add_bndr v (V benv penv a) = V (extendDBE v benv) penv a
+
+-- | The "occurs check"
+doesNotOccurIn :: PatVar -> V Expr -> Bool
+doesNotOccurIn _ _ = True -- Fix when we do unification instead of matching
+
+type UExprMap = SEMap UExprMap'
+data UExprMap' a
+  = UEM { uem_pvar :: PatVarMap a      -- Occurrence of a pattern var
+        , uem_bvar :: BoundVarMap a    -- Occurrence of a lam-bound var
+        , uem_fvar :: FreeVarMap a     -- Occurrence of a completely free var
+        , uem_app  :: UExprMap (UExprMap a)
+        , uem_lam  :: UExprMap a
+        }
+
+class TrieMap tm => UTrieMap tm where
+  lookupUnisTM :: ModAlpha Expr
+               -> (PatVarEnv -> (UnifierState, a) -> Bag (UnifierState, b))
+               ->  PatVarEnv -> (UnifierState, tm a) -> Bag (UnifierState, b)
+  alterPatTM :: ModAlpha Expr -> (PatVarEnv -> XT a) -> PatVarEnv -> tm a -> tm a
+
+instance (UTrieMap tm, TrieKey tm ~ CExprDeep) => UTrieMap (SEMap tm) where
+  lookupUnisTM = lookupUnisSEM
+  alterPatTM = alterPatSEM
+
+instance TrieMap UExprMap' where
+  type TrieKey UExprMap' = CExprDeep
+  emptyTM = mkEmptyUExprMap
+
+instance UTrieMap UExprMap' where
+  lookupUnisTM = lookupUnisUM
+  alterPatTM = alterPatUM
+
+deriving instance (Show v)
+               => Show (UExprMap' v)
+
+emptyUExprMap :: UExprMap a
+emptyUExprMap = EmptySEM
+
+mkEmptyUExprMap :: UExprMap' a
+mkEmptyUExprMap
+  = UEM { uem_pvar = emptyPVM
+        , uem_fvar = emptyFVM
+        , uem_bvar = emptyBVM
+        , uem_app  = emptyUExprMap
+        , uem_lam  = emptyUExprMap }
+
+assocsSEM :: (tm a -> [(TrieKey tm, a)]) -> SEMap tm a -> [(TrieKey tm, a)]
+assocsSEM _ EmptySEM        = []
+assocsSEM _ (SingleSEM k x) = [(k, x)]
+assocsSEM f (MultiSEM m)    = f m
+
+assocsUM :: UExprMap' a -> [(CExprDeep, a)]
+assocsUM UEM{..} = concat
+  [ [ (Var (Pat pv), x)   | (pv, x) <- IntMap.toList uem_pvar ]
+  , [ (Var (Bound bv), x) | (bv, x) <- IntMap.toList uem_bvar ]
+  , [ (Var (Free v), x)   | (v, x)  <- Map.toList uem_fvar ]
+  , [ (Lam () e, x)       | (e, x)  <- assocs_tm uem_lam ]
+  , [ (App f a, x)        | (f, ma) <- assocs_tm uem_app, (a, x) <- assocs_tm ma ]
+  ]
+  where assocs_tm = assocsSEM assocsUM
+
+lookupUnisSEM
+  :: (UTrieMap tm, TrieKey tm ~ CExprDeep)
+  => ModAlpha Expr
+  -> (PatVarEnv -> (UnifierState, a) -> Bag (UnifierState, b))
+  ->  PatVarEnv -> (UnifierState, SEMap tm a) -> Bag (UnifierState, b)
+lookupUnisSEM a1@(A benv e) cont penv (us, m) = lk m
+  where
+    lk EmptySEM = Bag.empty
+    lk (SingleSEM k2 v)
+      | let k1 = V benv penv e
+      , Just us' <- unifyEC k1 k2 us = cont (getFinalPatEnv k1) (us', v)
+      | otherwise                    = Bag.empty
+    lk (MultiSEM m) = lookupUnisTM a1 cont penv (us, m)
+
+lookupUnisUM :: ModAlpha Expr
+             -> (PatVarEnv -> (UnifierState, a) -> Bag (UnifierState, b))
+             -> PatVarEnv -> (UnifierState, UExprMap' a) -> Bag (UnifierState, b)
+lookupUnisUM k@(A benv e) cont penv (us, um@UEM{..})
+  = match uem_pvar `Bag.union` decompose e
+  where
+     match = Bag.concatMap match_one . Bag.fromList . IntMap.toList
+     match_one (pv, x) = case solve pv k us of
+       Nothing -> Bag.empty
+       Just us' -> cont penv' (us', x)
+       where
+         (penv', k) = canonDeep penv benv e
+
+     decompose (Var v) | (penv', occ) <- canonOcc penv benv v = case occ of
+       Pat pv   -> Bag.concatMap (cont penv) $ Bag.mapMaybe (\(e,x) -> (,x) <$> solve pv e us) $ Bag.fromList $ assocsUM um
+       Bound bv -> Bag.concatMap (cont penv) (lkBoundVarOcc bv (us, uem_bvar))
+       Free v   -> Bag.concatMap (cont penv) (lkFreeVarOcc  v  (us, uem_fvar))
+     decompose (App e1 e2) = lookupUnisTM (A benv e1)
+                                          (lookupUnisTM (A benv e2) cont)
+                                          penv
+                                          (us, uem_app)
+     decompose (Lam v e) = lookupUnisTM (A (extendDBE v benv) e) cont penv (us, uem_lam)
+     lookup_um a = lookupUnisSEM a
+
+alterPatSEM
+  :: (UTrieMap tm, TrieKey tm ~ V Expr)
+  => ModAlpha Expr -> (PatVarEnv -> XT a) -> PatVarEnv -> SEMap tm a -> SEMap tm a
+alterPatSEM a1@(A benv e) f penv = go
+  where
+    (penv', k1) = canonDeep penv benv e
+    go EmptySEM | Just v1 <- f penv' Nothing = SingleSEM k1 v1
+                | otherwise                  = EmptySEM
+    go m@(SingleSEM k2 (penv2, v2))
+      | k1 == k2 = case f penv' (Just v2) of
+          Nothing -> EmptySEM
+          Just v1 -> SingleSEM k1 v1
+      | otherwise = case f penv' Nothing of
+          Nothing -> m
+          Just v1 -> MultiSEM $ alterPatTM a1           (\_ _ -> Just v1) penv
+                              $ alterPatTM (A benv2 e2) (\_ _ -> Just v2) penv
+                              $ emptyTM
+    go (MultiSEM m) = MultiSEM (alterPatTM a1 f penv m)
+
+alterPatUM :: ModAlpha Expr -> (PatVarEnv -> XT a) -> PatVarEnv -> UExprMap' a -> UExprMap' a
+alterPatUM ae@(A benv e) f penv m@(UEM {..})
+  = go e
+  where
+    go (Var v) | (penv', occ) <- canonOcc penv benv v = case occ of
+      Pat pv      -> m { uem_pvar = IntMap.alter (f penv') pv uem_pvar }
+      Bound bv    -> m { uem_bvar = alterBoundVarOcc bv (f penv) uem_bvar }
+      Free fv     -> m { uem_fvar = alterFreeVarOcc v (f penv) uem_fvar }
+    go (App e1 e2) = m { uem_app  = alterPatTM (A benv e1) (liftXTU (alterPatTM (A benv e2) f)) penv uem_app }
+    go (Lam v e')  = m { uem_lam  = alterPatTM (A (extendDBE v benv) e') f penv uem_lam }
+
+
+liftXTU :: (PatVarEnv -> UExprMap a -> UExprMap a)
+        -> PatVarEnv -> Maybe (UExprMap a) -> Maybe (UExprMap a)
+liftXTU alter penv Nothing  = Just (alter penv emptyUExprMap)
+liftXTU alter penv (Just m) = Just (alter penv m)
+
+
+{- *********************************************************************
+*                                                                      *
+                  UExprMap
+*                                                                      *
+********************************************************************* -}
+
+type UMatch a = ([(Var, PatVar)], a)
+type UniMap a = UExprMap (UMatch a)
+
+emptyUniMap :: UniMap a
+emptyUniMap = emptyUExprMap
+
+--insertUM :: forall a. [Var]   -- Pattern variables
+--                      -> Expr -- Pattern
+--                      -> a -> UniMap a -> UniMap a
+--insertUM pvars e x tm
+--  = alterUni (deBruijnize e) f (emptyPVE (Set.fromList pvars)) tm
+--  where
+--    f :: PatVarEnv -> XT (UMatch a)
+--    f penv _ = Just (map inst_key pvars, x)
+--     -- The "_" means just overwrite previous value
+--     where
+--        inst_key :: Var -> (Var, UniVar)
+--        inst_key v = case lookupDBE v (pve_env penv) of
+--                         Nothing  -> error ("Unbound UniVar " ++ v)
+--                         Just pv -> (v, pv)
+--
+--matchUM :: Expr -> UniMap a -> [ ([(Var,Expr)], a) ]
+--matchUM e tm
+--  = [ (map (lookup (getUnifyingSubst ms)) prs, x)
+--    | (ms, (prs, x)) <- Bag.toList $ lookupInsts (deBruijnize e) (emptyUS, tm) ]
+--  where
+--    lookup :: PatSubst -> (Var, PatVar) -> (Var, Expr)
+--    lookup subst (v, pv) = (v, lookupUniSubst pv subst)
+--
+--mkUniMap :: [([Var], Expr, a)] -> UniMap a
+--mkUniMap = foldr (\(tmpl_vs, e, a) -> insertUM tmpl_vs e a) emptyUExprMap
+--
+--mkUniSet :: [([Var], Expr)] -> UniMap Expr
+--mkUniSet = mkUniMap . map (\(tmpl_vs, e) -> (tmpl_vs, e, e))
+
 
 {- *********************************************************************
 *                                                                      *
@@ -1011,6 +1321,6 @@ instance Pretty a => Pretty (PatMap a) where
                     [ text "mem_pvar =" <+> ppr mem_pvar
                     , text "mem_bvar =" <+> ppr mem_bvar
                     , text "mem_fvar =" <+> ppr mem_fvar
-                    , text "mem_fun =" <+> ppr mem_fun
+                    , text "mem_app =" <+> ppr mem_app
                     , text "mem_lam =" <+> ppr mem_lam ])
 -}
