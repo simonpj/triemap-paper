@@ -225,7 +225,6 @@ eqDBExpr (A env1 (App s1 t1)) (A env2 (App s2 t2))
 
 eqDBExpr (A env1 (Var v1)) (A env2 (Var v2))
   = case (lookupDBE v1 env1, lookupDBE v2 env2) of
-      (l, r) | trace (show l ++ " " ++ show r) False -> False
       (Just bv1, Just bv2) -> bv1 == bv2
       (Nothing,   Nothing) -> v1 == v2
       _                    -> False
@@ -735,8 +734,7 @@ instance Matchable Expr where
 equateExpr :: PatVar -> ModAlpha Expr -> MatchState Expr -> Maybe (MatchState Expr)
 equateExpr pv (A benv e) ms = case hasMatch pv ms of
   Just sol
-    | trace ("equateExpr " ++ show pv ++ "  " ++ show e ++ "    " ++ show sol ++ "   " ++ show (A benv e == A emptyDBE sol)) True
-    , e == sol  -> Just ms
+    | e == sol  -> Just ms
     | otherwise -> Nothing
   Nothing
     | noCaptured benv e          -> Just (addMatch pv e ms)
@@ -746,7 +744,7 @@ traceWith f x = trace (f x) x
 
 matchExpr :: ModAlpha Expr -> ModAlpha Expr -> (PatVarEnv, MatchState Expr) -> Maybe (PatVarEnv, MatchState Expr)
 matchExpr pat@(A benv_pat e_pat) tar@(A benv_tar e_tar) (penv, ms) =
-  traceWith (\res -> show ms ++ "  ->  matchExpr " ++ show pat ++ "   " ++ show tar ++ "  -> " ++ show (snd <$> res)) $
+  -- traceWith (\res -> show ms ++ "  ->  matchExpr " ++ show pat ++ "   " ++ show tar ++ "  -> " ++ show (snd <$> res)) $
   case (e_pat, e_tar) of
   (Var v, _) | (penv', occ) <- canonOcc penv benv_pat v -> case occ of
     Pat pv -> (penv',) <$> equate pv tar ms

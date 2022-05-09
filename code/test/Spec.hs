@@ -36,7 +36,7 @@ prop_ExprMap_alter_miss =
 
 -- This property ensures that if we get any matches, that they substitute to the
 -- actual expr that that we're looking up.
-prop_match_hit = -- withMaxSuccess 10000 $
+prop_match_hit = withMaxSuccess 10000 $
   forAllShow (genPatSet) (Data.Tree.View.showTree . patMapToTree) $ \ps ->
   let pats = elemsPatSet ps in
   not (null pats) ==> forAll (elements pats) $ \pat ->
@@ -50,7 +50,7 @@ prop_match_hit = -- withMaxSuccess 10000 $
      && all (e ==) [ applySubst subst e | (subst, e) <- matches ]
 
 -- This property ensures that after we
-prop_match_miss =
+prop_match_miss = withMaxSuccess 10000 $
   forAll genPatSet $ \ps ->
   let pats = elemsPatSet ps in
   not (null pats) ==> forAll (elements pats) $ \pat ->
