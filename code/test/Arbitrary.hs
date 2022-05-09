@@ -1,3 +1,5 @@
+{-# LANGUAGE TupleSections #-}
+
 module Arbitrary where
 
 import TrieMap
@@ -5,6 +7,7 @@ import TrieMap
 import qualified Data.Set as Set
 import qualified Data.Tree.View
 import Data.Char
+import Data.Maybe
 import Text.Show
 import Control.Arrow
 import Control.Monad.Trans.Reader
@@ -69,6 +72,19 @@ withBoundVar env f = QC.oneof $ fresh : [ shadowing | not $ null $ boundVars env
       tv <- QC.elements (boundVars env)
       f tv env
 
+genPattern :: QC.Gen ([Var], Expr)
+genPattern = do
+  e <- genEnv >>= genOpenExpr
+  pure (exprFreeVars e, e)
+
+exprFreeVars :: Expr -> [Var]
+exprFreeVars e = Set.toList (go emptyDBE e)
+  where
+    go env (Var v) | Just _ <- lookupDBE v env = Set.empty
+                   | otherwise                 = Set.singleton v
+    go env (App f a) = go env f `Set.union` go env a
+    go env (Lam b e) = go (extendDBE b env) e
+
 isqrt :: Int -> Int
 isqrt = floor . sqrt . fromIntegral
 
@@ -78,7 +94,6 @@ mkExprMap = foldr (\(v, k) -> insertTM (deBruijnize k) v) emptyExprMap . zip [0.
 genClosedExprMap :: QC.Gen (ExprMap Int)
 genClosedExprMap = do
   sz <- QC.getSize
-  traceM (show sz)
   QC.resize (isqrt sz) $ mkExprMap <$> QC.vectorOf (isqrt sz) genClosedExpr
 
 exprDepth :: Expr -> Int
@@ -90,6 +105,30 @@ exprSize :: Expr -> Int
 exprSize (Var _) = 1
 exprSize (App f a) = 1 + exprSize f + exprSize a
 exprSize (Lam _ e) = 1 + exprSize e
+
+genPatMap :: QC.Gen (PatMap Int)
+genPatMap = do
+  sz <- QC.getSize
+  pats <- QC.resize (isqrt sz) $ QC.vectorOf (isqrt sz) genPattern
+  pure (mkPatMap (zipWith (\(pvs,e) i -> (pvs,e,i)) pats [0..]))
+
+genPatSet :: QC.Gen (PatMap Expr)
+genPatSet = do
+  sz <- QC.getSize
+  pats <- QC.resize (isqrt sz) $ QC.vectorOf (isqrt sz) genPattern
+  pure (mkPatSet pats)
+
+genInstance :: ([Var], Expr) -> QC.Gen Expr
+genInstance (pvs, e) = do
+  subst <- traverse (\pv -> (pv,) <$> genClosedExpr) pvs
+  pure $ applySubst subst e
+
+applySubst :: [(Var, Expr)] -> Expr -> Expr
+applySubst subst e@(Var v) = fromMaybe e $ lookup v subst
+applySubst subst (App arg res) = App (applySubst subst arg) (applySubst subst res)
+applySubst subst (Lam v body) = Lam v (applySubst (del v subst) body)
+  where
+    del k' = filter (\(k,_v) -> k /= k')
 
 -- Just for prototyping
 printSample = QC.sample genClosedExpr
