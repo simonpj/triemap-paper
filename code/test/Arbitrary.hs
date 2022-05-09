@@ -81,6 +81,7 @@ exprFreeVars :: Expr -> [Var]
 exprFreeVars e = Set.toList (go emptyDBE e)
   where
     go env (Var v) | Just _ <- lookupDBE v env = Set.empty
+                   | c:_ <- v, isUpper c       = Set.empty -- uppercase chars are "constants"
                    | otherwise                 = Set.singleton v
     go env (App f a) = go env f `Set.union` go env a
     go env (Lam b e) = go (extendDBE b env) e

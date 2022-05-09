@@ -223,15 +223,16 @@ eqDBExpr (A env1 (App s1 t1)) (A env2 (App s2 t2))
   = eqDBExpr (A env1 s1) (A env2 s2) &&
     eqDBExpr (A env1 t1) (A env2 t2)
 
-eqDBExpr (A env1 (Var tv1)) (A env2 (Var tv2))
-  = case (lookupDBE tv1 env1, lookupDBE tv2 env2) of
-      (Just bvi1, Just bvi2) -> bvi1 == bvi2
-      (Nothing,   Nothing)   -> tv1 == tv2
-      _                      -> False
+eqDBExpr (A env1 (Var v1)) (A env2 (Var v2))
+  = case (lookupDBE v1 env1, lookupDBE v2 env2) of
+      (l, r) | trace (show l ++ " " ++ show r) False -> False
+      (Just bv1, Just bv2) -> bv1 == bv2
+      (Nothing,   Nothing) -> v1 == v2
+      _                    -> False
 
-eqDBExpr a1@(A env1 (Lam tv1 t1)) a2@(A env2 (Lam tv2 t2))
-  = eqDBExpr (A (extendDBE tv1 env1) t1)
-           (A (extendDBE tv2 env2) t2)
+eqDBExpr a1@(A env1 (Lam v1 e1)) a2@(A env2 (Lam v2 e2))
+  = eqDBExpr (A (extendDBE v1 env1) e1)
+             (A (extendDBE v2 env2) e2)
 
 eqDBExpr _ _ = False
 
@@ -283,16 +284,16 @@ emptyFVM :: FreeVarMap a
 emptyFVM = Map.empty
 
 lookupFVM :: FreeVarMap a -> Var -> Maybe a
-lookupFVM env tv = Map.lookup tv env
+lookupFVM env v = Map.lookup v env
 
 extendFVM :: FreeVarMap a -> Var -> a -> FreeVarMap a
-extendFVM env tv val = Map.insert tv val env
+extendFVM env v val = Map.insert v val env
 
 foldFVM :: (v -> a -> a) -> FreeVarMap v -> a -> a
 foldFVM k m z = foldr k z m
 
 alterFreeVarOcc :: Var -> XT a -> FreeVarMap a -> FreeVarMap a
-alterFreeVarOcc tv xt tm = Map.alter xt tv tm
+alterFreeVarOcc v xt tm = Map.alter xt v tm
 
 lkFreeVarOcc :: Var -> (a, FreeVarMap v) -> Bag (a, v)
 lkFreeVarOcc var (a, env) = case Map.lookup var env of
@@ -705,6 +706,7 @@ instance Show (V Expr) where
 ********************************************************************* -}
 
 newtype MatchState e = MS (PatVarMap e)
+  deriving Show
 
 emptyMS :: MatchState e
 emptyMS = MS emptyPVM
@@ -733,14 +735,19 @@ instance Matchable Expr where
 equateExpr :: PatVar -> ModAlpha Expr -> MatchState Expr -> Maybe (MatchState Expr)
 equateExpr pv (A benv e) ms = case hasMatch pv ms of
   Just sol
-    | A benv e == A emptyDBE sol -> Just ms
-    | otherwise                  -> Nothing
+    | trace ("equateExpr " ++ show pv ++ "  " ++ show e ++ "    " ++ show sol ++ "   " ++ show (A benv e == A emptyDBE sol)) True
+    , e == sol  -> Just ms
+    | otherwise -> Nothing
   Nothing
     | noCaptured benv e          -> Just (addMatch pv e ms)
     | otherwise                  -> Nothing
 
+traceWith f x = trace (f x) x
+
 matchExpr :: ModAlpha Expr -> ModAlpha Expr -> (PatVarEnv, MatchState Expr) -> Maybe (PatVarEnv, MatchState Expr)
-matchExpr pat@(A benv_pat e_pat) tar@(A benv_tar e_tar) (penv, ms) = case (e_pat, e_tar) of
+matchExpr pat@(A benv_pat e_pat) tar@(A benv_tar e_tar) (penv, ms) =
+  traceWith (\res -> show ms ++ "  ->  matchExpr " ++ show pat ++ "   " ++ show tar ++ "  -> " ++ show (snd <$> res)) $
+  case (e_pat, e_tar) of
   (Var v, _) | (penv', occ) <- canonOcc penv benv_pat v -> case occ of
     Pat pv -> (penv',) <$> equate pv tar ms
     Bound bv | Var v2 <- e_tar
@@ -766,7 +773,7 @@ samePatternExpr a b = isJust (same a b)
         , occ1 == occ2
         -> Just (penv1', penv2')
       (Lam b1 e1, Lam b2 e2) -> same (V penv1 (extendDBE b1 benv1) e1)
-                                                (V penv2 (extendDBE b2 benv2) e2)
+                                     (V penv2 (extendDBE b2 benv2) e2)
       (App f1 a1, App f2 a2) -> do
         (penv1', penv2') <- same (V penv1 benv1 f1) (V penv2 benv2 f2)
         same (V penv1' benv1 a1) (V penv2' benv2 a2)
@@ -838,8 +845,7 @@ lookupPatMM ae@(A benv e) (ms, MEM { .. })
        Nothing -> lkFreeVarOcc  v  (ms, mem_fvar)
      decompose (App e1 e2) = Bag.concatMap (lookupPatMTM (A benv e2)) $
                              lookupPatMTM (A benv e1) (ms, mem_app)
-     decompose (Lam v e) = trace ("decompose Lam " ++show v) $
-        lookupPatMTM (A (extendDBE v benv) e) (ms, mem_lam)
+     decompose (Lam v e) = lookupPatMTM (A (extendDBE v benv) e) (ms, mem_lam)
 
 alterPatSEM
   :: (MTrieMap tm)

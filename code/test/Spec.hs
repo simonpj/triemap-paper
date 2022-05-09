@@ -36,8 +36,8 @@ prop_ExprMap_alter_miss =
 
 -- This property ensures that if we get any matches, that they substitute to the
 -- actual expr that that we're looking up.
-prop_match_hit =
-  forAll genPatSet $ \ps ->
+prop_match_hit = -- withMaxSuccess 10000 $
+  forAllShow (genPatSet) (Data.Tree.View.showTree . patMapToTree) $ \ps ->
   let pats = elemsPatSet ps in
   not (null pats) ==> forAll (elements pats) $ \pat ->
   forAll (genInstance pat) $ \e ->
@@ -75,6 +75,14 @@ prop_regression_test1 = do
   let m = mkPatSet [p1, p2]
       matches = matchPM e1 m
   counterexample ("Matching on `id` should return `id`:\n" ++ show matches) $
+    length matches == 1
+
+prop_regression_test2 = do
+  let p1 = (["a"], read "\\c. a a")
+  let p2 = (["a", "b", "c"], read "a b c")
+  let m = mkPatSet [p1, p2]
+      matches = matchPM (read "λc. (λa.a) (λa.a)") m
+  counterexample ("Matching `λc. (λa.a)` against `forall a. λc. a`:\n" ++ show matches) $
     length matches == 1
 
 --distinctValues :: Eq a => [(x,y,a)] -> Bool
