@@ -47,35 +47,6 @@ import Data.Functor.Const
 
 {- *********************************************************************
 *                                                                      *
-                   Tests
-*                                                                      *
-********************************************************************* -}
-
--- Here are a few definitions intended for playing around with 'MExprMap'.
--- It makes use of the 'Read' instance of 'Expr' to parse expressions.
--- See the haddock on that 'Read' instance for more details on what
--- assumptions the parser makes.
-
-item1, item2, item3, item4, item5 :: (String, [Var], Expr)
-item1 = ("item1", ["a"], read "a I")
-item2 = ("item2", ["a"], read "a a")
-item3 = ("item3", [],    read "I I")
-item4 = ("item4", ["a", "b"], read "b a")
-item5 = ("item5", ["d"], read "I d")
-
-ty1, ty2, ty3 :: Expr
-ty1 = read "I I"
-ty2 = read "C C"
-ty3 = read "C I"
-
-ins :: PatMap String -> (String, [Var], Expr) -> PatMap String
-ins m (s,pvs,pat) = insertPM pvs pat s m
-
-initM :: [(String,[Var],Expr)] -> PatMap String
-initM items = foldl ins emptyMTM items
-
-{- *********************************************************************
-*                                                                      *
                    Expr
 *                                                                      *
 ********************************************************************* -}
