@@ -623,9 +623,10 @@ eqVExpr _ _ = False
 instance Show (V Expr) where
   show (V _ _ e) = show e
 
+
 {- *********************************************************************
 *                                                                      *
-                  Matching ExprMap
+                  Matchable type class
 *                                                                      *
 ********************************************************************* -}
 
@@ -707,6 +708,13 @@ finalPatEnvExpr penv a@(A benv e) = case e of
   Var v   -> fst $ canonOcc penv benv v
   App f a -> finalPatEnv (finalPatEnv penv (A benv f)) (A benv a)
   Lam b e -> finalPatEnv penv (A (extendDBE b benv) e)
+
+
+{- *********************************************************************
+*                                                                      *
+                  Matching ExprMap
+*                                                                      *
+********************************************************************* -}
 
 type MExprMap = SEMap (V Expr) MExprMap'
 data MExprMap' a
@@ -809,7 +817,8 @@ liftXT alter penv (Just m) = Just (alter penv m)
 
 
 -- An ad-hoc definition of foldMM, because I don't want to define another
--- (duplicate) type class method
+-- (duplicate) type class method. We need this one in the testuite to extract
+-- all patterns from a PatSet
 
 foldMM :: (v -> a -> a) -> a -> MExprMap v -> a
 foldMM f z m = sem f z m
@@ -836,6 +845,7 @@ foldMM f z m = sem f z m
 
 type Match a = ([(Var, PatVar)], a)
 type PatMap a = MExprMap (Match a)
+type PatSet = PatMap Expr
 
 emptyPatMap :: PatMap a
 emptyPatMap = emptyMTM
@@ -875,7 +885,7 @@ deletePM pvars e pm
 mkPatMap :: [([Var], Expr, a)] -> PatMap a
 mkPatMap = foldr (\(tmpl_vs, e, a) -> insertPM tmpl_vs e a) emptyPatMap
 
-mkPatSet :: [([Var], Expr)] -> PatMap Expr
+mkPatSet :: [([Var], Expr)] -> PatSet
 mkPatSet = mkPatMap . map (\(tmpl_vs, e) -> (tmpl_vs, e, e))
 
 elemsPatSet :: PatMap Expr -> [([Var], Expr)]
@@ -1117,10 +1127,18 @@ instance Pretty DeBruijnEnv where
                      braces (sep [ text "dbe_next =" <+> ppr dbe_next
                                  , text "dbe_env =" <+> ppr dbe_env ])
 
-instance (Pretty a) => Pretty (ModAlpha a) where
-  ppr (A bv a) = text "D" PP.<> braces (sep [ppr bv, ppr a])
+instance Pretty PatVarEnv where
+  ppr (PVE { .. }) = text "PVE" PP.<>
+                     braces (sep [ text "pve_pvs =" <+> text (show pve_pvs)
+                                 , text "pve_env =" <+> ppr pve_env ])
 
-instance (Pretty v, Pretty (tm v), Pretty (TrieKey tm), TrieKey tm ~ k)
+instance (Pretty a) => Pretty (ModAlpha a) where
+  ppr (A bv a) = text "A" PP.<> braces (sep [ppr bv, ppr a])
+
+instance (Pretty a) => Pretty (V a) where
+  ppr (V pv bv a) = text "V" PP.<> braces (sep [ppr pv, ppr bv, ppr a])
+
+instance (Pretty v, Pretty (tm v), Pretty k)
       => Pretty (SEMap k tm v) where
   ppr EmptySEM        = text "EmptySEM"
   ppr (SingleSEM k v) = text "SingleSEM" <+> ppr k <+> ppr v
@@ -1133,12 +1151,10 @@ instance Pretty a => Pretty (ExprMap' a) where
                     , text "em_app ="  <+> ppr em_app
                     , text "em_lam ="  <+> ppr em_lam ])
 
-{-
-instance Pretty a => Pretty (PatMap a) where
-  ppr (EM {..}) = text "EM" <+> braces (vcat
+instance Pretty a => Pretty (MExprMap' a) where
+  ppr (MEM {..}) = text "MEM" <+> braces (vcat
                     [ text "mem_pvar =" <+> ppr mem_pvar
                     , text "mem_bvar =" <+> ppr mem_bvar
                     , text "mem_fvar =" <+> ppr mem_fvar
-                    , text "mem_app =" <+> ppr mem_app
-                    , text "mem_lam =" <+> ppr mem_lam ])
--}
+                    , text "mem_app ="  <+> ppr mem_app
+                    , text "mem_lam ="  <+> ppr mem_lam ])
