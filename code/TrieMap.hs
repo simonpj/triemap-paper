@@ -677,7 +677,7 @@ matchExpr pat@(V penv benv_pat e_pat) tar@(A benv_tar e_tar) ms =
     Pat pv -> equate pv tar ms
     occ -> do
       Var v2 <- pure e_tar
-      guard (occ == canonOcc emptyDBE benv_pat v)
+      guard (occ == canonOcc emptyDBE benv_tar v2)
       pure ms
   (App f1 a1, App f2 a2) -> match (f1 <$ pat) (f2 <$ tar) ms >>= match (a1 <$ pat) (a2 <$ tar)
   (Lam b1 e1, Lam b2 e2) -> match (V penv (extendDBE b1 benv_pat) e1) (A (extendDBE b2 benv_tar) e2) ms
@@ -892,10 +892,12 @@ patMapToTree = Node "." . go_sem (\v -> [ Node (show v) [] ])
     go_mem go_val MEM{..} = concat
       [ go_fvar go_val mem_fvar
       , go_bvar go_val mem_bvar
+      , go_pvar go_val mem_pvar
       , go_lam  go_val mem_lam
       , go_app  go_val mem_app
       ]
 
+    go_pvar go_val pvm = [ Node ("pvar(" ++ show k ++ ")") (go_val v) | (k,v) <- IntMap.toList pvm ]
     go_bvar go_val bvm = [ Node ("bvar(" ++ show k ++ ")") (go_val v) | (k,v) <- IntMap.toList bvm ]
     go_fvar go_val m   = [ Node ("fvar(" ++ k      ++ ")") (go_val v) | (k,v) <- Map.toList m ]
     go_lit  go_val m   = [ Node ("lit("  ++ k      ++ ")") (go_val v) | (k,v) <- Map.toList m ]

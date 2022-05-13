@@ -45,7 +45,7 @@ prop_match_hit = withMaxSuccess 10000 $
   counterexample ("PatMap:\n" ++ Data.Tree.View.showTree (patMapToTree ps)) $
   counterexample ("Pat:  " ++ show pat) $
   counterexample ("Expr: " ++ show e) $
-  counterexample ("Matches: " ++ show (length matches)) $
+  counterexample ("Matches: " ++ show matches) $
     not (null matches)
      && all (e ==) [ applySubst subst e | (subst, e) <- matches ]
 
