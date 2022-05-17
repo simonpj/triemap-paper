@@ -153,10 +153,10 @@ instance Eq (ModAlpha a) => Eq (ModAlpha (Maybe a)) where
 
 noCaptured :: DeBruijnEnv -> Expr -> Bool
 -- True iff no free var of the type is bound by DeBruijnEnv
-noCaptured dbe ty
-  = not (anyFreeVarsOfExpr captured ty)
+noCaptured dbe e
+  = not (anyFreeVarsOfExpr captured e)
   where
-    captured tv = isJust (lookupDBE tv dbe)
+    captured v = isJust (lookupDBE v dbe)
 
 instance Eq (ModAlpha Expr) where
   (==) = eqDBExpr
@@ -185,8 +185,11 @@ instance Show (ModAlpha Expr) where
 -- Ord Expr instance for benchmarks:
 --
 
+eqExpr :: Expr -> Expr -> Bool
+eqExpr a b = deBruijnize a == deBruijnize b
+
 instance Eq Expr where
-  a == b = deBruijnize a == deBruijnize b
+  (==) = eqExpr
 
 exprTag :: Expr -> Int
 exprTag Var{} = 0
@@ -671,7 +674,7 @@ traceWith f x = trace (f x) x
 
 matchExpr :: V Expr -> ModAlpha Expr -> MatchState Expr -> Maybe (MatchState Expr)
 matchExpr pat@(V penv benv_pat e_pat) tar@(A benv_tar e_tar) ms =
-  -- traceWith (\res -> show ms ++ "  ->  matchExpr " ++ show pat ++ "   " ++ show tar ++ "  -> " ++ show (snd <$> res)) $
+  -- traceWith (\res -> show ms ++ "  ->  matchExpr " ++ show pat ++ "   " ++ show tar ++ "  -> " ++ show res) $
   case (e_pat, e_tar) of
   (Var v, _) -> case canonOcc penv benv_pat v of
     Pat pv -> equate pv tar ms
@@ -1073,6 +1076,8 @@ class Pretty a where
 
 pprTrace :: String -> Doc -> a -> a
 pprTrace s d x = trace (show (text s <+> d)) x
+
+pprTraceWith s f a = pprTrace s (f a) a
 
 commaSep :: [Doc] -> Doc
 commaSep ds = fsep (go ds)
