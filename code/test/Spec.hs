@@ -37,7 +37,7 @@ prop_ExprMap_alter_miss =
 -- This property ensures that if we get any matches, that they substitute to the
 -- actual expr that that we're looking up.
 prop_match_hit = withMaxSuccess 10000 $
-  forAllShow (genPatSet) (Data.Tree.View.showTree . patMapToTree) $ \ps ->
+  forAllShow (resize 4 $ genPatSet) (Data.Tree.View.showTree . patMapToTree) $ \ps ->
   let pats = elemsPatSet ps in
   not (null pats) ==> forAll (elements pats) $ \pat ->
   forAll (genInstance pat) $ \e ->
@@ -82,8 +82,28 @@ prop_regression_test2 = do
   let p2 = (["a", "b", "c"], read "a b c")
   let m = mkPatSet [p1, p2]
       matches = matchPM (read "λc. (λa.a) (λa.a)") m
-  counterexample ("Matching `λc. (λa.a)` against `forall a. λc. a`:\n" ++ show matches) $
+  counterexample ("Matching `λc. (λa.a) (λa.a)` against `forall a. λc. a a`:\n" ++ show matches) $
     length matches == 1
+
+prop_regression_test3 =
+  let pat = (["a"], read "P a (\\b. a)")
+      tar =         read "P (\\c. b) (\\d.\\c. b)" in
+  let m = mkPatSet [pat]
+      matches = matchPM tar m in
+  counterexample ("Pattern:" ++ show pat) $
+  counterexample ("Target:" ++ show tar) $
+  counterexample ("Probably captured b. Matches:\n" ++ show matches) $
+    length matches == 0
+
+prop_regression_test4 =
+  let pat = (["a"], read "(\\b. a)")
+      tar =         read "(\\d. b)" in
+  let m = mkPatSet [pat]
+      matches = matchPM tar m in
+  counterexample ("Pattern:" ++ show pat) $
+  counterexample ("Target:" ++ show tar) $
+  counterexample ("Probably captured b. Matches:\n" ++ show matches) $
+    length matches == 0
 
 --distinctValues :: Eq a => [(x,y,a)] -> Bool
 -- Assume that values are Ints to avoid ambiguous exprs

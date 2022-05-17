@@ -153,10 +153,10 @@ instance Eq (ModAlpha a) => Eq (ModAlpha (Maybe a)) where
 
 noCaptured :: DeBruijnEnv -> Expr -> Bool
 -- True iff no free var of the type is bound by DeBruijnEnv
-noCaptured dbe ty
-  = not (anyFreeVarsOfExpr captured ty)
+noCaptured dbe e
+  = not (anyFreeVarsOfExpr captured e)
   where
-    captured tv = isJust (lookupDBE tv dbe)
+    captured v = isJust (lookupDBE v dbe)
 
 instance Eq (ModAlpha Expr) where
   (==) = eqDBExpr
@@ -185,8 +185,11 @@ instance Show (ModAlpha Expr) where
 -- Ord Expr instance for benchmarks:
 --
 
+eqExpr :: Expr -> Expr -> Bool
+eqExpr a b = deBruijnize a == deBruijnize b
+
 instance Eq Expr where
-  a == b = deBruijnize a == deBruijnize b
+  (==) = eqExpr
 
 exprTag :: Expr -> Int
 exprTag Var{} = 0
@@ -249,9 +252,12 @@ lkFreeVarOcc var (a, env) = case Map.lookup var env of
 ********************************************************************* -}
 
 type PatVar    = DBNum
-type PatVarEnv = DeBruijnEnv
 type PatVarMap = IntMap
 type PatSubst  = PatVarMap Expr -- Maps PatVar :-> Expr
+data PatVarEnv = PVE { pve_dbe :: !DeBruijnEnv
+                     , pve_cap :: !(PatVarMap (Set Var))
+                         -- which Vars may not occur free in the solution of the PatVar
+                     }
 
 emptyPVM :: PatVarMap a
 emptyPVM = IntMap.empty
@@ -271,21 +277,28 @@ alterPatVarOcc tv xt tm = IntMap.alter xt tv tm
 foldPVM :: (v -> a -> a) -> PatVarMap v -> a -> a
 foldPVM f m a = foldr f a m
 
+emptyPVE :: PatVarEnv
+emptyPVE = PVE emptyDBE emptyPVM
+
 canonPatEnv :: Set Var -> Expr -> PatVarEnv
-canonPatEnv pvars  = go emptyDBE emptyDBE
+canonPatEnv pvars  = go pvars emptyPVE emptyDBE
   where
-    go penv benv e = case e of
+    add_pvar penv@PVE{..} benv v = case canonOcc penv benv v of
+      Free _ -> penv{pve_dbe=extendDBE v pve_dbe}
+      _      -> penv
+    go cap penv@PVE{pve_cap=caps} benv e = case e of
       Var v
-        | Free _ <- canonOcc penv benv v -- not already present in penv
-        , v `Set.member` pvars
-        -> extendDBE v penv
+        | v `Set.member` pvars
+        , let penv' = add_pvar penv benv v
+        , Just pv <- lookupDBE v (pve_dbe penv')
+        -> penv'{pve_cap=IntMap.insertWith Set.union pv cap caps}
         | otherwise
         -> penv
-      App f a -> go (go penv benv f) benv a
-      Lam b e -> go penv (extendDBE b benv) e
+      App f a -> go cap (go cap penv benv f) benv a
+      Lam b e -> go (Set.insert b cap) penv (extendDBE b benv) e
 
 canonOcc :: PatVarEnv -> BoundVarEnv -> Var -> Occ
-canonOcc pe be v
+canonOcc PVE{pve_dbe=pe} be v
   | Just bv <- lookupDBE v be = Bound bv
   | Just pv <- lookupDBE v pe = Pat pv
   | otherwise                 = Free v
@@ -659,25 +672,25 @@ instance Matchable Expr where
   samePattern = samePatternExpr
 
 equateExpr :: PatVar -> ModAlpha Expr -> MatchState Expr -> Maybe (MatchState Expr)
-equateExpr pv (A benv e) ms = case hasMatch pv ms of
+equateExpr pv ae@(A benv e) ms = case hasMatch pv ms of
   Just sol
-    | e == sol  -> Just ms
-    | otherwise -> Nothing
+    | noCaptured benv e, eqExpr e sol -> Just ms
+    | otherwise            -> Nothing
   Nothing
-    | noCaptured benv e          -> Just (addMatch pv e ms)
-    | otherwise                  -> Nothing
+    | noCaptured benv e    -> Just (addMatch pv e ms)
+    | otherwise            -> Nothing
 
 traceWith f x = trace (f x) x
 
 matchExpr :: V Expr -> ModAlpha Expr -> MatchState Expr -> Maybe (MatchState Expr)
 matchExpr pat@(V penv benv_pat e_pat) tar@(A benv_tar e_tar) ms =
-  -- traceWith (\res -> show ms ++ "  ->  matchExpr " ++ show pat ++ "   " ++ show tar ++ "  -> " ++ show (snd <$> res)) $
+  -- traceWith (\res -> show ms ++ "  ->  matchExpr " ++ show pat ++ "   " ++ show tar ++ "  -> " ++ show res) $
   case (e_pat, e_tar) of
   (Var v, _) -> case canonOcc penv benv_pat v of
     Pat pv -> equate pv tar ms
     occ -> do
       Var v2 <- pure e_tar
-      guard (occ == canonOcc emptyDBE benv_tar v2)
+      guard (occ == canonOcc emptyPVE benv_tar v2)
       pure ms
   (App f1 a1, App f2 a2) -> match (f1 <$ pat) (f2 <$ tar) ms >>= match (a1 <$ pat) (a2 <$ tar)
   (Lam b1 e1, Lam b2 e2) -> match (V penv (extendDBE b1 benv_pat) e1) (A (extendDBE b2 benv_tar) e2) ms
@@ -828,7 +841,7 @@ foldMM f z m = sem f z m
 *                                                                      *
 ********************************************************************* -}
 
-type Match a = ([(Var, PatVar)], a)
+type Match a = ([(Var, PatVar, Set Var)], a)
 type PatMap a = MExprMap (Match a)
 type PatSet = PatMap Expr
 
@@ -847,18 +860,24 @@ insertPM pvars e x pm
     xt _ = Just (map inst_key pvars, x)
      -- The "_" means just overwrite previous value
      where
-        inst_key :: Var -> (Var, PatVar)
-        inst_key v = case lookupDBE v penv of
-                         Nothing  -> error ("Unbound PatVar " ++ v)
-                         Just pv -> (v, pv)
+        inst_key :: Var -> (Var, PatVar, Set Var)
+        inst_key v = case lookupDBE v (pve_dbe penv) of
+                         Nothing -> error ("Unbound PatVar " ++ v)
+                         Just pv -> (v, pv, IntMap.findWithDefault Set.empty pv (pve_cap penv))
 
 matchPM :: Expr -> PatMap a -> [ ([(Var,Expr)], a) ]
 matchPM e pm
-  = [ (map (lookup (getMatchingSubst ms)) prs, x)
-    | (ms, (prs, x)) <- Bag.toList $ lookupPatMTM (deBruijnize e) (emptyMS, pm) ]
+  = [ (subst, x)
+    | (ms, (trpls, x)) <- Bag.toList $ lookupPatMTM (deBruijnize e) (emptyMS, pm)
+    , Just subst <- pure $ traverse (lookup (getMatchingSubst ms)) trpls ]
   where
-    lookup :: PatSubst -> (Var, PatVar) -> (Var, Expr)
-    lookup subst (v, pv) = (v, lookupPatSubst pv subst)
+    lookup :: PatSubst -> (Var, PatVar, Set Var) -> Maybe (Var, Expr)
+    lookup subst (v, pv, cap)
+      | let e = lookupPatSubst pv subst
+      , not (anyFreeVarsOfExpr (`Set.member` cap) e)
+      = Just (v, e)
+      | otherwise
+      = Nothing
 
 deletePM :: forall a. [Var]   -- Pattern variables
                       -> Expr -- Pattern
@@ -876,7 +895,7 @@ mkPatSet :: [([Var], Expr)] -> PatSet
 mkPatSet = mkPatMap . map (\(tmpl_vs, e) -> (tmpl_vs, e, e))
 
 elemsPatSet :: PatMap Expr -> [([Var], Expr)]
-elemsPatSet pm = foldMM (\(pks, e) pats -> (map fst pks, e):pats) [] pm
+elemsPatSet pm = foldMM (\(pks, e) pats -> (map (\(v,_,_)->v) pks, e):pats) [] pm
 
 -- | See also 'exprMapToTree'
 patMapToTree :: Show v => PatMap v -> Tree String
@@ -1074,6 +1093,8 @@ class Pretty a where
 pprTrace :: String -> Doc -> a -> a
 pprTrace s d x = trace (show (text s <+> d)) x
 
+pprTraceWith s f a = pprTrace s (f a) a
+
 commaSep :: [Doc] -> Doc
 commaSep ds = fsep (go ds)
   where
@@ -1115,6 +1136,14 @@ instance Pretty DeBruijnEnv where
   ppr (DBE { .. }) = text "DBE" PP.<>
                      braces (sep [ text "dbe_next =" <+> ppr dbe_next
                                  , text "dbe_env =" <+> ppr dbe_env ])
+
+instance Pretty (Set Var) where
+  ppr s = text (show s)
+
+instance Pretty PatVarEnv where
+  ppr (PVE { .. }) = text "PVE" PP.<>
+                     braces (sep [ text "pve_dbe =" <+> ppr pve_dbe
+                                 , text "pve_cap =" <+> ppr pve_cap ])
 
 instance (Pretty a) => Pretty (ModAlpha a) where
   ppr (A bv a) = text "A" PP.<> braces (sep [ppr bv, ppr a])
