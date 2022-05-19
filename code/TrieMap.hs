@@ -254,7 +254,7 @@ lkFreeVarOcc var (a, env) = case Map.lookup var env of
 type PatVar    = DBNum
 type PatVarEnv = DeBruijnEnv
 type PatVarMap = IntMap
-type PatSubst  = PatVarMap Expr -- Maps PatVar :-> Expr
+type PatSubst  = PatVarMap (ModAlpha Expr) -- Maps PatVar :-> Expr
 
 emptyPVM :: PatVarMap a
 emptyPVM = IntMap.empty
@@ -262,10 +262,10 @@ emptyPVM = IntMap.empty
 emptyPatSubst :: PatSubst
 emptyPatSubst = emptyPVM
 
-lookupPatSubst :: PatVar -> PatSubst -> Expr
+lookupPatSubst :: PatVar -> PatSubst -> ModAlpha Expr
 lookupPatSubst key subst
   = case IntMap.lookup key subst of
-      Just ty -> ty
+      Just e  -> e
       Nothing -> error ("lookupPatSubst " ++ show key)
 
 alterPatVarOcc :: PatVar -> XT a -> PatVarMap a -> PatVarMap a
@@ -591,43 +591,46 @@ exprMapToTree = Node "." . go_sem (\v -> [ Node (show v) [] ])
 
 {- *********************************************************************
 *                                                                      *
-                  V
+                  Pat
 *                                                                      *
 ********************************************************************* -}
 
--- | Like 'ModAlpha', but also includes a 'PatVarEnv'.
-data V a = V !PatVarEnv !BoundVarEnv !a
+-- | '(<$)' through two functors
+(<$$) :: (Functor f, Functor g) => b -> f (g a) -> f (g b)
+b <$$ fga = (b <$) <$> fga
+
+data Pat a = P !PatVarEnv !a
   deriving Functor
 
-eqVFoldable :: (Eq (V a), Foldable f) => V (f a) -> V (f a) -> Bool
-eqVFoldable va@(V _ _ as) vb@(V _ _ bs) =
+eqPatFoldable :: (Eq (Pat a), Foldable f) => Pat (f a) -> Pat (f a) -> Bool
+eqPatFoldable va@(P _ as) vb@(P _ bs) =
   map (<$ va) (Foldable.toList as) == map (<$ vb) (Foldable.toList bs)
 
-instance Eq (V a) => Eq (V [a]) where
-  (==) = eqVFoldable
+instance Eq (Pat a) => Eq (Pat [a]) where
+  (==) = eqPatFoldable
 
-instance Eq (V a) => Eq (V (Maybe a)) where
-  (==) = eqVFoldable
+instance Eq (Pat a) => Eq (Pat (Maybe a)) where
+  (==) = eqPatFoldable
 
-instance Eq (V Expr) where
-  (==) = eqVExpr
+instance Eq (Pat (ModAlpha Expr)) where
+  (==) = eqPatExpr
 
-eqVExpr :: V Expr -> V Expr -> Bool
-eqVExpr v1@(V _ _ (App s1 t1)) v2@(V _ _ (App s2 t2))
-  = eqVExpr (s1 <$ v1) (s2 <$ v2) &&
-    eqVExpr (t1 <$ v1) (t2 <$ v2)
+eqPatExpr :: Pat (ModAlpha Expr) -> Pat (ModAlpha Expr) -> Bool
+eqPatExpr v1@(P _ (A _ (App s1 t1))) v2@(P _ (A _ (App s2 t2)))
+  = eqPatExpr (s1 <$$ v1) (s2 <$$ v2) &&
+    eqPatExpr (t1 <$$ v1) (t2 <$$ v2)
 
-eqVExpr (V penv1 benv1 (Var v1)) (V penv2 benv2 (Var v2))
+eqPatExpr (P penv1 (A benv1 (Var v1))) (P penv2 (A benv2 (Var v2)))
   = canonOcc penv1 benv1 v1 == canonOcc penv2 benv2 v2
 
-eqVExpr (V penv1 benv1 (Lam v1 e1)) (V penv2 benv2 (Lam v2 e2))
-  = eqVExpr (V penv1 (extendDBE v1 benv1) e1)
-            (V penv2 (extendDBE v2 benv2) e2)
+eqPatExpr (P penv1 (A benv1 (Lam v1 e1))) (P penv2 (A benv2 (Lam v2 e2)))
+  = eqPatExpr (P penv1 (A (extendDBE v1 benv1) e1))
+            (P penv2 (A (extendDBE v2 benv2) e2))
 
-eqVExpr _ _ = False
+eqPatExpr _ _ = False
 
-instance Show (V Expr) where
-  show (V _ _ e) = show e
+instance Show (Pat (ModAlpha Expr)) where
+  show (P _ (A _ e)) = show e
 
 
 {- *********************************************************************
@@ -652,28 +655,28 @@ addMatch :: PatVar -> e -> MatchState e -> MatchState e
 addMatch pv e (MS ms) = MS (IntMap.insert pv e ms)
 
 class Matchable e where
-  equate :: PatVar -> ModAlpha e -> MatchState e -> Maybe (MatchState e)
-  match  :: V e -> ModAlpha e -> MatchState e -> Maybe (MatchState e)
-  samePattern :: V e -> V e -> Bool
+  equate :: PatVar -> e -> MatchState e -> Maybe (MatchState e)
+  match  :: Pat e -> e -> MatchState e -> Maybe (MatchState e)
+  samePattern :: Pat e -> Pat e -> Bool
 
-instance Matchable Expr where
+instance Matchable (ModAlpha Expr) where
   equate      = equateExpr
   match       = matchExpr
   samePattern = samePatternExpr
 
-equateExpr :: PatVar -> ModAlpha Expr -> MatchState Expr -> Maybe (MatchState Expr)
-equateExpr pv (A benv e) ms = case hasMatch pv ms of
-  Just sol
-    | e == sol  -> Just ms
-    | otherwise -> Nothing
+equateExpr :: PatVar -> ModAlpha Expr -> MatchState (ModAlpha Expr) -> Maybe (MatchState (ModAlpha Expr))
+equateExpr pv ae@(A benv e) ms = case hasMatch pv ms of
+  Just (A _ sol)
+    | eqExpr e sol       -> Just ms
+    | otherwise          -> Nothing
   Nothing
-    | noCaptured benv e          -> Just (addMatch pv e ms)
-    | otherwise                  -> Nothing
+    | noCaptured benv e  -> Just (addMatch pv (A emptyDBE e) ms)
+    | otherwise          -> Nothing
 
 traceWith f x = trace (f x) x
 
-matchExpr :: V Expr -> ModAlpha Expr -> MatchState Expr -> Maybe (MatchState Expr)
-matchExpr pat@(V penv benv_pat e_pat) tar@(A benv_tar e_tar) ms =
+matchExpr :: Pat (ModAlpha Expr) -> ModAlpha Expr -> MatchState (ModAlpha Expr) -> Maybe (MatchState (ModAlpha Expr))
+matchExpr pat@(P penv (A benv_pat e_pat)) tar@(A benv_tar e_tar) ms =
   -- traceWith (\res -> show ms ++ "  ->  matchExpr " ++ show pat ++ "   " ++ show tar ++ "  -> " ++ show res) $
   case (e_pat, e_tar) of
   (Var v, _) -> case canonOcc penv benv_pat v of
@@ -682,21 +685,21 @@ matchExpr pat@(V penv benv_pat e_pat) tar@(A benv_tar e_tar) ms =
       Var v2 <- pure e_tar
       guard (occ == canonOcc emptyDBE benv_tar v2)
       pure ms
-  (App f1 a1, App f2 a2) -> match (f1 <$ pat) (f2 <$ tar) ms >>= match (a1 <$ pat) (a2 <$ tar)
-  (Lam b1 e1, Lam b2 e2) -> match (V penv (extendDBE b1 benv_pat) e1) (A (extendDBE b2 benv_tar) e2) ms
+  (App f1 a1, App f2 a2) -> match (f1 <$$ pat) (f2 <$ tar) ms >>= match (a1 <$$ pat) (a2 <$ tar)
+  (Lam b1 e1, Lam b2 e2) -> match (P penv (A (extendDBE b1 benv_pat) e1)) (A (extendDBE b2 benv_tar) e2) ms
   (_, _) -> Nothing
 
-samePatternExpr :: V Expr -> V Expr -> Bool
+samePatternExpr :: Pat (ModAlpha Expr) -> Pat (ModAlpha Expr) -> Bool
 samePatternExpr a b = same a b
   where
-    same p1@(V penv1 benv1 e1) p2@(V penv2 benv2 e2) = case (e1, e2) of
+    same p1@(P penv1 (A benv1 e1)) p2@(P penv2 (A benv2 e2)) = case (e1, e2) of
       (Var v1, Var v2)
         -> canonOcc penv1 benv1 v1 == canonOcc penv2 benv2 v2
-      (Lam b1 e1, Lam b2 e2) -> same (V penv1 (extendDBE b1 benv1) e1)
-                                     (V penv2 (extendDBE b2 benv2) e2)
+      (Lam b1 e1, Lam b2 e2) -> same (P penv1 (A (extendDBE b1 benv1) e1))
+                                     (P penv2 (A (extendDBE b2 benv2) e2))
       (App f1 a1, App f2 a2) ->
-           same (f1 <$ p1) (f2 <$ p2)
-        && same (a1 <$ p1) (a2 <$ p2)
+           same (f1 <$$ p1) (f2 <$$ p2)
+        && same (a1 <$$ p1) (a2 <$$ p2)
       _ -> False
 
 
@@ -706,7 +709,7 @@ samePatternExpr a b = same a b
 *                                                                      *
 ********************************************************************* -}
 
-type MExprMap = SEMap (V Expr) MExprMap'
+type MExprMap = SEMap (Pat (ModAlpha Expr)) MExprMap'
 data MExprMap' a
   = MEM { mem_pvar   :: PatVarMap a      -- Occurrence of a pattern var
         , mem_bvar   :: BoundVarMap a    -- Occurrence of a lam-bound var
@@ -720,17 +723,17 @@ deriving instance Show v => Show (MExprMap' v)
 class Matchable (MExpr tm) => MTrieMap tm where
   type MExpr tm :: Type
   emptyMTM :: tm a
-  lookupPatMTM :: ModAlpha (MExpr tm) -> (MatchState (MExpr tm), tm a) -> Bag (MatchState (MExpr tm), a)
-  alterPatMTM  :: V (MExpr tm) -> XT a -> tm a -> tm a
+  lookupPatMTM :: MExpr tm -> (MatchState (MExpr tm), tm a) -> Bag (MatchState (MExpr tm), a)
+  alterPatMTM  :: Pat (MExpr tm) -> XT a -> tm a -> tm a
 
-instance (MTrieMap tm, MExpr tm ~ e) => MTrieMap (SEMap (V e) tm) where
-  type MExpr (SEMap (V e) tm) = e
+instance (MTrieMap tm, MExpr tm ~ e) => MTrieMap (SEMap (Pat e) tm) where
+  type MExpr (SEMap (Pat e) tm) = e
   emptyMTM = EmptySEM
   lookupPatMTM = lookupPatSEM
   alterPatMTM = alterPatSEM
 
 instance MTrieMap MExprMap' where
-  type MExpr MExprMap' = Expr
+  type MExpr MExprMap' = ModAlpha Expr
   emptyMTM = mkEmptyMExprMap
   lookupPatMTM = lookupPatMM
   alterPatMTM = alterPatMM
@@ -744,8 +747,8 @@ mkEmptyMExprMap
         , mem_lam  = emptyMTM }
 
 lookupPatSEM
-  :: MTrieMap tm => ModAlpha (MExpr tm) -> (MatchState (MExpr tm), SEMap (V (MExpr tm)) tm a) -> Bag (MatchState (MExpr tm), a)
-lookupPatSEM k@(A benv e) (ms, m) = case m of
+  :: (MTrieMap tm, Matchable (MExpr tm)) => MExpr tm -> (MatchState (MExpr tm), SEMap (Pat (MExpr tm)) tm a) -> Bag (MatchState (MExpr tm), a)
+lookupPatSEM k (ms, m) = case m of
   EmptySEM -> Bag.empty
   SingleSEM pat v
     | Just ms' <- match pat k ms
@@ -754,7 +757,7 @@ lookupPatSEM k@(A benv e) (ms, m) = case m of
     -> Bag.empty
   MultiSEM m -> lookupPatMTM k (ms, m)
 
-lookupPatMM :: ModAlpha Expr -> (MatchState Expr, MExprMap' a) -> Bag (MatchState Expr, a)
+lookupPatMM :: ModAlpha Expr -> (MatchState (ModAlpha Expr), MExprMap' a) -> Bag (MatchState (ModAlpha Expr), a)
 lookupPatMM ae@(A benv e) (ms, MEM { .. })
   = match mem_pvar `Bag.union` decompose e
   where
@@ -769,33 +772,33 @@ lookupPatMM ae@(A benv e) (ms, MEM { .. })
      decompose (Lam v e) = lookupPatMTM (A (extendDBE v benv) e) (ms, mem_lam)
 
 alterPatSEM
-  :: (MTrieMap tm)
-  => V (MExpr tm) -> XT a -> SEMap (V (MExpr tm)) tm a -> SEMap (V (MExpr tm)) tm a
-alterPatSEM k1@(V penv benv e) xt = go
+  :: (MTrieMap tm, Matchable (MExpr tm))
+  => Pat (MExpr tm) -> XT a -> SEMap (Pat (MExpr tm)) tm a -> SEMap (Pat (MExpr tm)) tm a
+alterPatSEM p1@(P penv k) xt = go
   where
-    go EmptySEM | Just v1 <- xt Nothing = SingleSEM k1 v1
+    go EmptySEM | Just v1 <- xt Nothing = SingleSEM p1 v1
                 | otherwise             = EmptySEM
-    go m@(SingleSEM k2@(V penv2 benv2 e2) v2)
-      | samePattern k1 k2 = case xt (Just v2) of
+    go m@(SingleSEM p2@(P penv2 k2) v2)
+      | samePattern p1 p2 = case xt (Just v2) of
           Nothing -> EmptySEM
-          Just v1 -> SingleSEM k1 v1
+          Just v1 -> SingleSEM p1 v1
       | otherwise = case xt Nothing of
           Nothing -> m
-          Just v1 -> MultiSEM $ alterPatMTM k1 (\_ -> Just v1)
-                              $ alterPatMTM k2 (\_ -> Just v2)
+          Just v1 -> MultiSEM $ alterPatMTM p1 (\_ -> Just v1)
+                              $ alterPatMTM p2 (\_ -> Just v2)
                               $ emptyMTM
-    go (MultiSEM m) = MultiSEM (alterPatMTM k1 xt m)
+    go (MultiSEM m) = MultiSEM (alterPatMTM p1 xt m)
 
-alterPatMM :: V Expr -> XT a -> MExprMap' a -> MExprMap' a
-alterPatMM pat@(V penv benv e) xt m@(MEM {..})
+alterPatMM :: Pat (ModAlpha Expr) -> XT a -> MExprMap' a -> MExprMap' a
+alterPatMM pat@(P penv (A benv e)) xt m@(MEM {..})
   = go e
   where
     go (Var v) = case canonOcc penv benv v of
       Pat pv      -> m { mem_pvar = alterPatVarOcc   pv xt mem_pvar }
       Bound bv    -> m { mem_bvar = alterBoundVarOcc bv xt mem_bvar }
       Free fv     -> m { mem_fvar = alterFreeVarOcc  v  xt mem_fvar }
-    go (App e1 e2) = m { mem_app  = alterPatMTM (e1 <$ pat) (liftXT (alterPatMTM (e2 <$ pat) xt)) mem_app }
-    go (Lam b e')  = m { mem_lam  = alterPatMTM (V penv (extendDBE b benv) e') xt mem_lam }
+    go (App e1 e2) = m { mem_app  = alterPatMTM (e1 <$$ pat) (liftXT (alterPatMTM (e2 <$$ pat) xt)) mem_app }
+    go (Lam b e')  = m { mem_lam  = alterPatMTM (P penv (A (extendDBE b benv) e')) xt mem_lam }
 
 liftXT :: MTrieMap tm
        => (tm a -> tm a)
@@ -845,7 +848,7 @@ insertPM pvars e x pm
   = alterPatMTM pat xt pm
   where
     penv = canonPatEnv (Set.fromList pvars) e
-    pat = V penv emptyDBE e
+    pat = P penv (A emptyDBE e)
     xt :: XT (Match a)
     xt _ = Just (map inst_key pvars, x)
      -- The "_" means just overwrite previous value
@@ -861,7 +864,8 @@ matchPM e pm
     | (ms, (prs, x)) <- Bag.toList $ lookupPatMTM (deBruijnize e) (emptyMS, pm) ]
   where
     lookup :: PatSubst -> (Var, PatVar) -> (Var, Expr)
-    lookup subst (v, pv) = (v, lookupPatSubst pv subst)
+    lookup subst (v, pv) = (v, e)
+      where A _ e = lookupPatSubst pv subst
 
 deletePM :: forall a. [Var]   -- Pattern variables
                       -> Expr -- Pattern
@@ -870,7 +874,7 @@ deletePM pvars e pm
   = alterPatMTM pat (const Nothing) pm
   where
     penv = canonPatEnv (Set.fromList pvars) e
-    pat = V penv emptyDBE e
+    pat = P penv (A emptyDBE e)
 
 mkPatMap :: [([Var], Expr, a)] -> PatMap a
 mkPatMap = foldr (\(tmpl_vs, e, a) -> insertPM tmpl_vs e a) emptyPatMap
@@ -1124,8 +1128,8 @@ instance Pretty DeBruijnEnv where
 instance (Pretty a) => Pretty (ModAlpha a) where
   ppr (A bv a) = text "A" PP.<> braces (sep [ppr bv, ppr a])
 
-instance (Pretty a) => Pretty (V a) where
-  ppr (V pv bv a) = text "V" PP.<> braces (sep [ppr pv, ppr bv, ppr a])
+instance (Pretty a) => Pretty (Pat a) where
+  ppr (P pv a) = text "P" PP.<> braces (sep [ppr pv, ppr a])
 
 instance (Pretty v, Pretty (tm v), Pretty k)
       => Pretty (SEMap k tm v) where
