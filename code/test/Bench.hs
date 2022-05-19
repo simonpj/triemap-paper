@@ -6,6 +6,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Bench where
 
@@ -33,18 +34,23 @@ import qualified Data.HashMap.Strict as HashMap
 
 
 instance NFData Expr where
-  rnf (Lit l) = rnf l
   rnf (Var v) = rnf v
   rnf (App f a) = rnf f `seq` rnf a
   rnf (Lam v e) = rnf v `seq` rnf e
 
-instance NFData a => NFData (DeBruijn a) where
-  rnf (D env a) = rnf env `seq` rnf a
+instance NFData a => NFData (ModAlpha a) where
+  rnf (A env a) = rnf env `seq` rnf a
 
 instance NFData DeBruijnEnv where
   rnf env = rnf (dbe_env env)
 
-instance (TrieMap tm, NFData (TrieKey tm), NFData (tm v), NFData v) => NFData (SEMap tm v) where
+instance NFData a => NFData (Pat a) where
+  rnf (P env a) = rnf env `seq` rnf a
+
+instance NFData PatVarEnv where
+  rnf (PVE dbe caps) = rnf dbe `seq` rnf caps
+
+instance (TrieMap tm, TrieKey tm ~ e, NFData e, NFData (tm v), NFData v) => NFData (SEMap e tm v) where
   rnf EmptySEM = ()
   rnf (SingleSEM k v) = rnf k `seq` rnf v
   rnf (MultiSEM tm) = rnf tm
@@ -53,15 +59,14 @@ instance (NFData (tm (ListMap tm v)), NFData v) => NFData (ListMap' tm v) where
   rnf lm = rnf (lm_nil lm) `seq` rnf (lm_cons lm)
 
 instance NFData v => NFData (ExprMap' v) where
-  rnf EM{..} = rnf em_bvar `seq` rnf em_fvar `seq` rnf em_app `seq` rnf em_lit `seq` rnf em_lam
+  rnf EM{..} = rnf em_bvar `seq` rnf em_fvar `seq` rnf em_app `seq` rnf em_lam
 
 instance Hashable Expr where
   hashWithSalt salt e = go salt (deBruijnize e)
     where
-      go salt (D _ (Lit l))     = salt `hashWithSalt` (0::Int) `hashWithSalt` l
-      go salt (D env (App f a)) = salt `hashWithSalt` (1::Int) `go` D env f `go` D env a
-      go salt (D env (Lam v e)) = salt `hashWithSalt` (2::Int) `go` D (extendDBE v env) e
-      go salt (D env (Var v))   = salt `hashWithSalt` case lookupDBE v env of
+      go salt (A env (App f a)) = salt `hashWithSalt` (1::Int) `go` A env f `go` A env a
+      go salt (A env (Lam v e)) = salt `hashWithSalt` (2::Int) `go` A (extendDBE v env) e
+      go salt (A env (Var v))   = salt `hashWithSalt` case lookupDBE v env of
         Nothing -> (3::Int) `hashWithSalt` v
         Just bv -> (4::Int) `hashWithSalt` bv
 
@@ -93,6 +98,8 @@ instance MapAPI (ExprMap Int) where
   fold = foldTM
   {-# NOINLINE fold #-}
   mapFromList = foldr (uncurry insertMap) emptyMap
+  -- mapFromList = fromListWithTM last . map (\(k,v) -> (deBruijnize k, v))
+    -- slower, last time I checked
 
 instance MapAPI (Map Expr Int) where
   emptyMap = Map.empty
@@ -148,8 +155,8 @@ criterion =
   ]
   where
     with_map_of_exprs :: forall em. MapAPI em => Int -> Int -> ([Expr] -> em -> Benchmark) -> Benchmark
-    with_map_of_exprs n m k =
-      env (pure (mkNExprs n m)) $ \exprs ->
+    with_map_of_exprs e m k =
+      env (pure (mkNExprs e m)) $ \exprs ->
       env (pure ((mapFromList $ zip exprs [0..]) :: em)) $ \(expr_map :: em) ->
       k exprs expr_map
 
@@ -201,13 +208,13 @@ criterion =
 
     rnd_lookup_all_app1 :: Benchmark
     rnd_lookup_all_app1 = bench_all_variants "lookup_all_app1" criterionAllSizes criterionAllSizes $ \(_ :: em) n m ->
-      env (pure (mkNExprsWithPrefix n m (Lit "$" `App`))) $ \exprs ->
+      env (pure (mkNExprsWithPrefix n m (Var "$" `App`))) $ \exprs ->
       env (pure ((mapFromList $ zip exprs [0..]) :: em)) $ \(expr_map :: em) ->
       bench "" $ nf (map (`lookupMap` expr_map)) exprs
 
     rnd_lookup_all_app2 :: Benchmark
     rnd_lookup_all_app2 = bench_diag_variants "lookup_all_app2" criterionDiagSizes $ \(_ :: em) n m ->
-      env (pure (mkNExprsWithPrefix n m (`App` Lit "$"))) $ \exprs ->
+      env (pure (mkNExprsWithPrefix n m (`App` Var "$"))) $ \exprs ->
       env (pure ((mapFromList $ zip exprs [0..]) :: em)) $ \(expr_map :: em) ->
       bench "" $ nf (map (`lookupMap` expr_map)) exprs
 
@@ -218,7 +225,7 @@ criterion =
 
     rnd_fromList_app1 :: Benchmark
     rnd_fromList_app1 = bench_diag_variants "fromList_app1" criterionDiagSizes $ \(_ :: em) n m ->
-      env (pure (flip zip [0..] $ mkNExprsWithPrefix n m (Lit "$" `App`))) $ \pairs ->
+      env (pure (flip zip [0..] $ mkNExprsWithPrefix n m (Var "$" `App`))) $ \pairs ->
       bench "" $ nf (mapFromList :: [(Expr, Int)] -> em) pairs
 
     rnd_union :: Benchmark
@@ -229,9 +236,9 @@ criterion =
 
     rnd_union_app1 :: Benchmark
     rnd_union_app1 = bench_diag_variants "union_app1" criterionDiagSizes $ \(_ :: em) n m ->
-      env (pure (mkNExprsWithPrefix n m (Lit "$" `App`))) $ \exprs1 ->
+      env (pure (mkNExprsWithPrefix n m (Var "$" `App`))) $ \exprs1 ->
       env (pure ((mapFromList $ zip exprs1 [0..]) :: em)) $ \(expr_map1 :: em) ->
-      env (pure (mkNExprsWithPrefix (n+1) (m+1) (Lit "$" `App`))) $ \exprs2 ->
+      env (pure (mkNExprsWithPrefix (n+1) (m+1) (Var "$" `App`))) $ \exprs2 ->
       env (pure ((mapFromList $ zip exprs2 [0..]) :: em)) $ \(expr_map2 :: em) ->
       bench "" $ nf (uncurry unionMap :: (em, em) -> em) (expr_map1, expr_map2)
 
@@ -273,13 +280,13 @@ weigh = do
 
     space_app1 :: IO ()
     space_app1 = weigh_all_variants "space_app1" weighSizes weighSizes $ \pref (_ :: em) n m -> do
-      let map = mapFromList (flip zip [0..] $ mkNExprsWithPrefix n m (Lit "$" `App`)) :: em
+      let map = mapFromList (flip zip [0..] $ mkNExprsWithPrefix n m (Var "$" `App`)) :: em
       s <- recursiveSize $!! map
       putStrLn (pref ++ ": " ++ show s)
 
     space_app2 :: IO ()
     space_app2 = weigh_all_variants "space_app2" weighSizes weighSizes $ \pref (_ :: em) n m -> do
-      let map = mapFromList (flip zip [0..] $ mkNExprsWithPrefix n m (`App` Lit "$")) :: em
+      let map = mapFromList (flip zip [0..] $ mkNExprsWithPrefix n m (`App` Var "$")) :: em
       s <- recursiveSize $!! map
       putStrLn (pref ++ ": " ++ show s)
 
