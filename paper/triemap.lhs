@@ -77,6 +77,7 @@
 \usepackage{upgreek} % \textmu
 \usepackage{multirow}
 \usepackage{diagbox}
+\usepackage{csquotes}
 
 % \RequirePackage{xargs}
 
