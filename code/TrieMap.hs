@@ -629,8 +629,8 @@ eqPatExpr (P penv1 (A benv1 (Lam v1 e1))) (P penv2 (A benv2 (Lam v2 e2)))
 
 eqPatExpr _ _ = False
 
-instance Show (Pat (ModAlpha Expr)) where
-  show (P _ (A _ e)) = show e
+instance Show e => Show (Pat e) where
+  show (P _ e) = show e
 
 
 {- *********************************************************************
@@ -657,12 +657,12 @@ addMatch pv e (MS ms) = MS (IntMap.insert pv e ms)
 class Matchable e where
   equate :: PatVar -> e -> MatchState e -> Maybe (MatchState e)
   match  :: Pat e -> e -> MatchState e -> Maybe (MatchState e)
-  samePattern :: Pat e -> Pat e -> Bool
+  eqPattern :: Pat e -> Pat e -> Bool
 
 instance Matchable (ModAlpha Expr) where
-  equate      = equateExpr
-  match       = matchExpr
-  samePattern = samePatternExpr
+  equate    = equateExpr
+  match     = matchExpr
+  eqPattern = eqPatternExpr
 
 equateExpr :: PatVar -> ModAlpha Expr -> MatchState (ModAlpha Expr) -> Maybe (MatchState (ModAlpha Expr))
 equateExpr pv ae@(A benv e) ms = case hasMatch pv ms of
@@ -689,8 +689,8 @@ matchExpr pat@(P penv (A benv_pat e_pat)) tar@(A benv_tar e_tar) ms =
   (Lam b1 e1, Lam b2 e2) -> match (P penv (A (extendDBE b1 benv_pat) e1)) (A (extendDBE b2 benv_tar) e2) ms
   (_, _) -> Nothing
 
-samePatternExpr :: Pat (ModAlpha Expr) -> Pat (ModAlpha Expr) -> Bool
-samePatternExpr a b = same a b
+eqPatternExpr :: Pat (ModAlpha Expr) -> Pat (ModAlpha Expr) -> Bool
+eqPatternExpr a b = same a b
   where
     same p1@(P penv1 (A benv1 e1)) p2@(P penv2 (A benv2 e2)) = case (e1, e2) of
       (Var v1, Var v2)
@@ -702,6 +702,67 @@ samePatternExpr a b = same a b
         && same (a1 <$$ p1) (a2 <$$ p2)
       _ -> False
 
+{- *********************************************************************
+*                                                                      *
+                  Matching TrieMap class
+*                                                                      *
+********************************************************************* -}
+
+class Matchable (MExpr tm) => MTrieMap tm where
+  type MExpr tm :: Type
+  emptyMTM :: tm a
+  lookupPatMTM :: MExpr tm -> (MatchState (MExpr tm), tm a) -> Bag (MatchState (MExpr tm), a)
+  alterPatMTM  :: Pat (MExpr tm) -> XT a -> tm a -> tm a
+
+{- *********************************************************************
+*                                                                      *
+                  Matching singleton and empty maps
+*                                                                      *
+********************************************************************* -}
+
+data MSEMap tm v
+  = EmptyMSEM
+  | SingleMSEM (Pat (MExpr tm)) v
+  | MultiMSEM  (tm v)
+
+deriving instance (Show v, Show (tm v), Show (MExpr tm))
+               => Show (MSEMap tm v)
+
+instance MTrieMap tm => MTrieMap (MSEMap tm) where
+  type MExpr (MSEMap tm) = MExpr tm
+  emptyMTM     = EmptyMSEM
+  lookupPatMTM = lookupPatMSEM
+  alterPatMTM  = alterPatMSEM
+
+lookupPatMSEM
+  :: MTrieMap tm => MExpr tm -> (MatchState (MExpr tm), MSEMap tm a) -> Bag (MatchState (MExpr tm), a)
+lookupPatMSEM k (ms, m) = case m of
+  EmptyMSEM -> Bag.empty
+  SingleMSEM pat v
+    | Just ms' <- match pat k ms
+    -> Bag.single (ms', v)
+    | otherwise
+    -> Bag.empty
+  MultiMSEM m -> lookupPatMTM k (ms, m)
+
+alterPatMSEM
+  :: MTrieMap tm
+  => Pat (MExpr tm) -> XT a -> MSEMap tm a -> MSEMap tm a
+alterPatMSEM p1@(P penv k) xt = go
+  where
+    go EmptyMSEM | Just v1 <- xt Nothing = SingleMSEM p1 v1
+                | otherwise             = EmptyMSEM
+    go m@(SingleMSEM p2@(P penv2 k2) v2)
+      | eqPattern p1 p2 = case xt (Just v2) of
+          Nothing -> EmptyMSEM
+          Just v1 -> SingleMSEM p1 v1
+      | otherwise = case xt Nothing of
+          Nothing -> m
+          Just v1 -> MultiMSEM $ alterPatMTM p1 (\_ -> Just v1)
+                               $ alterPatMTM p2 (\_ -> Just v2)
+                               $ emptyMTM
+    go (MultiMSEM m) = MultiMSEM (alterPatMTM p1 xt m)
+
 
 {- *********************************************************************
 *                                                                      *
@@ -709,7 +770,7 @@ samePatternExpr a b = same a b
 *                                                                      *
 ********************************************************************* -}
 
-type MExprMap = SEMap (Pat (ModAlpha Expr)) MExprMap'
+type MExprMap = MSEMap MExprMap'
 data MExprMap' a
   = MEM { mem_pvar   :: PatVarMap a      -- Occurrence of a pattern var
         , mem_bvar   :: BoundVarMap a    -- Occurrence of a lam-bound var
@@ -720,23 +781,11 @@ data MExprMap' a
 
 deriving instance Show v => Show (MExprMap' v)
 
-class Matchable (MExpr tm) => MTrieMap tm where
-  type MExpr tm :: Type
-  emptyMTM :: tm a
-  lookupPatMTM :: MExpr tm -> (MatchState (MExpr tm), tm a) -> Bag (MatchState (MExpr tm), a)
-  alterPatMTM  :: Pat (MExpr tm) -> XT a -> tm a -> tm a
-
-instance (MTrieMap tm, MExpr tm ~ e) => MTrieMap (SEMap (Pat e) tm) where
-  type MExpr (SEMap (Pat e) tm) = e
-  emptyMTM = EmptySEM
-  lookupPatMTM = lookupPatSEM
-  alterPatMTM = alterPatSEM
-
 instance MTrieMap MExprMap' where
   type MExpr MExprMap' = ModAlpha Expr
-  emptyMTM = mkEmptyMExprMap
+  emptyMTM     = mkEmptyMExprMap
   lookupPatMTM = lookupPatMM
-  alterPatMTM = alterPatMM
+  alterPatMTM  = alterPatMM
 
 mkEmptyMExprMap :: MExprMap' a
 mkEmptyMExprMap
@@ -745,17 +794,6 @@ mkEmptyMExprMap
         , mem_bvar = emptyBVM
         , mem_app  = emptyMTM
         , mem_lam  = emptyMTM }
-
-lookupPatSEM
-  :: (MTrieMap tm, Matchable (MExpr tm)) => MExpr tm -> (MatchState (MExpr tm), SEMap (Pat (MExpr tm)) tm a) -> Bag (MatchState (MExpr tm), a)
-lookupPatSEM k (ms, m) = case m of
-  EmptySEM -> Bag.empty
-  SingleSEM pat v
-    | Just ms' <- match pat k ms
-    -> Bag.single (ms', v)
-    | otherwise
-    -> Bag.empty
-  MultiSEM m -> lookupPatMTM k (ms, m)
 
 lookupPatMM :: ModAlpha Expr -> (MatchState (ModAlpha Expr), MExprMap' a) -> Bag (MatchState (ModAlpha Expr), a)
 lookupPatMM ae@(A benv e) (ms, MEM { .. })
@@ -767,27 +805,9 @@ lookupPatMM ae@(A benv e) (ms, MEM { .. })
      decompose (Var v) = case lookupDBE v benv of
        Just bv -> lkBoundVarOcc bv (ms, mem_bvar)
        Nothing -> lkFreeVarOcc  v  (ms, mem_fvar)
-     decompose (App e1 e2) = Bag.concatMap (lookupPatMTM (A benv e2)) $
-                             lookupPatMTM (A benv e1) (ms, mem_app)
+     decompose (App e1 e2) = Bag.concatMap (lookupPatMTM (e2 <$ ae)) $
+                             lookupPatMTM (e1 <$ ae) (ms, mem_app)
      decompose (Lam v e) = lookupPatMTM (A (extendDBE v benv) e) (ms, mem_lam)
-
-alterPatSEM
-  :: (MTrieMap tm, Matchable (MExpr tm))
-  => Pat (MExpr tm) -> XT a -> SEMap (Pat (MExpr tm)) tm a -> SEMap (Pat (MExpr tm)) tm a
-alterPatSEM p1@(P penv k) xt = go
-  where
-    go EmptySEM | Just v1 <- xt Nothing = SingleSEM p1 v1
-                | otherwise             = EmptySEM
-    go m@(SingleSEM p2@(P penv2 k2) v2)
-      | samePattern p1 p2 = case xt (Just v2) of
-          Nothing -> EmptySEM
-          Just v1 -> SingleSEM p1 v1
-      | otherwise = case xt Nothing of
-          Nothing -> m
-          Just v1 -> MultiSEM $ alterPatMTM p1 (\_ -> Just v1)
-                              $ alterPatMTM p2 (\_ -> Just v2)
-                              $ emptyMTM
-    go (MultiSEM m) = MultiSEM (alterPatMTM p1 xt m)
 
 alterPatMM :: Pat (ModAlpha Expr) -> XT a -> MExprMap' a -> MExprMap' a
 alterPatMM pat@(P penv (A benv e)) xt m@(MEM {..})
@@ -800,13 +820,6 @@ alterPatMM pat@(P penv (A benv e)) xt m@(MEM {..})
     go (App e1 e2) = m { mem_app  = alterPatMTM (e1 <$$ pat) (liftXT (alterPatMTM (e2 <$$ pat) xt)) mem_app }
     go (Lam b e')  = m { mem_lam  = alterPatMTM (P penv (A (extendDBE b benv) e')) xt mem_lam }
 
-liftXT :: MTrieMap tm
-       => (tm a -> tm a)
-       -> Maybe (tm a) -> Maybe (tm a)
-liftXT alter Nothing  = Just (alter emptyMTM)
-liftXT alter (Just m) = Just (alter m)
-
-
 -- An ad-hoc definition of foldMM, because I don't want to define another
 -- (duplicate) type class method. We need this one in the testuite to extract
 -- all patterns from a PatSet
@@ -814,10 +827,10 @@ liftXT alter (Just m) = Just (alter m)
 foldMM :: (v -> a -> a) -> a -> MExprMap v -> a
 foldMM f z m = sem f z m
   where
-    sem :: (v -> a -> a) -> a -> SEMap k MExprMap' v -> a
-    sem f z EmptySEM = z
-    sem f z (SingleSEM _ v) = f v z
-    sem f z (MultiSEM m) = expr f z m
+    sem :: (v -> a -> a) -> a -> MSEMap MExprMap' v -> a
+    sem f z EmptyMSEM = z
+    sem f z (SingleMSEM _ v) = f v z
+    sem f z (MultiMSEM m) = expr f z m
     expr :: (v -> a -> a) -> a -> MExprMap' v -> a
     expr f z MEM{..} =
       let !z1 = sem f z mem_lam in
@@ -892,9 +905,9 @@ patMapToTree = Node "." . go_sem (\v -> [ Node (show v) [] ])
     mk_node_nonempty lbl []       = []
     mk_node_nonempty lbl children = [ Node lbl children ]
 
-    go_sem go_val EmptySEM = []
-    go_sem go_val (SingleSEM k v) = mk_node_nonempty ("sing(" ++ show k ++ ")") (go_val v)
-    go_sem go_val (MultiSEM mem) = go_mem go_val mem
+    go_sem go_val EmptyMSEM = []
+    go_sem go_val (SingleMSEM k v) = mk_node_nonempty ("sing(" ++ show k ++ ")") (go_val v)
+    go_sem go_val (MultiMSEM mem) = go_mem go_val mem
 
     go_mem go_val MEM{..} = concat
       [ go_fvar go_val mem_fvar
@@ -1143,6 +1156,12 @@ instance Pretty a => Pretty (ExprMap' a) where
                     , text "em_fvar =" <+> ppr em_fvar
                     , text "em_app ="  <+> ppr em_app
                     , text "em_lam ="  <+> ppr em_lam ])
+
+instance (Pretty v, Pretty (tm v), Pretty (Pat (MExpr tm)))
+      => Pretty (MSEMap tm v) where
+  ppr EmptyMSEM        = text "EmptyMSEM"
+  ppr (SingleMSEM k v) = text "SingleMSEM" <+> ppr k <+> ppr v
+  ppr (MultiMSEM tm)   = ppr tm
 
 instance Pretty a => Pretty (MExprMap' a) where
   ppr (MEM {..}) = text "MEM" <+> braces (vcat
