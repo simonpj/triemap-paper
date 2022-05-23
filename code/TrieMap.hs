@@ -817,7 +817,7 @@ lookupPatMM ae@(A benv e) (MEM { .. })
     decompose = case e of
       Var x     -> case lookupDBE x benv of
         Just bv -> mem_bvar |> liftMaybe . lookupBoundVarOcc bv
-        Nothing -> mem_fvar |> liftMaybe . Map.lookup x
+        Nothing -> mem_fvar |> liftMaybe . lookupFreeVarOcc  x
       App e1 e2 -> mem_app  |>  lookupPatMTM (e1 <$ ae)
                             >=> lookupPatMTM (e2 <$ ae)
       Lam x e   -> mem_lam  |> lookupPatMTM (A (extendDBE x benv) e)
