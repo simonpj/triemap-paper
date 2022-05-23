@@ -6,13 +6,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE TupleSections #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
 {-# LANGUAGE BangPatterns #-}
@@ -127,7 +122,7 @@ foldBVM :: (v -> a -> a) -> BoundVarMap v -> a -> a
 foldBVM k m z = foldr k z m
 
 alterBoundVarOcc :: BoundVar -> XT a -> BoundVarMap a -> BoundVarMap a
-alterBoundVarOcc tv xt tm = IntMap.alter xt tv tm
+alterBoundVarOcc tv xt = IntMap.alter xt tv
 
 -- | @ModAlpha a@ represents @a@ modulo alpha-renaming.  This is achieved
 -- by equipping the value with a 'DeBruijnEnv', which tracks an on-the-fly deBruijn
@@ -142,7 +137,7 @@ data ModAlpha a = A !DeBruijnEnv !a
 -- bound binders (an empty 'DeBruijnEnv').  This is usually what you want if there
 -- isn't already a 'DeBruijnEnv' in scope.
 deBruijnize :: a -> ModAlpha a
-deBruijnize e = A emptyDBE e
+deBruijnize = A emptyDBE
 
 noCaptured :: DeBruijnEnv -> Expr -> Bool
 -- True iff no free var of the type is bound by DeBruijnEnv
@@ -235,7 +230,7 @@ lookupFreeVarOcc :: Var -> FreeVarMap a -> Maybe a
 lookupFreeVarOcc = Map.lookup
 
 alterFreeVarOcc :: Var -> XT a -> FreeVarMap a -> FreeVarMap a
-alterFreeVarOcc v xt tm = Map.alter xt v tm
+alterFreeVarOcc v xt = Map.alter xt v
 
 {- *********************************************************************
 *                                                                      *
@@ -889,8 +884,7 @@ emptyPatMap = emptyMTM
 insertPM :: forall a. [Var]   -- Pattern variables
                       -> Expr -- Pattern
                       -> a -> PatMap a -> PatMap a
-insertPM pvars e x pm
-  = alterPatMTM pat xt pm
+insertPM pvars e x pm = alterPatMTM pat xt pm
   where
     penv = canonPatEnv (Set.fromList pvars) e
     pat = P penv (deBruijnize e)
@@ -915,8 +909,7 @@ matchPM e pm
 deletePM :: forall a. [Var]   -- Pattern variables
                       -> Expr -- Pattern
                       -> PatMap a -> PatMap a
-deletePM pvars e pm
-  = alterPatMTM pat (const Nothing) pm
+deletePM pvars e pm = alterPatMTM pat (const Nothing) pm
   where
     penv = canonPatEnv (Set.fromList pvars) e
     pat = P penv (deBruijnize e)
@@ -928,7 +921,7 @@ mkPatSet :: [([Var], Expr)] -> PatSet
 mkPatSet = mkPatMap . map (\(tmpl_vs, e) -> (tmpl_vs, e, e))
 
 elemsPatSet :: PatMap Expr -> [([Var], Expr)]
-elemsPatSet pm = foldMM (\(pks, e) pats -> (map fst pks, e):pats) [] pm
+elemsPatSet = foldMM (\(pks, e) pats -> (map fst pks, e):pats) []
 
 -- | See also 'exprMapToTree'
 patMapToTree :: Show v => PatMap v -> Tree String
