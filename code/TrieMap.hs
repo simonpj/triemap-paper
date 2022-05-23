@@ -423,24 +423,24 @@ data ListMap' tm a
 
 instance TrieMap tm => TrieMap (ListMap' tm) where
    type TrieKey (ListMap' tm) = [TrieKey tm]
-   emptyTM        = emptyList
-   lookupTM       = lookupList
-   alterTM        = alterList
-   unionWithTM    = unionWithList
-   foldTM         = foldList
-   fromListWithTM = fromListWithList
+   emptyTM        = emptyLM
+   lookupTM       = lookupLM
+   alterTM        = alterLM
+   unionWithTM    = unionWithLM
+   foldTM         = foldLM
+   fromListWithTM = fromListWithLM
 
-emptyList :: TrieMap tm => ListMap' tm a
-emptyList = LM { lm_nil = Nothing, lm_cons = emptyTM }
+emptyLM :: TrieMap tm => ListMap' tm a
+emptyLM = LM { lm_nil = Nothing, lm_cons = emptyTM }
 
-lookupList :: TrieMap tm => [TrieKey tm] -> ListMap' tm v -> Maybe v
-lookupList key (LM {..})
+lookupLM :: TrieMap tm => [TrieKey tm] -> ListMap' tm v -> Maybe v
+lookupLM key (LM {..})
   = case key of
       []     -> lm_nil
       (k:ks) -> lm_cons |> lookupTM k >=> lookupTM ks
 
-alterList :: TrieMap tm => [TrieKey tm] -> XT v -> ListMap' tm v -> ListMap' tm v
-alterList ks xt tm@(LM {..})
+alterLM :: TrieMap tm => [TrieKey tm] -> XT v -> ListMap' tm v -> ListMap' tm v
+alterLM ks xt tm@(LM {..})
   = case ks of
       []      -> tm { lm_nil  = lm_nil |> xt }
       (k:ks') -> tm { lm_cons = lm_cons |> alterTM k |>> alterTM ks' xt }
@@ -449,13 +449,13 @@ unionWithMaybe :: (v -> v -> v) -> Maybe v -> Maybe v -> Maybe v
 unionWithMaybe f (Just v1) (Just v2) = Just (f v1 v2)
 unionWithMaybe _ m1        m2        = m1 `mplus` m2
 
-unionWithList :: TrieMap tm => (v -> v -> v) -> ListMap' tm v -> ListMap' tm v -> ListMap' tm v
-unionWithList f m1 m2
+unionWithLM :: TrieMap tm => (v -> v -> v) -> ListMap' tm v -> ListMap' tm v -> ListMap' tm v
+unionWithLM f m1 m2
   = LM { lm_nil = unionWithMaybe f (lm_nil m1) (lm_nil m2)
        , lm_cons = unionWithTM (unionWithTM f) (lm_cons m1) (lm_cons m2) }
 
-foldList :: TrieMap tm => (v -> a -> a) -> ListMap' tm v -> a -> a
-foldList f (LM {..}) = foldMaybe f lm_nil . foldTM (foldTM f) lm_cons
+foldLM :: TrieMap tm => (v -> a -> a) -> ListMap' tm v -> a -> a
+foldLM f (LM {..}) = foldMaybe f lm_nil . foldTM (foldTM f) lm_cons
 
 partitionLists :: [([k], v)] -> ([v], [(k,[k],v)])
 partitionLists kvs = go kvs ([],[])
@@ -464,8 +464,8 @@ partitionLists kvs = go kvs ([],[])
     go (([],v):kvs)   (nils, conss) = go kvs (v:nils, conss)
     go ((k:ks,v):kvs) (nils, conss) = go kvs (nils,   (k,ks,v):conss)
 
-fromListWithList :: TrieMap tm => ([r] -> v) -> [([TrieKey tm], r)] -> ListMap' tm v
-fromListWithList f kvs
+fromListWithLM :: TrieMap tm => ([r] -> v) -> [([TrieKey tm], r)] -> ListMap' tm v
+fromListWithLM f kvs
   = LM { lm_nil  = if Prelude.null nils then Nothing else Just (f nils)
        , lm_cons = fromListWithTM (fromListWithTM f) [ (k, (ks, v)) | (k, ks, v) <- conss ] }
   where
@@ -479,9 +479,8 @@ fromListWithList f kvs
 
 type ExprMap = SEMap ExprMap'
 data ExprMap' a
-  = EM { em_bvar :: BoundVarMap a    -- Occurrence of a forall-bound tyvar
-       , em_fvar :: FreeVarMap a     -- Occurrence of a completely free tyvar
-
+  = EM { em_bvar :: BoundVarMap a    -- Occurrence of a lambda-bound var
+       , em_fvar :: FreeVarMap a     -- Occurrence of a free var
        , em_app  :: ExprMap (ExprMap a)
        , em_lam  :: ExprMap a
        }
@@ -491,12 +490,12 @@ deriving instance (Show (TrieKey ExprMap'), Show v)
 
 instance TrieMap ExprMap' where
   type TrieKey ExprMap' = AlphaExpr
-  emptyTM     = mkEmptyExprMap
-  lookupTM    = lookupExpr
-  alterTM     = alterExpr
-  unionWithTM = unionWithExpr
-  foldTM      = foldExpr
-  fromListWithTM = fromListWithExpr
+  emptyTM        = mkEmptyExprMap
+  lookupTM       = lookupEM
+  alterTM        = alterEM
+  unionWithTM    = unionWithEM
+  foldTM         = foldEM
+  fromListWithTM = fromListWithEM
 
 emptyExprMap :: ExprMap a
 emptyExprMap = EmptySEM
@@ -508,8 +507,8 @@ mkEmptyExprMap
        , em_app  = emptyExprMap
        , em_lam  = emptyExprMap }
 
-lookupExpr :: AlphaExpr -> ExprMap' v -> Maybe v
-lookupExpr ae@(A benv e) (EM { .. }) = case e of
+lookupEM :: AlphaExpr -> ExprMap' v -> Maybe v
+lookupEM ae@(A benv e) (EM { .. }) = case e of
   Var x     -> case lookupDBE x benv of
     Just bv -> em_bvar |> lookupBoundVarOcc bv
     Nothing -> em_fvar |> lookupFreeVarOcc  x
@@ -517,23 +516,23 @@ lookupExpr ae@(A benv e) (EM { .. }) = case e of
                        >=> lookupTM (e2 <$ ae)
   Lam x e   -> em_lam  |> lookupTM (A (extendDBE x benv) e)
 
-alterExpr :: AlphaExpr -> XT v -> ExprMap' v -> ExprMap' v
-alterExpr ae@(A benv e) xt m@(EM {..}) = case e of
+alterEM :: AlphaExpr -> XT v -> ExprMap' v -> ExprMap' v
+alterEM ae@(A benv e) xt m@(EM {..}) = case e of
   Var x -> case lookupDBE x benv of
     Just bv -> m { em_bvar = alterBoundVarOcc bv xt em_bvar }
     Nothing -> m { em_fvar = alterFreeVarOcc  x  xt em_fvar }
   App e1 e2 -> m { em_app = em_app |> alterTM (e1 <$ ae) |>> alterTM (e2 <$ ae) xt }
   Lam x e   -> m { em_lam = em_lam |> alterTM (A (extendDBE x benv) e) xt }
 
-unionWithExpr :: (v -> v -> v) -> ExprMap' v -> ExprMap' v -> ExprMap' v
-unionWithExpr f m1 m2
+unionWithEM :: (v -> v -> v) -> ExprMap' v -> ExprMap' v -> ExprMap' v
+unionWithEM f m1 m2
   = EM { em_bvar = IntMap.unionWith f (em_bvar m1) (em_bvar m2)
        , em_fvar = Map.unionWith f (em_fvar m1) (em_fvar m2)
        , em_app  = unionWithTM (unionWithTM f) (em_app m1) (em_app m2)
        , em_lam  = unionWithTM f (em_lam m1) (em_lam m2) }
 
-foldExpr :: forall a v. (v -> a -> a) -> ExprMap' v -> a -> a
-foldExpr f (EM {..}) z
+foldEM :: forall a v. (v -> a -> a) -> ExprMap' v -> a -> a
+foldEM f (EM {..}) z
   = let !z1 = foldTM f em_lam z in
     let !z2 = foldTM (\em z -> z `seq` foldTM f em z) em_app z1 in
     let !z3 = foldFVM f em_fvar z2 in
@@ -548,8 +547,8 @@ partitionExprs = foldr go ([], [], [], [])
       App f a -> (fvars, bvars, ((f,a) <$ ae, val):apps, lams)
       Lam b e -> (fvars, bvars, apps, (A (extendDBE b benv) e,val):lams)
 
-fromListWithExpr :: ([r] -> v) -> [(AlphaExpr, r)] -> ExprMap' v
-fromListWithExpr f kvs
+fromListWithEM :: ([r] -> v) -> [(AlphaExpr, r)] -> ExprMap' v
+fromListWithEM f kvs
   = EM { em_bvar = IntMap.map f $ foldr (\(bv,val) -> IntMap.alter (cons_bucket val) bv) IntMap.empty bvars
        , em_fvar = Map.map f $ foldr (\(v,val) -> Map.alter (cons_bucket val) v) Map.empty fvars
        , em_app  = fromListWithTM (fromListWithTM f) [ (A benv f, (A benv a, v)) | (A benv (f, a), v) <- apps]
