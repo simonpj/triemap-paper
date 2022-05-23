@@ -115,8 +115,8 @@ emptyBVM = IntMap.empty
 lookupBoundVarOcc :: BoundVar -> BoundVarMap a -> Maybe a
 lookupBoundVarOcc = IntMap.lookup
 
-foldBVM :: (v -> a -> a) -> BoundVarMap v -> a -> a
-foldBVM k m z = foldr k z m
+foldrBVM :: (v -> a -> a) -> BoundVarMap v -> a -> a
+foldrBVM k m z = foldr k z m
 
 alterBoundVarOcc :: BoundVar -> XT a -> BoundVarMap a -> BoundVarMap a
 alterBoundVarOcc tv xt = IntMap.alter xt tv
@@ -212,8 +212,8 @@ type FreeVarMap a = Map FreeVar a
 emptyFVM :: FreeVarMap a
 emptyFVM = Map.empty
 
-foldFVM :: (v -> a -> a) -> FreeVarMap v -> a -> a
-foldFVM k m z = foldr k z m
+foldrFVM :: (v -> a -> a) -> FreeVarMap v -> a -> a
+foldrFVM k m z = foldr k z m
 
 lookupFreeVarOcc :: FreeVar -> FreeVarMap a -> Maybe a
 lookupFreeVarOcc = Map.lookup
@@ -244,8 +244,8 @@ lookupPatSubst key subst
 alterPatVarOcc :: PatVar -> XT a -> PatVarMap a -> PatVarMap a
 alterPatVarOcc tv xt tm = IntMap.alter xt tv tm
 
-foldPVM :: (v -> a -> a) -> PatVarMap v -> a -> a
-foldPVM f m a = foldr f a m
+foldrPVM :: (v -> a -> a) -> PatVarMap v -> a -> a
+foldrPVM f m a = foldr f a m
 
 --
 -- Canonicalisation of pattern variables:
@@ -289,7 +289,7 @@ class Eq (TrieKey tm) => TrieMap tm where
    lookupTM       :: TrieKey tm -> tm v -> Maybe v
    alterTM        :: TrieKey tm -> XT v -> tm v -> tm v
    unionWithTM    :: (v -> v -> v) -> tm v -> tm v -> tm v
-   foldTM         :: (v -> a -> a) -> tm v -> a -> a
+   foldrTM        :: (v -> a -> a) -> tm v -> a -> a
    fromListWithTM :: ([r] -> v) -> [(TrieKey tm, r)] -> tm v
 
 --   mapTM    :: (a->b) -> tm a -> tm b
@@ -329,9 +329,9 @@ deMaybeMTM :: MTrieMap m => Maybe (m a) -> m a
 deMaybeMTM Nothing  = emptyMTM
 deMaybeMTM (Just m) = m
 
-foldMaybe :: (v -> a -> a) -> Maybe v -> a -> a
-foldMaybe _ Nothing  z = z
-foldMaybe f (Just v) z = f v z
+foldrMaybe :: (v -> a -> a) -> Maybe v -> a -> a
+foldrMaybe _ Nothing  z = z
+foldrMaybe f (Just v) z = f v z
 
 {- *********************************************************************
 *                                                                      *
@@ -354,7 +354,7 @@ instance TrieMap tm => TrieMap (SEMap tm) where
   lookupTM    = lookupSEM
   alterTM     = alterSEM
   unionWithTM = unionWithSEM
-  foldTM      = foldSEM
+  foldrTM     = foldrSEM
   fromListWithTM = fromListWithSEM
 
 lookupSEM :: TrieMap tm => TrieKey tm -> SEMap tm v -> Maybe v
@@ -399,10 +399,10 @@ unionWithSEM _ (SingleSEM k v) (MultiSEM tm)
 unionWithSEM f (MultiSEM tm1)  (MultiSEM tm2)
   = MultiSEM $ unionWithTM f tm1 tm2
 
-foldSEM :: TrieMap tm => (v -> a -> a) -> SEMap tm v -> a -> a
-foldSEM _ EmptySEM        z = z
-foldSEM f (SingleSEM _ v) z = f v z
-foldSEM f (MultiSEM tm)   z = foldTM f tm z
+foldrSEM :: TrieMap tm => (v -> a -> a) -> SEMap tm v -> a -> a
+foldrSEM _ EmptySEM        z = z
+foldrSEM f (SingleSEM _ v) z = f v z
+foldrSEM f (MultiSEM tm)   z = foldrTM f tm z
 
 fromListWithSEM :: TrieMap tm => ([r] -> v) -> [(TrieKey tm, r)] -> SEMap tm v
 fromListWithSEM _ [] = EmptySEM
@@ -427,7 +427,7 @@ instance TrieMap tm => TrieMap (ListMap' tm) where
    lookupTM       = lookupLM
    alterTM        = alterLM
    unionWithTM    = unionWithLM
-   foldTM         = foldLM
+   foldrTM        = foldrLM
    fromListWithTM = fromListWithLM
 
 emptyLM :: TrieMap tm => ListMap' tm a
@@ -454,8 +454,8 @@ unionWithLM f m1 m2
   = LM { lm_nil = unionWithMaybe f (lm_nil m1) (lm_nil m2)
        , lm_cons = unionWithTM (unionWithTM f) (lm_cons m1) (lm_cons m2) }
 
-foldLM :: TrieMap tm => (v -> a -> a) -> ListMap' tm v -> a -> a
-foldLM f (LM {..}) = foldMaybe f lm_nil . foldTM (foldTM f) lm_cons
+foldrLM :: TrieMap tm => (v -> a -> a) -> ListMap' tm v -> a -> a
+foldrLM f (LM {..}) = foldrMaybe f lm_nil . foldrTM (foldrTM f) lm_cons
 
 partitionLists :: [([k], v)] -> ([v], [(k,[k],v)])
 partitionLists kvs = go kvs ([],[])
@@ -494,7 +494,7 @@ instance TrieMap ExprMap' where
   lookupTM       = lookupEM
   alterTM        = alterEM
   unionWithTM    = unionWithEM
-  foldTM         = foldEM
+  foldrTM        = foldrEM
   fromListWithTM = fromListWithEM
 
 emptyExprMap :: ExprMap a
@@ -531,12 +531,12 @@ unionWithEM f m1 m2
        , em_app  = unionWithTM (unionWithTM f) (em_app m1) (em_app m2)
        , em_lam  = unionWithTM f (em_lam m1) (em_lam m2) }
 
-foldEM :: forall a v. (v -> a -> a) -> ExprMap' v -> a -> a
-foldEM f (EM {..}) z
-  = let !z1 = foldTM f em_lam z in
-    let !z2 = foldTM (\em z -> z `seq` foldTM f em z) em_app z1 in
-    let !z3 = foldFVM f em_fvar z2 in
-    foldBVM f em_bvar z3
+foldrEM :: forall a v. (v -> a -> a) -> ExprMap' v -> a -> a
+foldrEM f (EM {..}) z
+  = let !z1 = foldrTM f em_lam z in
+    let !z2 = foldrTM (\em z -> z `seq` foldrTM f em z) em_app z1 in
+    let !z3 = foldrFVM f em_fvar z2 in
+    foldrBVM f em_bvar z3
 
 partitionExprs :: [(AlphaExpr, v)] -> ([(FreeVar, v)], [(BoundVar, v)], [(ModAlpha (Expr, Expr), v)], [(AlphaExpr,v)])
 partitionExprs = foldr go ([], [], [], [])
@@ -830,12 +830,12 @@ alterPatMM pat@(P penv (A benv e)) xt m@(MEM {..}) = case e of
   App e1 e2  -> m { mem_app  = mem_app |> alterPatMTM (e1 <$$ pat) |>>> alterPatMTM (e2 <$$ pat) xt }
   Lam x e    -> m { mem_lam  = mem_lam |> alterPatMTM (P penv (A (extendDBE x benv) e)) xt }
 
--- An ad-hoc definition of foldMM, because I don't want to define another
+-- An ad-hoc definition of foldrMM, because I don't want to define another
 -- (duplicate) type class method. We need this one in the testuite to extract
 -- all patterns from a PatSet
 
-foldMM :: (v -> a -> a) -> a -> MExprMap v -> a
-foldMM f z m = sem f z m
+foldrMM :: (v -> a -> a) -> a -> MExprMap v -> a
+foldrMM f z m = sem f z m
   where
     sem :: (v -> a -> a) -> a -> MSEMap MExprMap' v -> a
     sem _ z EmptyMSEM = z
@@ -845,9 +845,9 @@ foldMM f z m = sem f z m
     expr f z MEM{..} =
       let !z1 = sem f z mem_lam in
       let !z2 = sem (\mem z -> z `seq` sem f z mem) z1 mem_app in
-      let !z3 = foldFVM f mem_fvar z2 in
-      let !z4 = foldBVM f mem_bvar z3 in
-      let !z5 = foldPVM f mem_pvar z4 in
+      let !z3 = foldrFVM f mem_fvar z2 in
+      let !z4 = foldrBVM f mem_bvar z3 in
+      let !z5 = foldrPVM f mem_pvar z4 in
       z5
 
 
@@ -904,7 +904,7 @@ mkPatSet :: [([Var], Expr)] -> PatSet
 mkPatSet = mkPatMap . map (\(tmpl_vs, e) -> (tmpl_vs, e, e))
 
 elemsPatSet :: PatMap Expr -> [([Var], Expr)]
-elemsPatSet = foldMM (\(pks, e) pats -> (map fst pks, e):pats) []
+elemsPatSet = foldrMM (\(pks, e) pats -> (map fst pks, e):pats) []
 
 -- | See also 'exprMapToTree'
 patMapToTree :: Show v => PatMap v -> Tree String
