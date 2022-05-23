@@ -19,8 +19,6 @@ build-type:          Simple
 library
   exposed-modules:     TrieMap
 
-  other-modules:       Bag
-
   other-extensions:    TypeOperators, TypeFamilies, DataKinds, RankNTypes, FlexibleInstances, FlexibleContexts, RecordWildCards, ScopedTypeVariables, GADTs, TypeApplications, QuantifiedConstraints, StandaloneDeriving, DeriveFoldable, PolyKinds, DeriveFunctor, AllowAmbiguousTypes, PatternSynonyms, ViewPatterns, LambdaCase, BangPatterns, StrictData
 
   build-depends:       base >=4 && <5
