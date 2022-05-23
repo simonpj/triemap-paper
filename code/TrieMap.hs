@@ -153,7 +153,7 @@ instance Show e => Show (ModAlpha e) where
 type AlphaExpr = ModAlpha Expr
 
 eqAlphaExpr :: AlphaExpr -> AlphaExpr -> Bool
-eqAlphaExpr (A env1 (App s1 t1)) (A env2 (App s2 t2))
+eqAlphaExpr ae1@(A _ (App s1 t1)) ae2@(A _ (App s2 t2))
   = eqAlphaExpr (s1 <$ ae1) (s2 <$ ae2) &&
     eqAlphaExpr (t1 <$ ae1) (t2 <$ ae2)
 
@@ -264,28 +264,21 @@ alterPatVarOcc tv xt tm = IntMap.alter xt tv tm
 foldPVM :: (v -> a -> a) -> PatVarMap v -> a -> a
 foldPVM f m a = foldr f a m
 
-emptyPVE :: PatVarEnv
-emptyPVE = PVE emptyDBE emptyPVM
-
 canonPatEnv :: Set Var -> Expr -> PatVarEnv
-canonPatEnv pvars  = go pvars emptyPVE emptyDBE
+canonPatEnv pvars  = go emptyDBE emptyDBE
   where
-    add_pvar penv@PVE{..} benv v = case canonOcc penv benv v of
-      Free _ -> penv{pve_dbe=extendDBE v pve_dbe}
-      _      -> penv
-    go cap penv@PVE{pve_cap=caps} benv e = case e of
+    go penv benv e = case e of
       Var v
-        | v `Set.member` pvars
-        , let penv' = add_pvar penv benv v
-        , Just pv <- lookupDBE v (pve_dbe penv')
-        -> penv'{pve_cap=IntMap.insertWith Set.union pv cap caps}
+        | Free _ <- canonOcc penv benv v -- not already present in penv
+        , v `Set.member` pvars
+        -> extendDBE v penv
         | otherwise
         -> penv
-      App f a -> go cap (go cap penv benv f) benv a
-      Lam b e -> go (Set.insert b cap) penv (extendDBE b benv) e
+      App f a -> go (go penv benv f) benv a
+      Lam b e -> go penv (extendDBE b benv) e
 
 canonOcc :: PatVarEnv -> BoundVarEnv -> Var -> Occ
-canonOcc PVE{pve_dbe=pe} be v
+canonOcc pe be v
   | Just bv <- lookupDBE v be = Bound bv
   | Just pv <- lookupDBE v pe = Pat pv
   | otherwise                 = Free v
@@ -443,12 +436,12 @@ data ListMap' tm a
 
 instance TrieMap tm => TrieMap (ListMap' tm) where
    type TrieKey (ListMap' tm) = [TrieKey tm]
-   emptyTM     = emptyList
-   lookupTM    = lookupList
-   alterTM     = alterList
-   unionWithTM = unionWithList
-   foldTM      = foldList
-   -- fromListWithTM = undefined
+   emptyTM        = emptyList
+   lookupTM       = lookupList
+   alterTM        = alterList
+   unionWithTM    = unionWithList
+   foldTM         = foldList
+   fromListWithTM = fromListWithList
 
 emptyList :: TrieMap tm => ListMap' tm a
 emptyList = LM { lm_nil = Nothing, lm_cons = emptyTM }
@@ -477,6 +470,19 @@ unionWithList f m1 m2
 foldList :: TrieMap tm => (v -> a -> a) -> ListMap' tm v -> a -> a
 foldList f (LM {..}) = foldMaybe f lm_nil . foldTM (foldTM f) lm_cons
 
+partitionLists :: [([k], v)] -> ([v], [(k,[k],v)])
+partitionLists kvs = go kvs ([],[])
+  where
+    go []             (nils, conss) = (nils, conss)
+    go (([],v):kvs)   (nils, conss) = (v:nils, conss)
+    go ((k:ks,v):kvs) (nils, conss) = (nils,   (k,ks,v):conss)
+
+fromListWithList :: TrieMap tm => ([r] -> v) -> [([TrieKey tm], r)] -> ListMap' tm v
+fromListWithList f kvs
+  = LM { lm_nil  = if Prelude.null nils then Nothing else Just (f nils)
+       , lm_cons = fromListWithTM (fromListWithTM f) [ (k, (ks, v)) | (k, ks, v) <- conss ] }
+  where
+    (nils, conss) = partitionLists kvs
 
 {- *********************************************************************
 *                                                                      *
@@ -563,7 +569,7 @@ fromListWithExpr f kvs
        , em_lam  = fromListWithTM f lams
        }
   where
-    (fvars, bvars, apps, lams) = partitionExprs kvs
+    (fvars, bvars, apps, lams)  = partitionExprs kvs
     cons_bucket val Nothing     = Just [val]
     cons_bucket val (Just vals) = Just (val:vals)
 
@@ -694,7 +700,7 @@ matchExpr pat@(P penv (A benv_pat e_pat)) tar@(A benv_tar e_tar) ms =
     Pat pv -> equate pv tar ms
     occ -> do
       Var v2 <- pure e_tar
-      guard (occ == canonOcc emptyPVE benv_tar v2)
+      guard (occ == canonOcc emptyDBE benv_tar v2)
       pure ms
   (App f1 a1, App f2 a2) -> match (f1 <$$ pat) (f2 <$ tar) ms >>= match (a1 <$$ pat) (a2 <$ tar)
   (Lam b1 e1, Lam b2 e2) -> match (P penv (A (extendDBE b1 benv_pat) e1)) (A (extendDBE b2 benv_tar) e2) ms
@@ -844,7 +850,7 @@ foldMM f z m = sem f z m
 *                                                                      *
 ********************************************************************* -}
 
-type Match a = ([(Var, PatVar, Set Var)], a)
+type Match a = ([(Var, PatVar)], a)
 type PatMap a = MExprMap (Match a)
 type PatSet = PatMap Expr
 
@@ -863,16 +869,15 @@ insertPM pvars e x pm
     xt _ = Just (map inst_key pvars, x)
      -- The "_" means just overwrite previous value
      where
-        inst_key :: Var -> (Var, PatVar, Set Var)
-        inst_key v = case lookupDBE v (pve_dbe penv) of
-                         Nothing -> error ("Unbound PatVar " ++ v)
-                         Just pv -> (v, pv, IntMap.findWithDefault Set.empty pv (pve_cap penv))
+        inst_key :: Var -> (Var, PatVar)
+        inst_key v = case lookupDBE v penv of
+                         Nothing  -> error ("Unbound PatVar " ++ v)
+                         Just pv -> (v, pv)
 
 matchPM :: Expr -> PatMap a -> [ ([(Var,Expr)], a) ]
 matchPM e pm
-  = [ (subst, x)
-    | (ms, (trpls, x)) <- Bag.toList $ lookupPatMTM (deBruijnize e) (emptyMS, pm)
-    , Just subst <- pure $ traverse (lookup (getMatchingSubst ms)) trpls ]
+  = [ (map (lookup (getMatchingSubst ms)) prs, x)
+    | (ms, (prs, x)) <- Bag.toList $ lookupPatMTM (deBruijnize e) (emptyMS, pm) ]
   where
     lookup :: PatSubst -> (Var, PatVar) -> (Var, Expr)
     lookup subst (v, pv) = (v, e)
@@ -894,7 +899,7 @@ mkPatSet :: [([Var], Expr)] -> PatSet
 mkPatSet = mkPatMap . map (\(tmpl_vs, e) -> (tmpl_vs, e, e))
 
 elemsPatSet :: PatMap Expr -> [([Var], Expr)]
-elemsPatSet pm = foldMM (\(pks, e) pats -> (map (\(v,_,_)->v) pks, e):pats) [] pm
+elemsPatSet pm = foldMM (\(pks, e) pats -> (map fst pks, e):pats) [] pm
 
 -- | See also 'exprMapToTree'
 patMapToTree :: Show v => PatMap v -> Tree String
