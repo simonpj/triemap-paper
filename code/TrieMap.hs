@@ -53,12 +53,6 @@ import Data.Functor.Const
 
 type Var    = String
 
-data Occ
-  = Free Var
-  | Bound BoundVar
-  | Pat PatVar
-  deriving Eq
-
 data Expr = Var Var
           | App Expr Expr
           | Lam Var Expr
@@ -276,6 +270,12 @@ canonPatEnv pvars  = go emptyDBE emptyDBE
         -> penv
       App f a -> go (go penv benv f) benv a
       Lam b e -> go penv (extendDBE b benv) e
+
+data Occ
+  = Free  !Var
+  | Bound !BoundVar
+  | Pat   !PatVar
+  deriving Eq
 
 canonOcc :: PatVarEnv -> BoundVarEnv -> Var -> Occ
 canonOcc pe be v
