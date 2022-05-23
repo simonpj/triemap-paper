@@ -1,25 +1,40 @@
-{-# LANGUAGE TypeFamilies, RankNTypes, FlexibleInstances, FlexibleContexts,
-             RecordWildCards, ScopedTypeVariables,
-             StandaloneDeriving, UndecidableInstances, TypeApplications,
-             LambdaCase, DeriveFunctor, ViewPatterns, TupleSections,
-             TypeFamilies, EmptyDataDecls #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE EmptyDataDecls #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralisedNewtypeDeriving #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE StrictData #-}
 
-{-# LANGUAGE BangPatterns, StrictData #-} -- for benchmarks
-
-{-# OPTIONS_GHC -Wincomplete-patterns #-}
+{-# OPTIONS_GHC -Wincomplete-patterns -Wunused-binds -W unused-imports #-}
 
 -- | This module presents
 --
---   * The generic triemap transformers 'SEMap' and 'ListMap' from the paper
---   * A trie map 'ExprMap' that is modelled after @ExprLMap@ from the paper.
---   * The matching trie map type 'PatMap' from the paper.
+--   * The generic 'TrieMap' type class, featuring a broad number of
+--     trie-generic functions
+--   * The generic trie map transformers 'SEMap' and 'ListMap'
+--   * A trie map 'ExprMap' that is modelled after @ExprLMap@
+--   * The matching 'MTrieMap' type class and its instances 'MExprMap'
+--     and 'MSEMap'
+--   * A nice wrapper type 'PatMap' that makes use of 'MExprMap'
 --   * A demonstration of how 'alterTM' can be further generalised to yield
 --     an implementation of the lensy 'at' combinator in a new sub-class
 --     'TrieMapLens'.
 --
 module TrieMap where
 
-import qualified Data.Foldable as Foldable
 import qualified Data.List as List
 import Data.List( foldl' )
 import Data.Map (Map)
@@ -29,21 +44,21 @@ import qualified Data.Set as Set
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
 import Data.Kind
+import Control.Applicative
 import Control.Monad
+import Control.Monad.Trans.State
 import Data.Maybe
-import Text.PrettyPrint as PP
+import Text.PrettyPrint as PP hiding (empty)
 import Debug.Trace
 import Data.Char
 import qualified Text.Read as Read
 import qualified Text.ParserCombinators.ReadP as ReadP
 import Data.Tree
-import Bag
 
 import Lens.Micro
 import Lens.Micro.Internal
-import Lens.Micro.GHC -- At instance for containers
+import Lens.Micro.GHC () -- At instance for containers
 import Data.Functor.Identity
-import Data.Functor.Const
 
 {- *********************************************************************
 *                                                                      *
@@ -102,19 +117,14 @@ type BoundVarMap = IntMap
 emptyBVM :: BoundVarMap a
 emptyBVM = IntMap.empty
 
-lookupBVM :: BoundVar -> BoundVarMap a -> Maybe a
-lookupBVM = IntMap.lookup
+lookupBoundVarOcc :: BoundVar -> BoundVarMap a -> Maybe a
+lookupBoundVarOcc = IntMap.lookup
 
 extendBVM :: BoundVar -> a -> BoundVarMap a -> BoundVarMap a
 extendBVM = IntMap.insert
 
 foldBVM :: (v -> a -> a) -> BoundVarMap v -> a -> a
 foldBVM k m z = foldr k z m
-
-lkBoundVarOcc :: BoundVar -> (a, BoundVarMap v) -> Bag (a, v)
-lkBoundVarOcc var (a, env) = case lookupBVM var env of
-                                     Just x  -> Bag.single (a,x)
-                                     Nothing -> Bag.empty
 
 alterBoundVarOcc :: BoundVar -> XT a -> BoundVarMap a -> BoundVarMap a
 alterBoundVarOcc tv xt tm = IntMap.alter xt tv tm
@@ -157,7 +167,7 @@ eqAlphaExpr (A env1 (Var v1)) (A env2 (Var v2))
       (Nothing,   Nothing) -> v1 == v2
       _                    -> False
 
-eqAlphaExpr a1@(A env1 (Lam v1 e1)) a2@(A env2 (Lam v2 e2))
+eqAlphaExpr (A env1 (Lam v1 e1)) (A env2 (Lam v2 e2))
   = eqAlphaExpr (A (extendDBE v1 env1) e1)
              (A (extendDBE v2 env2) e2)
 
@@ -221,13 +231,11 @@ extendFVM env v val = Map.insert v val env
 foldFVM :: (v -> a -> a) -> FreeVarMap v -> a -> a
 foldFVM k m z = foldr k z m
 
+lookupFreeVarOcc :: Var -> FreeVarMap a -> Maybe a
+lookupFreeVarOcc = Map.lookup
+
 alterFreeVarOcc :: Var -> XT a -> FreeVarMap a -> FreeVarMap a
 alterFreeVarOcc v xt tm = Map.alter xt v tm
-
-lkFreeVarOcc :: Var -> (a, FreeVarMap v) -> Bag (a, v)
-lkFreeVarOcc var (a, env) = case Map.lookup var env of
-                                    Just x  -> Bag.single (a, x)
-                                    Nothing -> Bag.empty
 
 {- *********************************************************************
 *                                                                      *
@@ -343,7 +351,7 @@ deMaybeMTM Nothing  = emptyMTM
 deMaybeMTM (Just m) = m
 
 foldMaybe :: (v -> a -> a) -> Maybe v -> a -> a
-foldMaybe f Nothing  z = z
+foldMaybe _ Nothing  z = z
 foldMaybe f (Just v) z = f v z
 
 {- *********************************************************************
@@ -352,17 +360,17 @@ foldMaybe f (Just v) z = f v z
 *                                                                      *
 ********************************************************************* -}
 
-data SEMap k tm v
+data SEMap tm v
   = EmptySEM
-  | SingleSEM k v
+  | SingleSEM (TrieKey tm) v
   | MultiSEM  (tm v)
 
-deriving instance (Show v, Show (tm v), Show k)
-               => Show (SEMap k tm v)
+deriving instance (Show v, Show (tm v), Show (TrieKey tm))
+               => Show (SEMap tm v)
 
 
-instance (TrieMap tm, TrieKey tm ~ k) => TrieMap (SEMap k tm) where
-  type TrieKey (SEMap k tm) = k
+instance TrieMap tm => TrieMap (SEMap tm) where
+  type TrieKey (SEMap tm) = TrieKey tm
   emptyTM     = EmptySEM
   lookupTM    = lookupSEM
   alterTM     = alterSEM
@@ -370,14 +378,14 @@ instance (TrieMap tm, TrieKey tm ~ k) => TrieMap (SEMap k tm) where
   foldTM      = foldSEM
   fromListWithTM = fromListWithSEM
 
-lookupSEM :: TrieMap tm => TrieKey tm -> SEMap (TrieKey tm) tm v -> Maybe v
+lookupSEM :: TrieMap tm => TrieKey tm -> SEMap tm v -> Maybe v
 lookupSEM !_  EmptySEM = Nothing
 lookupSEM tk (SingleSEM pk v) | tk == pk  = Just v
                               | otherwise = Nothing
 lookupSEM tk (MultiSEM tm) = lookupTM tk tm
 
 
-alterSEM :: TrieMap tm => TrieKey tm -> XT v -> SEMap (TrieKey tm) tm v -> SEMap (TrieKey tm) tm v
+alterSEM :: TrieMap tm => TrieKey tm -> XT v -> SEMap tm v -> SEMap tm v
 alterSEM k xt EmptySEM
   = case xt Nothing of
       Nothing -> EmptySEM
@@ -394,7 +402,7 @@ alterSEM k1 xt tm@(SingleSEM k2 v2)
 alterSEM k xt (MultiSEM tm)
   = MultiSEM (alterTM k xt tm)
 
-unionWithSEM :: TrieMap tm => (v -> v -> v) -> SEMap (TrieKey tm) tm v -> SEMap (TrieKey tm) tm v -> SEMap (TrieKey tm) tm v
+unionWithSEM :: TrieMap tm => (v -> v -> v) -> SEMap tm v -> SEMap tm v -> SEMap tm v
 unionWithSEM _ EmptySEM        m        = m
 unionWithSEM _ m               EmptySEM = m
 unionWithSEM f (SingleSEM k1 v1) (SingleSEM k2 v2)
@@ -402,9 +410,9 @@ unionWithSEM f (SingleSEM k1 v1) (SingleSEM k2 v2)
   | otherwise = MultiSEM $ alterTM k1 (\_ -> Just v1)
                          $ alterTM k2 (\_ -> Just v2)
                          $ emptyTM
-unionWithSEM f (MultiSEM tm)   (SingleSEM k v)
+unionWithSEM _ (MultiSEM tm)   (SingleSEM k v)
   = MultiSEM $ alterTM k (\_ -> Just v) tm
-unionWithSEM f (SingleSEM k v) (MultiSEM tm)
+unionWithSEM _ (SingleSEM k v) (MultiSEM tm)
   = MultiSEM $ alterTM k xt tm
   where
     xt Nothing = Just v
@@ -412,12 +420,12 @@ unionWithSEM f (SingleSEM k v) (MultiSEM tm)
 unionWithSEM f (MultiSEM tm1)  (MultiSEM tm2)
   = MultiSEM $ unionWithTM f tm1 tm2
 
-foldSEM :: TrieMap tm => (v -> a -> a) -> SEMap (TrieKey tm) tm v -> a -> a
+foldSEM :: TrieMap tm => (v -> a -> a) -> SEMap tm v -> a -> a
 foldSEM _ EmptySEM        z = z
 foldSEM f (SingleSEM _ v) z = f v z
 foldSEM f (MultiSEM tm)   z = foldTM f tm z
 
-fromListWithSEM :: TrieMap tm => ([r] -> v) -> [(TrieKey tm, r)] -> SEMap (TrieKey tm) tm v
+fromListWithSEM :: TrieMap tm => ([r] -> v) -> [(TrieKey tm, r)] -> SEMap tm v
 fromListWithSEM _ [] = EmptySEM
 fromListWithSEM f [(k,v)] = SingleSEM k (f [v])
 fromListWithSEM f kvs = MultiSEM $ fromListWithTM f kvs
@@ -428,7 +436,7 @@ fromListWithSEM f kvs = MultiSEM $ fromListWithTM f kvs
 *                                                                      *
 ********************************************************************* -}
 
-type ListMap tm = SEMap [TrieKey tm] (ListMap' tm)
+type ListMap tm = SEMap (ListMap' tm)
 
 data ListMap' tm a
   = LM { lm_nil  :: Maybe a
@@ -473,9 +481,9 @@ foldList f (LM {..}) = foldMaybe f lm_nil . foldTM (foldTM f) lm_cons
 partitionLists :: [([k], v)] -> ([v], [(k,[k],v)])
 partitionLists kvs = go kvs ([],[])
   where
-    go []             (nils, conss) = (nils, conss)
-    go (([],v):kvs)   (nils, conss) = (v:nils, conss)
-    go ((k:ks,v):kvs) (nils, conss) = (nils,   (k,ks,v):conss)
+    go []             (!nils, !conss) = (nils, conss)
+    go (([],v):kvs)   (nils, conss) = go kvs (v:nils, conss)
+    go ((k:ks,v):kvs) (nils, conss) = go kvs (nils,   (k,ks,v):conss)
 
 fromListWithList :: TrieMap tm => ([r] -> v) -> [([TrieKey tm], r)] -> ListMap' tm v
 fromListWithList f kvs
@@ -490,7 +498,7 @@ fromListWithList f kvs
 *                                                                      *
 ********************************************************************* -}
 
-type ExprMap = SEMap AlphaExpr ExprMap'
+type ExprMap = SEMap ExprMap'
 data ExprMap' a
   = EM { em_bvar :: BoundVarMap a    -- Occurrence of a forall-bound tyvar
        , em_fvar :: FreeVarMap a     -- Occurrence of a completely free tyvar
@@ -524,11 +532,11 @@ mkEmptyExprMap
 lookupExpr :: AlphaExpr -> ExprMap' v -> Maybe v
 lookupExpr ae@(A benv e) (EM { .. }) = case e of
   Var x     -> case lookupDBE x benv of
-                 Just bv -> em_bvar |> lookupBVM bv
-                 Nothing -> em_fvar |> Map.lookup x
-  App e1 e2 -> em_app |>  lookupTM (e1 <$ ae)
-                      >=> lookupTM (e2 <$ ae)
-  Lam x e   -> em_lam |> lookupTM (A (extendDBE x benv) e)
+    Just bv -> em_bvar |> lookupBoundVarOcc bv
+    Nothing -> em_fvar |> lookupFreeVarOcc  x
+  App e1 e2 -> em_app  |>  lookupTM (e1 <$ ae)
+                       >=> lookupTM (e2 <$ ae)
+  Lam x e   -> em_lam  |> lookupTM (A (extendDBE x benv) e)
 
 alterExpr :: AlphaExpr -> XT v -> ExprMap' v -> ExprMap' v
 alterExpr ae@(A benv e) xt m@(EM {..}) = case e of
@@ -555,7 +563,7 @@ foldExpr f (EM {..}) z
 partitionExprs :: [(AlphaExpr, v)] -> ([(Var, v)], [(BoundVar, v)], [(ModAlpha (Expr, Expr), v)], [(AlphaExpr,v)])
 partitionExprs = foldr go ([], [], [], [])
   where
-    go (ae@(A benv e), val) (fvars, bvars, apps, lams) = case e of
+    go (ae@(A benv e), val) (!fvars, !bvars, !apps, !lams) = case e of
       Var v | Just bv <- lookupDBE v benv -> (fvars, (bv,val):bvars, apps, lams)
             | otherwise                   -> ((v,val):fvars, bvars, apps, lams)
       App f a -> (fvars, bvars, ((f,a) <$ ae, val):apps, lams)
@@ -597,10 +605,10 @@ fromListWithExpr f kvs
 exprMapToTree :: Show v => ExprMap v -> Tree String
 exprMapToTree = Node "." . go_sem (\v -> [ Node (show v) [] ])
   where
-    mk_node_nonempty lbl []       = []
+    mk_node_nonempty _   []       = []
     mk_node_nonempty lbl children = [ Node lbl children ]
 
-    go_sem go_val EmptySEM = []
+    go_sem _      EmptySEM = []
     go_sem go_val (SingleSEM k v) = mk_node_nonempty ("sing(" ++ show k ++ ")") (go_val v)
     go_sem go_val (MultiSEM em) = go_em go_val em
 
@@ -613,7 +621,6 @@ exprMapToTree = Node "." . go_sem (\v -> [ Node (show v) [] ])
 
     go_bvar go_val bvm = [ Node ("bvar(" ++ show k ++ ")") (go_val v) | (k,v) <- IntMap.toList bvm ]
     go_fvar go_val m   = [ Node ("fvar(" ++ k      ++ ")") (go_val v) | (k,v) <- Map.toList m ]
-    go_lit  go_val m   = [ Node ("lit("  ++ k      ++ ")") (go_val v) | (k,v) <- Map.toList m ]
     go_lam  go_val em  = mk_node_nonempty "λ" (go_sem go_val em)
     go_app :: (v -> Forest String) -> ExprMap (ExprMap v) -> Forest String
     go_app  go_val em  = mk_node_nonempty "@" (go_sem (go_sem go_val) em)
@@ -682,7 +689,7 @@ instance Matchable (ModAlpha Expr) where
   match  = matchExpr
 
 equateExpr :: PatVar -> ModAlpha Expr -> MatchState (ModAlpha Expr) -> Maybe (MatchState (ModAlpha Expr))
-equateExpr pv ae@(A benv e) ms = case hasMatch pv ms of
+equateExpr pv (A benv e) ms = case hasMatch pv ms of
   Just (A _ sol)
     | eqClosedExpr e sol  -> Just ms
     | otherwise           -> Nothing
@@ -708,15 +715,38 @@ matchExpr pat@(P penv (A benv_pat e_pat)) tar@(A benv_tar e_tar) ms =
 
 {- *********************************************************************
 *                                                                      *
+                  MatchResult monad
+*                                                                      *
+********************************************************************* -}
+
+newtype MatchResult e a = MR { unMR :: StateT (MatchState e) [] a }
+  deriving (Functor, Applicative, Monad, Alternative, MonadPlus)
+
+liftMaybe :: Maybe a -> MatchResult e a
+liftMaybe ma = MR $ StateT $ \ms -> case ma of
+  Just a  -> [(a, ms)]
+  Nothing -> []
+
+refine :: (MatchState e -> Maybe (MatchState e)) -> MatchResult e ()
+refine f = MR $ StateT $ \ms -> case f ms of
+  Just ms' -> [((), ms')]
+  Nothing  -> []
+
+runMatchResult :: MatchResult e a -> [(PatVarMap e, a)]
+runMatchResult (MR f)
+  = [ (getMatchingSubst ms, a) | (a, ms) <- runStateT f emptyMS ]
+
+{- *********************************************************************
+*                                                                      *
                   Matching TrieMap class
 *                                                                      *
 ********************************************************************* -}
 
-class Matchable (MExpr tm) => MTrieMap tm where
-  type MExpr tm :: Type
+class Matchable (Term tm) => MTrieMap tm where
+  type Term tm :: Type
   emptyMTM :: tm a
-  lookupPatMTM :: MExpr tm -> (MatchState (MExpr tm), tm a) -> Bag (MatchState (MExpr tm), a)
-  alterPatMTM  :: Pat (MExpr tm) -> XT a -> tm a -> tm a
+  lookupPatMTM :: Term tm -> tm a -> MatchResult (Term tm) a
+  alterPatMTM  :: Pat (Term tm) -> XT a -> tm a -> tm a
 
 {- *********************************************************************
 *                                                                      *
@@ -726,32 +756,30 @@ class Matchable (MExpr tm) => MTrieMap tm where
 
 data MSEMap tm v
   = EmptyMSEM
-  | SingleMSEM (Pat (MExpr tm)) v
+  | SingleMSEM (Pat (Term tm)) v
   | MultiMSEM  (tm v)
 
-deriving instance (Show v, Show (tm v), Show (MExpr tm))
+deriving instance (Show v, Show (tm v), Show (Term tm))
                => Show (MSEMap tm v)
 
 instance MTrieMap tm => MTrieMap (MSEMap tm) where
-  type MExpr (MSEMap tm) = MExpr tm
+  type Term (MSEMap tm) = Term tm
   emptyMTM     = EmptyMSEM
   lookupPatMTM = lookupPatMSEM
   alterPatMTM  = alterPatMSEM
 
 lookupPatMSEM
-  :: MTrieMap tm => MExpr tm -> (MatchState (MExpr tm), MSEMap tm a) -> Bag (MatchState (MExpr tm), a)
-lookupPatMSEM k (ms, m) = case m of
-  EmptyMSEM -> Bag.empty
-  SingleMSEM pat v
-    | Just ms' <- match pat k ms
-    -> Bag.single (ms', v)
-    | otherwise
-    -> Bag.empty
-  MultiMSEM m -> lookupPatMTM k (ms, m)
+  :: MTrieMap tm => Term tm -> MSEMap tm a -> MatchResult (Term tm) a
+lookupPatMSEM k m = case m of
+  EmptyMSEM -> empty
+  SingleMSEM pat v -> do
+    refine (match pat k)
+    pure v
+  MultiMSEM m -> lookupPatMTM k m
 
 alterPatMSEM
   :: MTrieMap tm
-  => Pat (MExpr tm) -> XT a -> MSEMap tm a -> MSEMap tm a
+  => Pat (Term tm) -> XT a -> MSEMap tm a -> MSEMap tm a
 alterPatMSEM k xt EmptyMSEM
   = case xt Nothing of
       Nothing -> EmptyMSEM
@@ -787,7 +815,7 @@ data MExprMap' a
 deriving instance Show v => Show (MExprMap' v)
 
 instance MTrieMap MExprMap' where
-  type MExpr MExprMap' = AlphaExpr
+  type Term MExprMap' = AlphaExpr
   emptyMTM     = mkEmptyMExprMap
   lookupPatMTM = lookupPatMM
   alterPatMTM  = alterPatMM
@@ -800,19 +828,20 @@ mkEmptyMExprMap
         , mem_app  = emptyMTM
         , mem_lam  = emptyMTM }
 
-lookupPatMM :: AlphaExpr -> (MatchState AlphaExpr, MExprMap' a) -> Bag (MatchState AlphaExpr, a)
-lookupPatMM ae@(A benv e) (ms, MEM { .. })
-  = match mem_pvar `Bag.union` decompose e
+lookupPatMM :: AlphaExpr -> MExprMap' a -> MatchResult AlphaExpr a
+lookupPatMM ae@(A benv e) (MEM { .. })
+  = match <|> decompose
   where
-     match = Bag.mapMaybe match_one . Bag.fromList . IntMap.toList
-     match_one (pv, x) = (, x) <$> equate pv ae ms
+    match = mem_pvar |> IntMap.toList |> map match_one |> msum
+    match_one (pv, x) = refine (equate pv ae) >> pure x
 
-     decompose (Var v) = case lookupDBE v benv of
-       Just bv -> lkBoundVarOcc bv (ms, mem_bvar)
-       Nothing -> lkFreeVarOcc  v  (ms, mem_fvar)
-     decompose (App e1 e2) = Bag.concatMap (lookupPatMTM (e2 <$ ae)) $
-                             lookupPatMTM (e1 <$ ae) (ms, mem_app)
-     decompose (Lam v e) = lookupPatMTM (A (extendDBE v benv) e) (ms, mem_lam)
+    decompose = case e of
+      Var x     -> case lookupDBE x benv of
+        Just bv -> mem_bvar |> liftMaybe . lookupBoundVarOcc bv
+        Nothing -> mem_fvar |> liftMaybe . Map.lookup x
+      App e1 e2 -> mem_app  |>  lookupPatMTM (e1 <$ ae)
+                            >=> lookupPatMTM (e2 <$ ae)
+      Lam x e   -> mem_lam  |> lookupPatMTM (A (extendDBE x benv) e)
 
 alterPatMM :: Pat AlphaExpr -> XT a -> MExprMap' a -> MExprMap' a
 alterPatMM pat@(P penv (A benv e)) xt m@(MEM {..}) = case e of
@@ -831,7 +860,7 @@ foldMM :: (v -> a -> a) -> a -> MExprMap v -> a
 foldMM f z m = sem f z m
   where
     sem :: (v -> a -> a) -> a -> MSEMap MExprMap' v -> a
-    sem f z EmptyMSEM = z
+    sem _ z EmptyMSEM = z
     sem f z (SingleMSEM _ v) = f v z
     sem f z (MultiMSEM m) = expr f z m
     expr :: (v -> a -> a) -> a -> MExprMap' v -> a
@@ -876,8 +905,8 @@ insertPM pvars e x pm
 
 matchPM :: Expr -> PatMap a -> [ ([(Var,Expr)], a) ]
 matchPM e pm
-  = [ (map (lookup (getMatchingSubst ms)) prs, x)
-    | (ms, (prs, x)) <- Bag.toList $ lookupPatMTM (deBruijnize e) (emptyMS, pm) ]
+  = [ (map (lookup subst) prs, x)
+    | (subst, (prs, x)) <- runMatchResult $ lookupPatMTM (deBruijnize e) pm ]
   where
     lookup :: PatSubst -> (Var, PatVar) -> (Var, Expr)
     lookup subst (v, pv) = (v, e)
@@ -905,10 +934,10 @@ elemsPatSet pm = foldMM (\(pks, e) pats -> (map fst pks, e):pats) [] pm
 patMapToTree :: Show v => PatMap v -> Tree String
 patMapToTree = Node "." . go_sem (\v -> [ Node (show v) [] ])
   where
-    mk_node_nonempty lbl []       = []
+    mk_node_nonempty _   []       = []
     mk_node_nonempty lbl children = [ Node lbl children ]
 
-    go_sem go_val EmptyMSEM = []
+    go_sem _      EmptyMSEM = []
     go_sem go_val (SingleMSEM k v) = mk_node_nonempty ("sing(" ++ show k ++ ")") (go_val v)
     go_sem go_val (MultiMSEM mem) = go_mem go_val mem
 
@@ -923,7 +952,6 @@ patMapToTree = Node "." . go_sem (\v -> [ Node (show v) [] ])
     go_pvar go_val pvm = [ Node ("pvar(" ++ show k ++ ")") (go_val v) | (k,v) <- IntMap.toList pvm ]
     go_bvar go_val bvm = [ Node ("bvar(" ++ show k ++ ")") (go_val v) | (k,v) <- IntMap.toList bvm ]
     go_fvar go_val m   = [ Node ("fvar(" ++ k      ++ ")") (go_val v) | (k,v) <- Map.toList m ]
-    go_lit  go_val m   = [ Node ("lit("  ++ k      ++ ")") (go_val v) | (k,v) <- Map.toList m ]
     go_lam  go_val em  = mk_node_nonempty "λ" (go_sem go_val em)
     go_app :: (v -> Forest String) -> MExprMap (MExprMap v) -> Forest String
     go_app  go_val mem  = mk_node_nonempty "@" (go_sem (go_sem go_val) mem)
@@ -948,16 +976,16 @@ alterTM' k xt m = runIdentity $ atTM k (Identity . xt) m
 lookupTM' :: TrieMapLens tm => TrieKey tm -> tm v -> Maybe v
 lookupTM' k m = getConst $ atTM k Const m
 
-instance (TrieMapLens tm, TrieKey tm ~ k) => TrieMapLens (SEMap k tm) where
+instance (TrieMapLens tm, TrieKey tm ~ k) => TrieMapLens (SEMap tm) where
   atTM = atSEM
   nullTM = nullSEM
 
-nullSEM :: TrieMapLens tm => SEMap k tm v -> Bool
+nullSEM :: TrieMapLens tm => SEMap tm v -> Bool
 nullSEM EmptySEM      = True
 -- nullSEM (MultiSEM tm) = nullTM tm -- Invariant: MultiSEM is never empty
 nullSEM _             = False
 
-atSEM :: TrieMapLens tm => TrieKey tm -> Lens' (SEMap (TrieKey tm) tm v) (Maybe v)
+atSEM :: TrieMapLens tm => TrieKey tm -> Lens' (SEMap tm v) (Maybe v)
 atSEM !k xt EmptySEM
   = xt Nothing <&> \case
       Nothing -> EmptySEM
@@ -1147,8 +1175,8 @@ instance (Pretty a) => Pretty (ModAlpha a) where
 instance (Pretty a) => Pretty (Pat a) where
   ppr (P pv a) = text "P" PP.<> braces (sep [ppr pv, ppr a])
 
-instance (Pretty v, Pretty (tm v), Pretty k)
-      => Pretty (SEMap k tm v) where
+instance (Pretty v, Pretty (tm v), Pretty (TrieKey tm))
+      => Pretty (SEMap tm v) where
   ppr EmptySEM        = text "EmptySEM"
   ppr (SingleSEM k v) = text "SingleSEM" <+> ppr k <+> ppr v
   ppr (MultiSEM tm)   = ppr tm
@@ -1160,7 +1188,7 @@ instance Pretty a => Pretty (ExprMap' a) where
                     , text "em_app ="  <+> ppr em_app
                     , text "em_lam ="  <+> ppr em_lam ])
 
-instance (Pretty v, Pretty (tm v), Pretty (Pat (MExpr tm)))
+instance (Pretty v, Pretty (tm v), Pretty (Pat (Term tm)))
       => Pretty (MSEMap tm v) where
   ppr EmptyMSEM        = text "EmptyMSEM"
   ppr (SingleMSEM k v) = text "SingleMSEM" <+> ppr k <+> ppr v
