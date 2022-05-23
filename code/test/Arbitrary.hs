@@ -5,6 +5,7 @@ module Arbitrary where
 import TrieMap
 
 import qualified Data.Set as Set
+import qualified Data.Map as Map
 import qualified Data.Tree.View
 import Data.Char
 import Data.Maybe
@@ -77,14 +78,17 @@ genPattern = do
   e <- genEnv >>= genOpenExpr
   pure (exprFreeVars e, e)
 
-exprFreeVars :: Expr -> [Var]
-exprFreeVars e = Set.toList (go emptyDBE e)
+exprFreeVarsSet :: Expr -> Set.Set Var
+exprFreeVarsSet e = go emptyDBE e
   where
     go env (Var v) | Just _ <- lookupDBE v env = Set.empty
                    | c:_ <- v, isUpper c       = Set.empty -- uppercase chars are "constants"
                    | otherwise                 = Set.singleton v
     go env (App f a) = go env f `Set.union` go env a
     go env (Lam b e) = go (extendDBE b env) e
+
+exprFreeVars :: Expr -> [Var]
+exprFreeVars e = Set.toList (exprFreeVarsSet e)
 
 isqrt :: Int -> Int
 isqrt = floor . sqrt . fromIntegral
@@ -125,11 +129,24 @@ genInstance (pvs, e) = do
   pure $ applySubst subst e
 
 applySubst :: [(Var, Expr)] -> Expr -> Expr
-applySubst subst e@(Var v) = fromMaybe e $ lookup v subst
-applySubst subst (App arg res) = App (applySubst subst arg) (applySubst subst res)
-applySubst subst (Lam v body) = Lam v (applySubst (del v subst) body)
+applySubst kvs e = go (in_scope, subst) e
   where
-    del k' = filter (\(k,_v) -> k /= k')
+    subst    = Map.fromList kvs
+    in_scope = Map.foldr (Set.union . exprFreeVarsSet) (exprFreeVarsSet e) subst
+
+    go (_, subst) e@(Var v) = fromMaybe e $ Map.lookup v subst
+    go pr         (App f a) = App (go pr f) (go pr a)
+    go pr         (Lam v body) = Lam v' (go pr' body)
+      where
+        (v', pr') = subst_bndr v pr
+
+    subst_bndr v (in_scope, subst) = (v', (Set.insert v' in_scope, subst'))
+      where
+        next k = k ++ "'"
+        v':_   = dropWhile (`Set.member` in_scope) (iterate next v)
+        clashed = v /= v'
+        subst' | clashed   = Map.insert v (Var v') subst
+               | otherwise = subst
 
 -- Just for prototyping
 printSample = QC.sample genClosedExpr
