@@ -140,17 +140,6 @@ data ModAlpha a = A !DeBruijnEnv !a
 deBruijnize :: a -> ModAlpha a
 deBruijnize e = A emptyDBE e
 
-instance Eq (ModAlpha a) => Eq (ModAlpha [a]) where
-    A _   []     == A _    []       = True
-    A env (x:xs) == A env' (x':xs') = A env x  == A env' x' &&
-                                      A env xs == A env' xs'
-    _            == _               = False
-
-instance Eq (ModAlpha a) => Eq (ModAlpha (Maybe a)) where
-    A _   Nothing  == A _    Nothing   = True
-    A env (Just x) == A env' (Just x') = A env x  == A env' x'
-    _              == _                = False
-
 noCaptured :: DeBruijnEnv -> Expr -> Bool
 -- True iff no free var of the type is bound by DeBruijnEnv
 noCaptured dbe e
@@ -162,9 +151,9 @@ instance Eq (ModAlpha Expr) where
   (==) = eqDBExpr
 
 eqDBExpr :: ModAlpha Expr -> ModAlpha Expr -> Bool
-eqDBExpr (A env1 (App s1 t1)) (A env2 (App s2 t2))
-  = eqDBExpr (A env1 s1) (A env2 s2) &&
-    eqDBExpr (A env1 t1) (A env2 t2)
+eqDBExpr ae1@(A _ (App s1 t1)) ae2@(A _ (App s2 t2))
+  = eqDBExpr (s1 <$ ae1) (s2 <$ ae2) &&
+    eqDBExpr (t1 <$ ae1) (t2 <$ ae2)
 
 eqDBExpr (A env1 (Var v1)) (A env2 (Var v2))
   = case (lookupDBE v1 env1, lookupDBE v2 env2) of
@@ -342,6 +331,16 @@ deMaybe :: TrieMap m => Maybe (m a) -> m a
 deMaybe Nothing  = emptyTM
 deMaybe (Just m) = m
 
+(|>>>) :: MTrieMap m2 => (XT (m2 a) -> m1 (m2 a) -> m1 (m2 a))
+                      -> (m2 a -> m2 a)
+                      -> m1 (m2 a) -> m1 (m2 a)
+infixl 1 |>>>
+(|>>>) f g = f (Just . g . deMaybeMTM)
+
+deMaybeMTM :: MTrieMap m => Maybe (m a) -> m a
+deMaybeMTM Nothing  = emptyMTM
+deMaybeMTM (Just m) = m
+
 foldMaybe :: (v -> a -> a) -> Maybe v -> a -> a
 foldMaybe f Nothing  z = z
 foldMaybe f (Just v) z = f v z
@@ -477,7 +476,6 @@ foldList f (LM {..}) = foldMaybe f lm_nil . foldTM (foldTM f) lm_cons
 *                                                                      *
 ********************************************************************* -}
 
-
 type ExprMap = SEMap (ModAlpha Expr) ExprMap'
 
 data ExprMap' a
@@ -511,24 +509,21 @@ mkEmptyExprMap
        , em_lam  = emptyExprMap }
 
 lookupExpr :: ModAlpha Expr -> ExprMap' v -> Maybe v
-lookupExpr (A dbe e) (EM { .. })
-  = case e of
-      Var x     -> case lookupDBE x dbe of
-                     Just bv -> em_bvar |> lookupBVM bv
-                     Nothing -> em_fvar |> Map.lookup x
-      App e1 e2 -> em_app |>  lookupTM (A dbe e1)
-                          >=> lookupTM (A dbe e2)
-      Lam x e   -> em_lam |> lookupTM (A (extendDBE x dbe) e)
+lookupExpr ae@(A benv e) (EM { .. }) = case e of
+  Var x     -> case lookupDBE x benv of
+                 Just bv -> em_bvar |> lookupBVM bv
+                 Nothing -> em_fvar |> Map.lookup x
+  App e1 e2 -> em_app |>  lookupTM (e1 <$ ae)
+                      >=> lookupTM (e2 <$ ae)
+  Lam x e   -> em_lam |> lookupTM (A (extendDBE x benv) e)
 
 alterExpr :: ModAlpha Expr -> XT v -> ExprMap' v -> ExprMap' v
-alterExpr (A dbe e) xt m@(EM {..})
-  = case e of
-      Var x -> case lookupDBE x dbe of
-                  Just bv -> m { em_bvar = alterBoundVarOcc bv xt em_bvar }
-                  Nothing -> m { em_fvar = alterFreeVarOcc  x  xt em_fvar }
-
-      App e1 e2 -> m { em_app = em_app |> alterTM (A dbe e1) |>> alterTM (A dbe e2) xt }
-      Lam x e   -> m { em_lam = em_lam |> alterTM (A (extendDBE x dbe) e) xt }
+alterExpr ae@(A benv e) xt m@(EM {..}) = case e of
+  Var x -> case lookupDBE x benv of
+    Just bv -> m { em_bvar = alterBoundVarOcc bv xt em_bvar }
+    Nothing -> m { em_fvar = alterFreeVarOcc  x  xt em_fvar }
+  App e1 e2 -> m { em_app = em_app |> alterTM (e1 <$ ae) |>> alterTM (e2 <$ ae) xt }
+  Lam x e   -> m { em_lam = em_lam |> alterTM (A (extendDBE x benv) e) xt }
 
 unionWithExpr :: (v -> v -> v) -> ExprMap' v -> ExprMap' v -> ExprMap' v
 unionWithExpr f m1 m2
@@ -602,33 +597,6 @@ b <$$ fga = (b <$) <$> fga
 data Pat a = P !PatVarEnv !a
   deriving Functor
 
-eqPatFoldable :: (Eq (Pat a), Foldable f) => Pat (f a) -> Pat (f a) -> Bool
-eqPatFoldable va@(P _ as) vb@(P _ bs) =
-  map (<$ va) (Foldable.toList as) == map (<$ vb) (Foldable.toList bs)
-
-instance Eq (Pat a) => Eq (Pat [a]) where
-  (==) = eqPatFoldable
-
-instance Eq (Pat a) => Eq (Pat (Maybe a)) where
-  (==) = eqPatFoldable
-
-instance Eq (Pat (ModAlpha Expr)) where
-  (==) = eqPatExpr
-
-eqPatExpr :: Pat (ModAlpha Expr) -> Pat (ModAlpha Expr) -> Bool
-eqPatExpr v1@(P _ (A _ (App s1 t1))) v2@(P _ (A _ (App s2 t2)))
-  = eqPatExpr (s1 <$$ v1) (s2 <$$ v2) &&
-    eqPatExpr (t1 <$$ v1) (t2 <$$ v2)
-
-eqPatExpr (P penv1 (A benv1 (Var v1))) (P penv2 (A benv2 (Var v2)))
-  = canonOcc penv1 benv1 v1 == canonOcc penv2 benv2 v2
-
-eqPatExpr (P penv1 (A benv1 (Lam v1 e1))) (P penv2 (A benv2 (Lam v2 e2)))
-  = eqPatExpr (P penv1 (A (extendDBE v1 benv1) e1))
-            (P penv2 (A (extendDBE v2 benv2) e2))
-
-eqPatExpr _ _ = False
-
 instance Show e => Show (Pat e) where
   show (P _ e) = show e
 
@@ -654,15 +622,30 @@ hasMatch pv (MS subst) = IntMap.lookup pv subst
 addMatch :: PatVar -> e -> MatchState e -> MatchState e
 addMatch pv e (MS ms) = MS (IntMap.insert pv e ms)
 
-class Matchable e where
+class Eq (Pat e) => Matchable e where
   equate :: PatVar -> e -> MatchState e -> Maybe (MatchState e)
   match  :: Pat e -> e -> MatchState e -> Maybe (MatchState e)
-  eqPattern :: Pat e -> Pat e -> Bool
+
+instance Eq (Pat (ModAlpha Expr)) where
+  (==) = eqPatExpr
+
+eqPatExpr :: Pat (ModAlpha Expr) -> Pat (ModAlpha Expr) -> Bool
+eqPatExpr v1@(P _ (A _ (App s1 t1))) v2@(P _ (A _ (App s2 t2)))
+  = eqPatExpr (s1 <$$ v1) (s2 <$$ v2) &&
+    eqPatExpr (t1 <$$ v1) (t2 <$$ v2)
+
+eqPatExpr (P penv1 (A benv1 (Var v1))) (P penv2 (A benv2 (Var v2)))
+  = canonOcc penv1 benv1 v1 == canonOcc penv2 benv2 v2
+
+eqPatExpr (P penv1 (A benv1 (Lam v1 e1))) (P penv2 (A benv2 (Lam v2 e2)))
+  = eqPatExpr (P penv1 (A (extendDBE v1 benv1) e1))
+            (P penv2 (A (extendDBE v2 benv2) e2))
+
+eqPatExpr _ _ = False
 
 instance Matchable (ModAlpha Expr) where
-  equate    = equateExpr
-  match     = matchExpr
-  eqPattern = eqPatternExpr
+  equate = equateExpr
+  match  = matchExpr
 
 equateExpr :: PatVar -> ModAlpha Expr -> MatchState (ModAlpha Expr) -> Maybe (MatchState (ModAlpha Expr))
 equateExpr pv ae@(A benv e) ms = case hasMatch pv ms of
@@ -688,19 +671,6 @@ matchExpr pat@(P penv (A benv_pat e_pat)) tar@(A benv_tar e_tar) ms =
   (App f1 a1, App f2 a2) -> match (f1 <$$ pat) (f2 <$ tar) ms >>= match (a1 <$$ pat) (a2 <$ tar)
   (Lam b1 e1, Lam b2 e2) -> match (P penv (A (extendDBE b1 benv_pat) e1)) (A (extendDBE b2 benv_tar) e2) ms
   (_, _) -> Nothing
-
-eqPatternExpr :: Pat (ModAlpha Expr) -> Pat (ModAlpha Expr) -> Bool
-eqPatternExpr a b = same a b
-  where
-    same p1@(P penv1 (A benv1 e1)) p2@(P penv2 (A benv2 e2)) = case (e1, e2) of
-      (Var v1, Var v2)
-        -> canonOcc penv1 benv1 v1 == canonOcc penv2 benv2 v2
-      (Lam b1 e1, Lam b2 e2) -> same (P penv1 (A (extendDBE b1 benv1) e1))
-                                     (P penv2 (A (extendDBE b2 benv2) e2))
-      (App f1 a1, App f2 a2) ->
-           same (f1 <$$ p1) (f2 <$$ p2)
-        && same (a1 <$$ p1) (a2 <$$ p2)
-      _ -> False
 
 {- *********************************************************************
 *                                                                      *
@@ -748,20 +718,21 @@ lookupPatMSEM k (ms, m) = case m of
 alterPatMSEM
   :: MTrieMap tm
   => Pat (MExpr tm) -> XT a -> MSEMap tm a -> MSEMap tm a
-alterPatMSEM p1@(P penv k) xt = go
-  where
-    go EmptyMSEM | Just v1 <- xt Nothing = SingleMSEM p1 v1
-                | otherwise             = EmptyMSEM
-    go m@(SingleMSEM p2@(P penv2 k2) v2)
-      | eqPattern p1 p2 = case xt (Just v2) of
-          Nothing -> EmptyMSEM
-          Just v1 -> SingleMSEM p1 v1
-      | otherwise = case xt Nothing of
-          Nothing -> m
-          Just v1 -> MultiMSEM $ alterPatMTM p1 (\_ -> Just v1)
-                               $ alterPatMTM p2 (\_ -> Just v2)
-                               $ emptyMTM
-    go (MultiMSEM m) = MultiMSEM (alterPatMTM p1 xt m)
+alterPatMSEM k xt EmptyMSEM
+  = case xt Nothing of
+      Nothing -> EmptyMSEM
+      Just v  -> SingleMSEM k v
+alterPatMSEM k1 xt tm@(SingleMSEM k2 v2)
+  | k1 == k2 = case xt (Just v2) of
+                  Nothing -> EmptyMSEM
+                  Just v' -> SingleMSEM k2 v'
+  | otherwise = case xt Nothing of
+                  Nothing -> tm
+                  Just v1  -> MultiMSEM $ alterPatMTM k1 (\_ -> Just v1)
+                                        $ alterPatMTM k2 (\_ -> Just v2)
+                                        $ emptyMTM
+alterPatMSEM k xt (MultiMSEM tm)
+  = MultiMSEM (alterPatMTM k xt tm)
 
 
 {- *********************************************************************
@@ -810,15 +781,13 @@ lookupPatMM ae@(A benv e) (ms, MEM { .. })
      decompose (Lam v e) = lookupPatMTM (A (extendDBE v benv) e) (ms, mem_lam)
 
 alterPatMM :: Pat (ModAlpha Expr) -> XT a -> MExprMap' a -> MExprMap' a
-alterPatMM pat@(P penv (A benv e)) xt m@(MEM {..})
-  = go e
-  where
-    go (Var v) = case canonOcc penv benv v of
-      Pat pv      -> m { mem_pvar = alterPatVarOcc   pv xt mem_pvar }
-      Bound bv    -> m { mem_bvar = alterBoundVarOcc bv xt mem_bvar }
-      Free fv     -> m { mem_fvar = alterFreeVarOcc  v  xt mem_fvar }
-    go (App e1 e2) = m { mem_app  = alterPatMTM (e1 <$$ pat) (liftXT (alterPatMTM (e2 <$$ pat) xt)) mem_app }
-    go (Lam b e')  = m { mem_lam  = alterPatMTM (P penv (A (extendDBE b benv) e')) xt mem_lam }
+alterPatMM pat@(P penv (A benv e)) xt m@(MEM {..}) = case e of
+  Var x -> case canonOcc penv benv x of
+    Pat pv   -> m { mem_pvar = alterPatVarOcc   pv xt mem_pvar }
+    Bound bv -> m { mem_bvar = alterBoundVarOcc bv xt mem_bvar }
+    Free fv  -> m { mem_fvar = alterFreeVarOcc  fv xt mem_fvar }
+  App e1 e2  -> m { mem_app  = mem_app |> alterPatMTM (e1 <$$ pat) |>>> alterPatMTM (e2 <$$ pat) xt }
+  Lam x e    -> m { mem_lam  = mem_lam |> alterPatMTM (P penv (A (extendDBE x benv) e)) xt }
 
 -- An ad-hoc definition of foldMM, because I don't want to define another
 -- (duplicate) type class method. We need this one in the testuite to extract
