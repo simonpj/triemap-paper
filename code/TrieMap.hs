@@ -115,9 +115,6 @@ emptyBVM = IntMap.empty
 lookupBoundVarOcc :: BoundVar -> BoundVarMap a -> Maybe a
 lookupBoundVarOcc = IntMap.lookup
 
-extendBVM :: BoundVar -> a -> BoundVarMap a -> BoundVarMap a
-extendBVM = IntMap.insert
-
 foldBVM :: (v -> a -> a) -> BoundVarMap v -> a -> a
 foldBVM k m z = foldr k z m
 
@@ -127,9 +124,7 @@ alterBoundVarOcc tv xt = IntMap.alter xt tv
 -- | @ModAlpha a@ represents @a@ modulo alpha-renaming.  This is achieved
 -- by equipping the value with a 'DeBruijnEnv', which tracks an on-the-fly deBruijn
 -- numbering.  This allows us to define an 'Eq' instance for @ModAlpha a@, even
--- if this was not (easily) possible for @a@.  Note: we purposely don't
--- export the constructor.  Make a helper function if you find yourself
--- needing it.
+-- if this was not (easily) possible for @a@.
 data ModAlpha a = A !DeBruijnEnv !a
   deriving Functor
 
@@ -139,15 +134,15 @@ data ModAlpha a = A !DeBruijnEnv !a
 deBruijnize :: a -> ModAlpha a
 deBruijnize = A emptyDBE
 
+instance Show e => Show (ModAlpha e) where
+  show (A _ e) = show e
+
 noCaptured :: DeBruijnEnv -> Expr -> Bool
 -- True iff no free var of the type is bound by DeBruijnEnv
 noCaptured dbe e
   = not (anyFreeVarsOfExpr captured e)
   where
     captured v = isJust (lookupDBE v dbe)
-
-instance Show e => Show (ModAlpha e) where
-  show (A _ e) = show e
 
 type AlphaExpr = ModAlpha Expr
 
@@ -212,24 +207,18 @@ instance Ord Expr where
 ********************************************************************* -}
 
 type FreeVar = Var
-type FreeVarMap a = Map Var a
+type FreeVarMap a = Map FreeVar a
 
 emptyFVM :: FreeVarMap a
 emptyFVM = Map.empty
 
-lookupFVM :: FreeVarMap a -> Var -> Maybe a
-lookupFVM env v = Map.lookup v env
-
-extendFVM :: FreeVarMap a -> Var -> a -> FreeVarMap a
-extendFVM env v val = Map.insert v val env
-
 foldFVM :: (v -> a -> a) -> FreeVarMap v -> a -> a
 foldFVM k m z = foldr k z m
 
-lookupFreeVarOcc :: Var -> FreeVarMap a -> Maybe a
+lookupFreeVarOcc :: FreeVar -> FreeVarMap a -> Maybe a
 lookupFreeVarOcc = Map.lookup
 
-alterFreeVarOcc :: Var -> XT a -> FreeVarMap a -> FreeVarMap a
+alterFreeVarOcc :: FreeVar -> XT a -> FreeVarMap a -> FreeVarMap a
 alterFreeVarOcc v xt = Map.alter xt v
 
 {- *********************************************************************
@@ -239,15 +228,12 @@ alterFreeVarOcc v xt = Map.alter xt v
 ********************************************************************* -}
 
 type PatVar    = DBNum
+type PatVarEnv = DeBruijnEnv
 type PatVarMap = IntMap
 type PatSubst  = PatVarMap AlphaExpr -- Maps PatVar :-> AlphaExpr
-type PatVarEnv = DeBruijnEnv
 
 emptyPVM :: PatVarMap a
 emptyPVM = IntMap.empty
-
-emptyPatSubst :: PatSubst
-emptyPatSubst = emptyPVM
 
 lookupPatSubst :: PatVar -> PatSubst -> AlphaExpr
 lookupPatSubst key subst
@@ -261,6 +247,23 @@ alterPatVarOcc tv xt tm = IntMap.alter xt tv tm
 foldPVM :: (v -> a -> a) -> PatVarMap v -> a -> a
 foldPVM f m a = foldr f a m
 
+--
+-- Canonicalisation of pattern variables:
+--
+
+data Occ
+  = Free  !FreeVar
+  | Bound !BoundVar
+  | Pat   !PatVar
+  deriving Eq
+
+canonOcc :: PatVarEnv -> BoundVarEnv -> Var -> Occ
+canonOcc pe be v
+  | Just bv <- lookupDBE v be = Bound bv
+  | Just pv <- lookupDBE v pe = Pat pv
+  | otherwise                 = Free v
+{-# INLINE canonOcc #-}
+
 canonPatEnv :: Set Var -> Expr -> PatVarEnv
 canonPatEnv pvars  = go emptyDBE emptyDBE
   where
@@ -273,19 +276,6 @@ canonPatEnv pvars  = go emptyDBE emptyDBE
         -> penv
       App f a -> go (go penv benv f) benv a
       Lam b e -> go penv (extendDBE b benv) e
-
-data Occ
-  = Free  !Var
-  | Bound !BoundVar
-  | Pat   !PatVar
-  deriving Eq
-
-canonOcc :: PatVarEnv -> BoundVarEnv -> Var -> Occ
-canonOcc pe be v
-  | Just bv <- lookupDBE v be = Bound bv
-  | Just pv <- lookupDBE v pe = Pat pv
-  | otherwise                 = Free v
-{-# INLINE canonOcc #-}
 
 {- *********************************************************************
 *                                                                      *
@@ -314,12 +304,6 @@ type XT v = Maybe v -> Maybe v  -- How to alter a non-existent elt (Nothing)
 
 -- Recall that
 --   Control.Monad.(>=>) :: (a -> Maybe b) -> (b -> Maybe c) -> a -> Maybe c
-
-(>.>) :: (a -> b) -> (b -> c) -> a -> c
--- Reverse function composition (do f first, then g)
-infixr 1 >.>
-(f >.> g) x = g (f x)
-
 
 (|>) :: a -> (a->b) -> b     -- Reverse application
 infixl 0 |>
@@ -555,7 +539,7 @@ foldExpr f (EM {..}) z
     let !z3 = foldFVM f em_fvar z2 in
     foldBVM f em_bvar z3
 
-partitionExprs :: [(AlphaExpr, v)] -> ([(Var, v)], [(BoundVar, v)], [(ModAlpha (Expr, Expr), v)], [(AlphaExpr,v)])
+partitionExprs :: [(AlphaExpr, v)] -> ([(FreeVar, v)], [(BoundVar, v)], [(ModAlpha (Expr, Expr), v)], [(AlphaExpr,v)])
 partitionExprs = foldr go ([], [], [], [])
   where
     go (ae@(A benv e), val) (!fvars, !bvars, !apps, !lams) = case e of
@@ -714,7 +698,7 @@ matchExpr pat@(P penv (A benv_pat e_pat)) tar@(A benv_tar e_tar) ms =
 *                                                                      *
 ********************************************************************* -}
 
-newtype MatchResult e a = MR { unMR :: StateT (MatchState e) [] a }
+newtype MatchResult e a = MR (StateT (MatchState e) [] a)
   deriving (Functor, Applicative, Monad, Alternative, MonadPlus)
 
 liftMaybe :: Maybe a -> MatchResult e a
