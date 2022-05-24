@@ -92,8 +92,8 @@ emptyDBE :: DeBruijnEnv
 emptyDBE = DBE { dbe_next = 0, dbe_env = Map.empty }
 
 extendDBE :: Var -> DeBruijnEnv -> DeBruijnEnv
-extendDBE tv (DBE { dbe_next = bv, dbe_env = env })
-  = DBE { dbe_next = bv+1, dbe_env = Map.insert tv bv env }
+extendDBE v (DBE { dbe_next = n, dbe_env = env })
+  = DBE { dbe_next = n+1, dbe_env = Map.insert v n env }
 
 lookupDBE :: Var -> DeBruijnEnv -> Maybe DBNum
 lookupDBE v (DBE { dbe_env = env }) = Map.lookup v env
@@ -105,21 +105,21 @@ lookupDBE v (DBE { dbe_env = env }) = Map.lookup v env
 *                                                                      *
 ********************************************************************* -}
 
-type BoundVar    = DBNum   -- Bound variables are deBruijn leveled
+type BoundKey    = DBNum   -- Bound variables are deBruijn leveled
 type BoundVarEnv = DeBruijnEnv
-type BoundVarMap = IntMap
+type BoundKeyMap = IntMap
 
-emptyBVM :: BoundVarMap a
+emptyBVM :: BoundKeyMap a
 emptyBVM = IntMap.empty
 
-lookupBoundVarOcc :: BoundVar -> BoundVarMap a -> Maybe a
+lookupBoundVarOcc :: BoundKey -> BoundKeyMap a -> Maybe a
 lookupBoundVarOcc = IntMap.lookup
 
-foldrBVM :: (v -> a -> a) -> BoundVarMap v -> a -> a
+foldrBVM :: (v -> a -> a) -> BoundKeyMap v -> a -> a
 foldrBVM k m z = foldr k z m
 
-alterBoundVarOcc :: BoundVar -> XT a -> BoundVarMap a -> BoundVarMap a
-alterBoundVarOcc tv xt = IntMap.alter xt tv
+alterBoundVarOcc :: BoundKey -> XT a -> BoundKeyMap a -> BoundKeyMap a
+alterBoundVarOcc v xt = IntMap.alter xt v
 
 -- | @ModAlpha a@ represents @a@ modulo alpha-renaming.  This is achieved
 -- by equipping the value with a 'DeBruijnEnv', which tracks an on-the-fly deBruijn
@@ -227,24 +227,24 @@ alterFreeVarOcc v xt = Map.alter xt v
 *                                                                      *
 ********************************************************************* -}
 
-type PatVar    = DBNum
+type PatKey    = DBNum
 type PatVarEnv = DeBruijnEnv
-type PatVarMap = IntMap
-type PatSubst  = PatVarMap AlphaExpr -- Maps PatVar :-> AlphaExpr
+type PatKeyMap = IntMap
+type PatSubst  = PatKeyMap AlphaExpr -- Maps PatKey :-> AlphaExpr
 
-emptyPVM :: PatVarMap a
+emptyPVM :: PatKeyMap a
 emptyPVM = IntMap.empty
 
-lookupPatSubst :: PatVar -> PatSubst -> AlphaExpr
+lookupPatSubst :: PatKey -> PatSubst -> AlphaExpr
 lookupPatSubst key subst
   = case IntMap.lookup key subst of
       Just e  -> e
       Nothing -> error ("lookupPatSubst " ++ show key)
 
-alterPatVarOcc :: PatVar -> XT a -> PatVarMap a -> PatVarMap a
-alterPatVarOcc tv xt tm = IntMap.alter xt tv tm
+alterPatVarOcc :: PatKey -> XT a -> PatKeyMap a -> PatKeyMap a
+alterPatVarOcc v xt tm = IntMap.alter xt v tm
 
-foldrPVM :: (v -> a -> a) -> PatVarMap v -> a -> a
+foldrPVM :: (v -> a -> a) -> PatKeyMap v -> a -> a
 foldrPVM f m a = foldr f a m
 
 --
@@ -253,8 +253,8 @@ foldrPVM f m a = foldr f a m
 
 data Occ
   = Free  !FreeVar
-  | Bound !BoundVar
-  | Pat   !PatVar
+  | Bound !BoundKey
+  | Pat   !PatKey
   deriving Eq
 
 canonOcc :: PatVarEnv -> BoundVarEnv -> Var -> Occ
@@ -479,7 +479,7 @@ fromListWithLM f kvs
 
 type ExprMap = SEMap ExprMap'
 data ExprMap' a
-  = EM { em_bvar :: BoundVarMap a    -- Occurrence of a lambda-bound var
+  = EM { em_bvar :: BoundKeyMap a    -- Occurrence of a lambda-bound var
        , em_fvar :: FreeVarMap a     -- Occurrence of a free var
        , em_app  :: ExprMap (ExprMap a)
        , em_lam  :: ExprMap a
@@ -538,7 +538,7 @@ foldrEM f (EM {..}) z
     let !z3 = foldrFVM f em_fvar z2 in
     foldrBVM f em_bvar z3
 
-partitionExprs :: [(AlphaExpr, v)] -> ([(FreeVar, v)], [(BoundVar, v)], [(ModAlpha (Expr, Expr), v)], [(AlphaExpr,v)])
+partitionExprs :: [(AlphaExpr, v)] -> ([(FreeVar, v)], [(BoundKey, v)], [(ModAlpha (Expr, Expr), v)], [(AlphaExpr,v)])
 partitionExprs = foldr go ([], [], [], [])
   where
     go (ae@(A benv e), val) (!fvars, !bvars, !apps, !lams) = case e of
@@ -626,23 +626,23 @@ instance Show e => Show (Pat e) where
 *                                                                      *
 ********************************************************************* -}
 
-newtype MatchState e = MS (PatVarMap e)
+newtype MatchState e = MS (PatKeyMap e)
   deriving Show
 
 emptyMS :: MatchState e
 emptyMS = MS emptyPVM
 
-getMatchingSubst :: MatchState e -> PatVarMap e
+getMatchingSubst :: MatchState e -> PatKeyMap e
 getMatchingSubst (MS subst) = subst
 
-hasMatch :: PatVar -> MatchState e -> Maybe e
+hasMatch :: PatKey -> MatchState e -> Maybe e
 hasMatch pv (MS subst) = IntMap.lookup pv subst
 
-addMatch :: PatVar -> e -> MatchState e -> MatchState e
+addMatch :: PatKey -> e -> MatchState e -> MatchState e
 addMatch pv e (MS ms) = MS (IntMap.insert pv e ms)
 
 class Eq (Pat e) => Matchable e where
-  equate :: PatVar -> e -> MatchState e -> Maybe (MatchState e)
+  equate :: PatKey -> e -> MatchState e -> Maybe (MatchState e)
   match  :: Pat e -> e -> MatchState e -> Maybe (MatchState e)
 
 instance Eq (Pat (ModAlpha Expr)) where
@@ -666,7 +666,7 @@ instance Matchable (ModAlpha Expr) where
   equate = equateExpr
   match  = matchExpr
 
-equateExpr :: PatVar -> ModAlpha Expr -> MatchState (ModAlpha Expr) -> Maybe (MatchState (ModAlpha Expr))
+equateExpr :: PatKey -> ModAlpha Expr -> MatchState (ModAlpha Expr) -> Maybe (MatchState (ModAlpha Expr))
 equateExpr pv (A benv e) ms = case hasMatch pv ms of
   Just (A _ sol)
     | eqClosedExpr e sol  -> Just ms
@@ -710,7 +710,7 @@ refine f = MR $ StateT $ \ms -> case f ms of
   Just ms' -> [((), ms')]
   Nothing  -> []
 
-runMatchResult :: MatchResult e a -> [(PatVarMap e, a)]
+runMatchResult :: MatchResult e a -> [(PatKeyMap e, a)]
 runMatchResult (MR f)
   = [ (getMatchingSubst ms, a) | (a, ms) <- runStateT f emptyMS ]
 
@@ -783,8 +783,8 @@ alterPatMSEM k xt (MultiMSEM tm)
 
 type MExprMap = MSEMap MExprMap'
 data MExprMap' a
-  = MEM { mem_pvar   :: PatVarMap a      -- Occurrence of a pattern var
-        , mem_bvar   :: BoundVarMap a    -- Occurrence of a lam-bound var
+  = MEM { mem_pvar   :: PatKeyMap a      -- Occurrence of a pattern var
+        , mem_bvar   :: BoundKeyMap a    -- Occurrence of a lam-bound var
         , mem_fvar   :: FreeVarMap a     -- Occurrence of a completely free var
         , mem_app    :: MExprMap (MExprMap a)
         , mem_lam    :: MExprMap a
@@ -857,7 +857,7 @@ foldrMM f z m = sem f z m
 *                                                                      *
 ********************************************************************* -}
 
-type Match a = ([(Var, PatVar)], a)
+type Match a = ([(Var, PatKey)], a)
 type PatMap a = MExprMap (Match a)
 type PatSet = PatMap Expr
 
@@ -875,9 +875,9 @@ insertPM pvars e x pm = alterPatMTM pat xt pm
     xt _ = Just (map inst_key pvars, x)
      -- The "_" means just overwrite previous value
      where
-        inst_key :: Var -> (Var, PatVar)
+        inst_key :: Var -> (Var, PatKey)
         inst_key v = case lookupDBE v penv of
-                         Nothing  -> error ("Unbound PatVar " ++ v)
+                         Nothing  -> error ("Unbound PatKey " ++ v)
                          Just pv -> (v, pv)
 
 matchPM :: Expr -> PatMap a -> [ ([(Var,Expr)], a) ]
@@ -885,7 +885,7 @@ matchPM e pm
   = [ (map (lookup subst) prs, x)
     | (subst, (prs, x)) <- runMatchResult $ lookupPatMTM (deBruijnize e) pm ]
   where
-    lookup :: PatSubst -> (Var, PatVar) -> (Var, Expr)
+    lookup :: PatSubst -> (Var, PatKey) -> (Var, Expr)
     lookup subst (v, pv) = (v, e)
       where A _ e = lookupPatSubst pv subst
 
@@ -1000,17 +1000,17 @@ atList :: TrieMapLens tm => [TrieKey tm] -> Lens' (ListMap' tm v) (Maybe v)
 atList []     = lens_lm_nil
 atList (k:ks) = lens_lm_cons . atTM k . nonEmpty . atTM ks
 
-atBoundVarOcc :: BoundVar -> Lens' (BoundVarMap v) (Maybe v)
-atBoundVarOcc tv xt tm = IntMap.alterF xt tv tm
+atBoundVarOcc :: BoundKey -> Lens' (BoundKeyMap v) (Maybe v)
+atBoundVarOcc v xt tm = IntMap.alterF xt v tm
 
 atFreeVarOcc :: Var -> Lens' (FreeVarMap v) (Maybe v)
-atFreeVarOcc tv xt tm = Map.alterF xt tv tm
+atFreeVarOcc v xt tm = Map.alterF xt v tm
 
 instance TrieMapLens ExprMap' where
   atTM = atExpr
   nullTM = nullExpr
 
-lens_em_bvar :: Lens' (ExprMap' a) (BoundVarMap a)
+lens_em_bvar :: Lens' (ExprMap' a) (BoundKeyMap a)
 lens_em_bvar xf em@(EM { .. }) = xf em_bvar <&> \bvar' -> em { em_bvar = bvar' }
 
 lens_em_fvar :: Lens' (ExprMap' a) (FreeVarMap a)
