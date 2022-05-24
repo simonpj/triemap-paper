@@ -45,6 +45,7 @@
 %format alpha = "\alpha"
 %format alphas = "\overline\alpha"
 %format beta = "\beta"
+%format <$ = "\mathop{{<}{\$}}"
 %format <$> = "\mathop{{\langle}{\$}{\rangle}}"
 %format <*> = "\mathop{{\langle}{*}{\rangle}}"
 %format ^ = "\string^"

@@ -229,7 +229,6 @@ import qualified Data.Map as Map
 import Data.Map ( Map )
 import Data.Kind ( Type )
 import qualified Bag
-import Bag ( Bag )
 import Data.Set ( Set)
 import qualified Data.Set as Set
 import RandomType
@@ -252,16 +251,16 @@ lookup = undefined
 alter = undefined
 union = undefined
 mapEM = undefined
-foldEM = undefined
+foldrEM = undefined
 
 type Var = String
 
 unionExprS = unionWithExprS const
 
 data ListExprMap v
-lookupListExpr = undefined
-lookupList0 = undefined
-lookupList1 = undefined
+lookupLEM = undefined
+lookupLM0 = undefined
+lookupLM1 = undefined
 
 {-# NOINLINE exf #-}
 exf :: Int -> Int -> Char
@@ -646,7 +645,7 @@ mapEM :: (a -> b) -> ExprMap a -> ExprMap b
 \end{code}
 \item A fold operation to combine together the elements of the range:
 \begin{code}
-foldEM :: (a -> b -> b) -> ExprMap a -> b -> b
+foldrEM :: (a -> b -> b) -> ExprMap a -> b -> b
 \end{code}
 \end{itemize}
 
@@ -701,10 +700,10 @@ Here is a trie-based implementation for |Expr|:
 %format EM = "EM0"
 %format em_var = "em_var0"
 %format em_app = "em_app0"
-%format lookupExpr = "lookupExpr0"
-%format alterExpr = "alterExpr0"
+%format lookupEM = "lookupExpr0"
+%format alterEM = "alterExpr0"
 %format liftXT = "liftXT0"
-%format emptyExpr = "emptyExpr0"
+%format emptyEM = "emptyExpr0"
 %endif
 \begin{code}
 data ExprMap v = EM  { em_var  :: Map Var v, em_app  :: ExprMap (ExprMap v) }
@@ -713,13 +712,13 @@ Here |Map Var v| is any standard, existing finite map, such as the
 \hackage{containers} library keyed by |Var|, with values |v|.
 One way to understand this slightly odd data type is to study its lookup function:
 \begin{code}
-lookupExpr :: Expr -> ExprMap v -> Maybe v
-lookupExpr e (EM { em_var = m_var, em_app = m_app })
+lookupEM :: Expr -> ExprMap v -> Maybe v
+lookupEM e (EM { em_var = m_var, em_app = m_app })
   =  case e of
       Var x      -> Map.lookup x m_var
-      App e1 e2  ->  case lookupExpr e1 m_app of
+      App e1 e2  ->  case lookupEM e1 m_app of
                         Nothing  -> Nothing
-                        Just m1  -> lookupExpr e2 m1
+                        Just m1  -> lookupEM e2 m1
 \end{code}
 This function pattern-matches on the target |e|.  The |Var| alternative
 says that to look up a variable occurrence, just look that variable up in the
@@ -731,15 +730,15 @@ in that map.  Each distinct |e1| yields a different |ExprMap| in which to look u
 We can substantially abbreviate this code, at the expense of making it more cryptic, thus:
 %{
 %if style == newcode
-%format lookupExpr = "lookupExpr2"
+%format lookupEM = "lookupExpr2"
 \begin{code}
-lookupExpr :: Expr -> ExprMap v -> Maybe v
+lookupEM :: Expr -> ExprMap v -> Maybe v
   -- we need this type signature because the body is polymorphic recursive
 \end{code}
 %endif
 \begin{code}
-lookupExpr (Var x)      = em_var  >.> Map.lookup x
-lookupExpr (App e1 e2)  = em_app  >.> lookupExpr e1 >=> lookupExpr e2
+lookupEM (Var x)      = em_var  >.> Map.lookup x
+lookupEM (App e1 e2)  = em_app  >.> lookupEM e1 >=> lookupEM e2
 \end{code}
 %}
 The function |em_var :: ExprMap v -> Map Var v|
@@ -757,10 +756,10 @@ at each step by the next node in the target.  (We typically use the term ``targe
 key we are looking up in the finite map.)
 
 This definition is extremely short and natural. But it conceals a hidden
-complexity: \emph{it requires polymorphic recursion}. The recursive call to |lookupExpr e1|
+complexity: \emph{it requires polymorphic recursion}. The recursive call to |lookupEM e1|
 instantiates |v| to a different type than the parent function definition.
 Haskell supports polymorphic recursion readily, provided you give type signature to
-|lookupExpr|, but not all languages do.
+|lookupEM|, but not all languages do.
 
 \subsection{Modifying tries} \label{sec:alter} \label{sec:empty-infinite}
 
@@ -768,32 +767,32 @@ It is not enough to look up in a trie -- we need to \emph{build} them too!
 First, we need an empty trie. Here is one way to define it:
 %{
 %if style == newcode
-%format emptyExpr = "emptyExpr0"
-%format foldrExpr = "foldrExpr0"
-%format sizeExpr = "sizeExpr0"
+%format emptyEM = "emptyEM0"
+%format foldrEM = "foldrEM0"
+%format sizeEM = "sizeEM0"
 %format ExprMap = "ExprMap0"
 %format em_var = "em_var0"
 %format em_app = "em_app0"
 %format EM = "EM0"
 %endif
 \begin{code}
-emptyExpr :: ExprMap v
-emptyExpr = EM { em_var = Map.empty, em_app = emptyExpr }
+emptyEM :: ExprMap v
+emptyEM = EM { em_var = Map.empty, em_app = emptyEM }
 \end{code}
-It is interesting to note that |emptyExpr| is an infinite, recursive structure:
-the |em_app| field refers back to |emptyExpr|.  We will change this
+It is interesting to note that |emptyEM| is an infinite, recursive structure:
+the |em_app| field refers back to |emptyEM|.  We will change this
 definition in \Cref{sec:empty}, but it works perfectly well for now.
 
 Next, we need to |alter| a triemap:
 \begin{code}
-alterExpr :: Expr -> XT v -> ExprMap v -> ExprMap v
-alterExpr e xt m@(EM { em_var = m_var, em_app = m_app })
+alterEM :: Expr -> XT v -> ExprMap v -> ExprMap v
+alterEM e xt m@(EM { em_var = m_var, em_app = m_app })
   =  case e of
        Var x      -> m { em_var  = Map.alter xt x m_var }
-       App e1 e2  -> m { em_app  = alterExpr e1 (liftXT (alterExpr e2 xt)) m_app }
+       App e1 e2  -> m { em_app  = alterEM e1 (liftXT (alterEM e2 xt)) m_app }
 
 liftXT :: (ExprMap v -> ExprMap v) -> XT (ExprMap v)
-liftXT f Nothing    = Just (f emptyExpr)
+liftXT f Nothing    = Just (f emptyEM)
 liftXT f (Just m)   = Just (f m)
 \end{code}
 %}
@@ -803,7 +802,7 @@ in Haskell the notation ``|m { fld = e }|'' means the result
 of updating the |fld| field of record |m| with new value |e|.
 In the |App| case we look up |e1| in |m_app|;
 we should find a |ExprMap| there, which we want to alter with |xt|.
-We can do that with a recursive call to |alterExpr|, using |liftXT|
+We can do that with a recursive call to |alterEM|, using |liftXT|
 for impedance-matching.
 
 The |App| case shows why we need the generality of |alter|.
@@ -812,7 +811,7 @@ Its equation for |(App e1 e2)| would look up |e1| --- and would then
 need to \emph{alter} that entry (an |ExprMap|, remember) with the result of
 inserting |(e2,v)|.  So we are forced to define |alter| anyway.
 
-We can abbreviate the code for |alterExpr| using combinators, as we did in the case of
+We can abbreviate the code for |alterEM| using combinators, as we did in the case of
 lookup, and doing so pays dividends when the key is a data type with
 many constructors, each with many fields.  However, the details are
 fiddly and not illuminating, so we omit them here.  Indeed, for the
@@ -823,7 +822,7 @@ for |alter|, though the full code is available in the Supplemental.
 
 A common operation on finite maps is to take their union:
 \begin{code}
-unionExpr :: ExprMap v -> ExprMap v -> ExprMap v
+unionEM :: ExprMap v -> ExprMap v -> ExprMap v
 \end{code}
 In tree-based implementations of finite maps, such union operations can be tricky.
 The two trees, which have been built independently, might not have the same
@@ -833,22 +832,22 @@ their structure is identical, and we can simply zip them together.  There is one
 wrinkle: just as we had to generalise |insert| to |alter|,
 to accommodate the nested map in |em_app|, so we need to generalise |union| to |unionWith|:
 \begin{code}
-unionWithExpr :: (v -> v -> v) -> ExprMap v -> ExprMap v -> ExprMap v
+unionWithEM :: (v -> v -> v) -> ExprMap v -> ExprMap v -> ExprMap v
 \end{code}
 When a key appears on both maps, the combining function is used to
 combine the two corresponding values.
 With that generalisation, the code is as follows:
 \begin{code}
-unionWithExpr f  (EM { em_var = m1_var, em_app = m1_app })
+unionWithEM f  (EM { em_var = m1_var, em_app = m1_app })
                  (EM { em_var = m2_var, em_app = m2_app })
   = EM  { em_var = Map.unionWith f m1_var m2_var
-        , em_app = unionWithExpr (unionWithExpr f) m1_app m2_app }
+        , em_app = unionWithEM (unionWithEM f) m1_app m2_app }
 \end{code}
 It could hardly be simpler.
 
 \subsection{Folds and the empty map} \label{sec:fold} \label{sec:empty}
 
-This strange, infinite definition of |emptyExpr| given in \Cref{sec:empty-infinite}
+The strange, infinite definition of |emptyEM| given in \Cref{sec:empty-infinite}
 works fine (in a lazy language at least) for lookup, alteration, and union, but it fails
 fundamentally when we want to \emph{iterate} over the elements of the trie.
 For example, suppose we wanted to count the number of elements in the finite map; in |containers|
@@ -858,29 +857,29 @@ this is the function |Map.size| (\Cref{fig:containers}).  We might attempt:
 %format undefined = "???"
 %endif
 \begin{code}
-sizeExpr :: ExprMap v -> Int
-sizeExpr (EM { em_var = m_var, em_app = m_app }) = Map.size m_var + undefined
+sizeEM :: ExprMap v -> Int
+sizeEM (EM { em_var = m_var, em_app = m_app }) = Map.size m_var + undefined
 \end{code}
 %}
 We seem stuck because the size of the |m_app| map is not what we want: rather,
 we want to add up the sizes of its \emph{elements}, and we don't have a way to do that yet.
 The right thing to do is to generalise to a fold:
 \begin{code}
-foldrExpr :: (v -> r -> r) -> r -> ExprMap v -> r
-foldrExpr k z (EM { em_var = m_var, em_app = m_app })
+foldrEM :: (v -> r -> r) -> r -> ExprMap v -> r
+foldrEM k z (EM { em_var = m_var, em_app = m_app })
   = Map.foldr k z1 m_var
   where
-    z1 = foldrExpr kapp z m_app
-    kapp m1 r = foldrExpr k r m1
+    z1 = foldrEM kapp z m_app
+    kapp m1 r = foldrEM k r m1
 \end{code}
 %}
 In the binding for |z1| we fold over |m_app :: ExprMap (ExprMap v)|.
 The function |kapp| is combines the map we find with the accumulator, by again
-folding over the map with |foldrExpr|.
+folding over the map with |foldrEM|.
 
-But alas, |foldrExpr| will never terminate!  It always invokes itself immediately
+But alas, |foldrEM| will never terminate!  It always invokes itself immediately
 (in |z1|) on |m_app|; but that invocation will again recursively invoke
-|foldrExpr|; and so on forever.
+|foldrEM|; and so on forever.
 The solution is simple: we just need an explicit representation of the empty map.
 Here is one way to do it (we will see another in \Cref{sec:generalised}):
 %{
@@ -895,24 +894,24 @@ Here is one way to do it (we will see another in \Cref{sec:generalised}):
 data ExprMap v  = EmptyEM
                 | EM { em_var :: Map Var v, em_app :: ExprMap (ExprMap v) }
 
-emptyExpr :: ExprMap v
-emptyExpr = EmptyEM
+emptyEM :: ExprMap v
+emptyEM = EmptyEM
 
-foldrExpr :: (v -> r -> r) -> r -> ExprMap v -> r
-foldrExpr k z EmptyEM                                   = z
-foldrExpr k z (EM { em_var = m_var, em_app = m_app })  = Map.foldr k z1 m_var
+foldrEM :: (v -> r -> r) -> r -> ExprMap v -> r
+foldrEM k z EmptyEM                                   = z
+foldrEM k z (EM { em_var = m_var, em_app = m_app })  = Map.foldr k z1 m_var
   where
-    z1 = foldrExpr kapp z m_app
-    kapp m1 r = foldrExpr k r m1
+    z1 = foldrEM kapp z m_app
+    kapp m1 r = foldrEM k r m1
 \end{code}
 Equipped with a fold, we can easily define the size function, and another
 that returns the range of the map:
 \begin{code}
-sizeExpr :: ExprMap v -> Int
-sizeExpr = foldrExpr (\ _ n -> n+1) 0
+sizeEM :: ExprMap v -> Int
+sizeEM = foldrEM (\ _ n -> n+1) 0
 
-elemsExpr :: ExprMap v -> [v]
-elemsExpr = foldrExpr (:) []
+elemsEM :: ExprMap v -> [v]
+elemsEM = foldrEM (:) []
 \end{code}
 %}
 
@@ -929,11 +928,11 @@ a type class for them:
 \begin{code}
 class Eq (TrieKey tm) => TrieMap tm where
    type TrieKey tm :: Type
-   emptyTM     :: tm a
-   lookupTM    :: TrieKey tm -> tm a -> Maybe a
-   alterTM     :: TrieKey tm -> XT a -> tm a -> tm a
-   foldTM      :: (a -> b -> b) -> tm a -> b -> b
-   unionWithTM :: (a -> a -> a) -> tm a -> tm a -> tm a
+   emptyTM      :: tm a
+   lookupTM     :: TrieKey tm -> tm a -> Maybe a
+   alterTM      :: TrieKey tm -> XT a -> tm a -> tm a
+   foldrTM      :: (a -> b -> b) -> tm a -> b -> b
+   unionWithTM  :: (a -> a -> a) -> tm a -> tm a -> tm a
    dots
 \end{code}
 %}
@@ -948,14 +947,14 @@ Now we can witness the fact that |ExprMap| is a |TrieMap|, like this:
 %if style == poly
 %format dots = "\ldots"
 %else
-%format dots = "foldTM = undefined"
+%format dots = "foldrTM = undefined"
 %endif
 \begin{code}
 instance TrieMap ExprMap where
   type TrieKey ExprMap = Expr
-  emptyTM   = emptyExpr
-  lookupTM  = lookupExpr
-  alterTM   = alterExpr
+  emptyTM   = emptyEM
+  lookupTM  = lookupEM
+  alterTM   = alterEM
   dots
 \end{code}
 %}
@@ -985,30 +984,30 @@ Then we would need to build a trie keyed by a \emph{list} of |Expr|.
 A list is just another algebraic data type, built with nil and cons,
 so we \emph{could} use exactly the same approach, thus
 \begin{code}
-lookupListExpr :: [Expr] -> ListExprMap v -> Maybe v
+lookupLEM :: [Expr] -> ListExprMap v -> Maybe v
 \end{code}
 But rather than define a |ListExprMap| for keys of type |[Expr]|,
 and a |ListDeclMap| for keys of type |[Decl]|, etc, we would obviously prefer
 to build a trie for lists of \emph{any type}, like this \cite{hinze:generalized}:
 \begin{code}
-lookupList :: TrieMap tm => [TrieKey tm] -> ListMap tm v -> Maybe v
-lookupList []      = lm_nil
-lookupList (k:ks)  = lm_cons >.> lookupTM k >=> lookupList ks
+lookupLM :: TrieMap tm => [TrieKey tm] -> ListMap tm v -> Maybe v
+lookupLM []      = lm_nil
+lookupLM (k:ks)  = lm_cons >.> lookupTM k >=> lookupLM ks
 
-emptyList :: TrieMap tm => ListMap tm
-emptyList = LM { lm_nil = Nothing, lm_cons = emptyTM }
+emptyLM :: TrieMap tm => ListMap tm
+emptyLM = LM { lm_nil = Nothing, lm_cons = emptyTM }
 
 data ListMap tm v = LM { lm_nil  :: Maybe v, lm_cons :: tm (ListMap tm  v) }
 \end{code}
-The code for |alterList| and |foldList| is routine. Notice that all of
+The code for |alterLM| and |foldrLM| is routine. Notice that all of
 these functions are polymorphic in |tm|, the triemap for the list elements.
 So |ListMap| is a \emph{triemap-transformer}; and if |tm| is a |TrieMap| then
 so is |ListMap tm|:
 \begin{code}
 instance TrieMap tm => TrieMap (ListMap tm) where
    type TrieKey (ListMap tm) = [TrieKey tm]
-   emptyTM  = emptyList
-   lookupTM = lookupList
+   emptyTM   = emptyLM
+   lookupTM  = lookupLM
    ...
 \end{code}
 \subsection{Singleton maps, and empty maps revisited} \label{sec:singleton}
@@ -1019,7 +1018,7 @@ with a key (an |Expr|) that is large, say
   App (App (Var "f") (Var "x")) (Var "y")
 \end{spec}
 Looking at the code
-for |alterExpr| in \Cref{sec:alter}, you can see that
+for |alterEM| in \Cref{sec:alter}, you can see that
 because there is an |App| at the root, we will build an
 |EM| record with an empty |em_var|, and an
 |em_app| field that is... another |EM|
@@ -1157,49 +1156,53 @@ we are going to \emph{behave as if we did}. Here is the code
 data ExprLMap v = ELM  {  elm_app  :: ExprLMap (ExprLMap v)
                        ,  elm_lam  :: ExprLMap v
                        ,  elm_fv   :: Map Var v            -- Free variables
-                       ,  elm_bv   :: Map BoundVarKey v }  -- Lambda-bound variables
+                       ,  elm_bv   :: Map BoundVar v }  -- Lambda-bound variables
 
 lookupExprL :: ExprL -> ExprLMap v -> Maybe v
-lookupExprL e = lkExprL (DB emptyBVM e)
+lookupExprL e = lkExprL (A emptyDBE e)
 
-data DBExprL = DB { edb_bvm :: BoundVarMap, edb_expr :: ExprL }
+data ModAlpha a = A DeBruijnEnv a
+  deriving Functor
 
-lkExprL :: DBExprL -> ExprLMap v -> Maybe v
-lkExprL (DB bvm (AppL e1 e2)) = elm_app >.> lkExprL (DB bvm e1) >=> lkExprL (DB bvm e2)
-lkExprL (DB bvm (Lam v e))   = elm_lam >.> lkExprL (DB (extendBVM v bvm) e)
-lkExprL (DB bvm (VarL v))     = case lookupBVM v bvm of
+type AlphaExprL = ModAlpha ExprL
+
+lkExprL :: AlphaExprL -> ExprLMap v -> Maybe v
+lkExprL ae@(A _   (AppL e1 e2)) = elm_app >.> lkExprL (e1 <$ ae) >=> lkExprL (e1 <$ ae)
+lkExprL (A dbe (Lam v e))   = elm_lam >.> lkExprL (A (extendDBE v dbe) e)
+lkExprL (A dbe (VarL v))     = case lookupDBE v dbe of
                                 Nothing -> elm_fv  >.> Map.lookup v   -- Free
                                 Just bv -> elm_bv  >.> Map.lookup bv  -- Lambda-bound
 
-data BoundVarMap = BVM { bvm_next :: BoundVarKey, bvm_map :: Map Var BoundVarKey }
-type BoundVarKey = Int
+type BoundVar = DBNum
+type DBNum = Int
+data DeBruijnEnv = DBE { dbe_next :: DBNum, dbe_env :: Map Var DBNum }
 
-emptyBVM :: BoundVarMap
-emptyBVM = BVM { bvm_next = 1, bvm_map = Map.empty }
+emptyDBE :: DeBruijnEnv
+emptyDBE = DBE { dbe_next = 1, dbe_env = Map.empty }
 
-extendBVM :: Var -> BoundVarMap -> BoundVarMap
-extendBVM v (BVM { bvm_next = n, bvm_map = bvm })
-  = BVM { bvm_next = n+1, bvm_map = Map.insert v n bvm }
+extendDBE :: Var -> DeBruijnEnv -> DeBruijnEnv
+extendDBE v (DBE { dbe_next = n, dbe_env = dbe })
+  = DBE { dbe_next = n+1, dbe_env = Map.insert v n dbe }
 
-lookupBVM :: Var -> BoundVarMap -> Maybe BoundVarKey
-lookupBVM v (BVM {bvm_map = bvm }) = Map.lookup v bvm
+lookupDBE :: Var -> DeBruijnEnv -> Maybe DBNum
+lookupDBE v (DBE {dbe_env = dbe }) = Map.lookup v dbe
 \end{code}
-We maintain a |BoundVarMap|
+We maintain a |DeBruijnEnv| for lambda binders
 that maps each lambda-bound variable to its de-Bruijn level%
 \footnote{
   The de-Bruijn \emph{index} of the occurrence of a variable $v$ counts the number
   of lambdas between the occurrence of $v$ and its binding site.  The de-Bruijn \emph{level}
   of $v$ counts the number of lambdas between the root of the expression and $v$'s binding site.
   It is convenient for us to use \emph{levels}.}
-\cite{debruijn}, of type |BoundVarKey|.
+\cite{debruijn}, of type |BoundVar|.
 The key we look up --- the first argument of |lkExprL| --- becomes
-a |DBExprL|, which is a pair of a |BoundVarMap| and an
+an |AlphaExprL|, which is a pair of a |DeBruijnEnv| and an
 |ExprL|.
 At a |Lam|
-node we extend the |BoundVarMap|. At a |Var| node we
-look up the variable in the |BoundVarMap| to decide whether it is
+node we extend the |DeBruijnEnv|. At a |Var| node we
+look up the variable in the |DeBruijnEnv| to decide whether it is
 lambda-bound (within the key) or free, and behave appropriately.
-The code for |alter| and |fold| holds no new surprises.
+The code for |alter| and |foldr| holds no new surprises.
 The construction of \Cref{sec:generalised}, to handle empty and singleton maps,
 applies without difficulty to this generalised map.
 
@@ -1407,7 +1410,7 @@ a |PatSubst| that gives the bindings for pattern variable bound so far.
 It returns a bag of results, since more than one entry in the trie may match,
 each paired with the |PatSubst| that binds the pattern variables.
 A |PatSubst| carries not only the current substitution, but also (like a
-|BoundVarMap|, \Cref{sec:binders}) the next free pattern key:
+|DeBruijnEnv|, \Cref{sec:binders}) the next free pattern key:
 \begin{code}
 data PatSubst = PS { ps_next  :: PatKey, ps_subst :: Map PatKey Expr }
 type PatKey = Int
@@ -1498,11 +1501,11 @@ mind that a |MExprLMap| represents \emph{many} patterns simultaneously.)
 How did the entries in our map get their |PatKeys|?  That
 is, of course, the business of |insert|, or more generally
 |alter|.  The key, recursive function must carry inwards a mapping
-from pattern variables to pattern keys; we can simply re-use |BoundVarMap|
+from pattern variables to pattern keys; we can simply re-use |DeBruijnEnv|
 from \Cref{sec:binders} for this purpose.  The exact signature for the function takes
 a bit of puzzling out, and is worth comparing with its predecessor in \Cref{sec:alter}:
 \begin{code}
-type PatKeyMap = BoundVarMap   -- We re-use BoundVarMap
+type PatKeyMap = DeBruijnEnv   -- We re-use DeBruijnEnv
 
 xtMExpr :: Set PatVar -> Expr -> (PatKeyMap -> XT a)
          -> PatKeyMap -> MExprLMapX v -> MExprLMapX v
@@ -1518,14 +1521,14 @@ insertMExpr :: forall v. [Var]     -- Pattern variables
                          -> Expr   -- Pattern
                          -> v -> MExprLMap v -> MExprLMap v
 insertMExpr pat_vs e v mm
-  = xtMExpr (Set.fromList pat_vs) e xt emptyBVM mm
+  = xtMExpr (Set.fromList pat_vs) e xt emptyDBE mm
   where
     xt :: PatKeyMap -> XT (PatKeys, v)
     xt pkm _ = Just (map inst_key pat_vs, v)
      -- The @"_"@ means just overwrite previous value
      where
         inst_key :: PatVar -> (PatVar, PatKey)
-        inst_key x = case lookupBVM x pkm of
+        inst_key x = case lookupDBE x pkm of
                          Nothing -> error ("Unbound pattern variable " ++ x)
                          Just pk -> (x, pk)
 \end{code}
@@ -1540,13 +1543,13 @@ xtMExpr pvs e xt pkm mm
       App e1 e2 -> mm { mm_app = xtMExpr  pvs e1 (liftXTS (xtMExpr pvs e2 xt))
                                           pkm (mm_app mm) }
 
-      Var x | Just xv <- lookupBVM x pkm
+      Var x | Just xv <- lookupDBE x pkm
              -> -- Second or subsequent occurrence of a pattern variable
                 mm { mm_xvar = Map.alter (xt pkm) xv (mm_xvar mm) }
 
              | x `Set.member` pvs
              -> -- First occurrence of a pattern variable
-                mm { mm_pvar = xt (extendBVM x pkm) (mm_pvar mm) }
+                mm { mm_pvar = xt (extendDBE x pkm) (mm_pvar mm) }
 
              | otherwise
              -> -- A free variable
@@ -1817,18 +1820,18 @@ We think that |ExprLMap| folding performance dies by a thousand paper cuts: The
 lazy fold implementation means that we allocate a lot of thunks for intermediate
 results that we end up forcing anyway in the case of our folding operator |(+)|.
 That is a price that |Map| and |HashMap| pay, too, but not nearly as much as the
-implementation of |foldExpr| does.
+implementation of |foldrEM| does.
 Furthermore, there's the polymorphic recursion in the head case of |em_app|
-with a different folding function |(foldTM f)|, which allocates on each call
-and makes it impossible to specialise |foldExpr| for a fixed folding function
+with a different folding function |(foldrTM f)|, which allocates on each call
+and makes it impossible to specialise |foldrEM| for a fixed folding function
 like |(+)| with the static argument transformation~\cite{santos}. Hence
 we tried to single out the issue by ensuring that |Map| and |ExprLMap| in
 fact don't specialise for |(+)| when running the benchmarks, by means of a
 \texttt{NOINLINE} pragma.
-Another possible reason might be that the code generated for |foldExpr| is quite
+Another possible reason might be that the code generated for |foldrEM| is quite
 a lot larger than the code for |Map|, say, so we are likely measuring caching
 effects.
-We are positive there are numerous ways in which the performance of |foldExpr|
+We are positive there are numerous ways in which the performance of |foldrEM|
 can be improved, but believe it is unlikely to exceed or just reach the
 performance of |Map|.
 
