@@ -43,7 +43,7 @@ import Control.Applicative
 import Control.Monad
 import Control.Monad.Trans.State
 import Data.Maybe
-import Text.PrettyPrint as PP hiding (empty)
+import Text.PrettyPrint as PP
 import Debug.Trace
 import Data.Char
 import qualified Text.Read as Read
@@ -749,11 +749,11 @@ instance MTrieMap tm => MTrieMap (MSEMap tm) where
 lookupPatMSEM
   :: MTrieMap tm => Term tm -> MSEMap tm a -> MatchResult (Term tm) a
 lookupPatMSEM k m = case m of
-  EmptyMSEM -> empty
+  EmptyMSEM        -> mzero
+  MultiMSEM m      -> lookupPatMTM k m
   SingleMSEM pat v -> do
     refine (match pat k)
     pure v
-  MultiMSEM m -> lookupPatMTM k m
 
 alterPatMSEM
   :: MTrieMap tm
