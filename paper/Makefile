@@ -23,6 +23,9 @@ $(PAPER).o: $(HS_MODULES:%=%.o)
 %.hs: %.lhs $(FMT_FILES)
 	lhs2TeX --newcode -o $@ $<
 
+watch:
+	ls *.fmt *.tex *.lhs | entr make all
+
 clean:
 	rm -f *.hi *.o *.ptb
 	rm -f $(PAPER).pdf $(PAPER).tex $(PAPER).hs
