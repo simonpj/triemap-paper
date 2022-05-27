@@ -49,6 +49,7 @@ import Data.Char
 import qualified Text.Read as Read
 import qualified Text.ParserCombinators.ReadP as ReadP
 import Data.Tree
+import Data.Tuple (swap)
 
 import Lens.Micro
 import Lens.Micro.Internal
@@ -634,20 +635,16 @@ instance Show e => Show (Pat e) where
 *                                                                      *
 ********************************************************************* -}
 
-newtype MatchState e = MS (PatKeyMap e)
-  deriving Show
+type MatchState e = PatKeyMap e
 
 emptyMS :: MatchState e
-emptyMS = MS emptyPVM
-
-getMatchingSubst :: MatchState e -> PatKeyMap e
-getMatchingSubst (MS subst) = subst
+emptyMS = emptyPVM
 
 hasMatch :: PatKey -> MatchState e -> Maybe e
-hasMatch pv (MS subst) = IntMap.lookup pv subst
+hasMatch pv subst = IntMap.lookup pv subst
 
 addMatch :: PatKey -> e -> MatchState e -> MatchState e
-addMatch pv e (MS ms) = MS (IntMap.insert pv e ms)
+addMatch pv e ms = IntMap.insert pv e ms
 
 class Eq (Pat e) => Matchable e where
   equate :: PatKey -> e -> MatchState e -> Maybe (MatchState e)
@@ -719,8 +716,7 @@ refine f = MR $ StateT $ \ms -> case f ms of
   Nothing  -> []
 
 runMatchResult :: MatchResult e a -> [(PatKeyMap e, a)]
-runMatchResult (MR f)
-  = [ (getMatchingSubst ms, a) | (a, ms) <- runStateT f emptyMS ]
+runMatchResult (MR f) = swap <$> runStateT f emptyMS
 
 {- *********************************************************************
 *                                                                      *

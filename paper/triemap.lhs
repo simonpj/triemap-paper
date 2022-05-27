@@ -1414,18 +1414,19 @@ $\pv{i}$, where $i$ is the particular |PatKey|, another kind of |DBNum| just lik
 But there's more: In order to support singleton and empty maps, there's a copy
 of |SEMap|, dubbed |MSEMap|\footnote{For \enquote{matching singleton or empty map}}.
 The reason we need a duplicate is the key type stored in |SingleMSEM|: It's
-a |Pat (Term tm)|. |Pat| is similar to |ModAlpha| before and governs the
+a |Pat (Term tm)|. |Pat| is similar to |ModAlpha| before and carries the
 |PatKeys| mapping, but \emph{what is |Term tm|?} Why can't we simply keep
 on using |TrieKey tm| as the key anyway?
 
 The reason is that |SingleSEM| has to store a \emph{pattern}, which is not the same
 as the key \emph{expression} we look up in the trie, because it has to remember its
-pattern keys. At the expense of severely complicating our |TrieMap| type class
-with two separate associated types for keys we want to insert (e.g., patterns)
-and keys we want to look up (e.g., expressions), we could share the implementation
-of |alter| this way, as we shall see. For our exposition it's however far simpler
-to continue with a brand new copy of our |TrieMap| class for the matching
-scenario. Here is its complete API
+pattern keys. Now, we could share code with the non-matching implementation of
+|alter|, as we shall see, by modifying our |TrieMap| type class to have two
+separate associated types for keys we want to insert (e.g., patterns) and keys
+we want to look up (e.g., expressions). But that would severely complicate the
+non-matching use case! For our exposition it's far simpler to continue with a
+brand new copy of our |TrieMap| class for the matching scenario. Here is the
+complete API we are about to cover
 \begin{code}
 class Matchable (Term tm) => MTrieMap tm where
   type Term tm  :: Type
@@ -1433,8 +1434,9 @@ class Matchable (Term tm) => MTrieMap tm where
   lookupPatMTM  :: Term tm -> tm a -> MatchResult (Term tm) a
   alterPatMTM   :: Pat (Term tm) -> XT a -> tm a -> tm a
 \end{code}
-Note that the different key types for |lookupPatMTM| and |alterPatMTM|.
-|Term tm| will be instantiated to |AlphaExpr| for our use case:
+Note the different key types for |lookupPatMTM| and |alterPatMTM|.
+|Term tm| will be instantiated to |AlphaExpr| for our use case, just as
+|TrieKey| before:
 \begin{code}
 instance MTrieMap MExprMap' where
   type Term MExprMap' = AlphaExpr
@@ -1452,16 +1454,95 @@ So far, we have glossed over the following outstanding implementation obligation
   \item What is |lookupPatMM| (and |lookupPatMSEM|) and how does its
     use of |MatchResult| relate to |Maybe| in non-matching lookup?
     See \Cref{sec:matching-lookup}.
-  \item And finally: How do we harness this API in our implementations of
+  \item And finally: How do we harness this API in our implementation of
     |insertPM| and |matchPM|? See \Cref{sec:patmap-impl}.
 \end{itemize}
 
 \subsection{Implementation: matching terms} \label{sec:matchable}
 
+\sg{This section is too long and gives too much code that is quite unrelated to
+tries. Perhaps just show the |Matchable| class and refer to the Supplemental?
+We need |canonOcc| later on in |lookupPatMM|, though.}
+
 For exact, non-matching lookup, it was enough to compare terms for
 $\alpha$-equality. But the introduction of pattern variables means a
 pattern term can match many different terms, none of which have to be
 $\alpha$-equivalent to the expression representing the pattern.
+
+The |Matchable| type class represents exactly this distinction between flexible
+patterns and rigid terms:
+\begin{code}
+type MatchState e = PatKeyMap e
+
+class Eq (Pat e) => Matchable e where
+  equate :: PatKey -> e -> MatchState e -> Maybe (MatchState e)
+  match  :: Pat e -> e -> MatchState e -> Maybe (MatchState e)
+
+instance Eq (Pat AlphaExpr) where ...
+
+instance Matchable AlphaExpr where
+  equate  = equateE -- in this code block
+  match   = matchE  -- in the next code block
+
+equateE :: PatKey -> ModAlpha Expr -> MatchState (ModAlpha Expr) -> Maybe (MatchState (ModAlpha Expr))
+equateE pv (A bve e) ms = case Map.lookup pv ms of
+  Just (A _ sol)
+    | eqClosedExpr e sol  -> Just ms
+    | otherwise           -> Nothing
+  Nothing
+    | noCaptured bve e    -> Just (Map.insert pv (A emptyDBE e) ms)
+    | otherwise           -> Nothing
+\end{code}
+The |Eq| instance for expression patterns |Pat AlphaExpr| tests for equivalence
+modulo |PatKeys| canonicalisation and $alpha$-renaming, as before. The purpose
+of |equateE| is to augment the |MatchState|, which is just a substitution
+backed by a |PatKeyMap|, with a pattern key mapping to an |AlphaExpr|. If the
+substitution does not already contain a mapping for that pattern key and the
+solution doesn't capture any bound variables (so no higher-order matching!),
+extend the substitution. If the substitution already contains a mapping at that
+key, check if the two solutions are $\alpha$-compatible. Otherwise, fail.
+
+|matchE| is just a standard unification procedure where unification variables
+may only appear in the pattern. We'll only look at the |Var| case:
+\begin{code}
+data Occ
+  = Free  FreeVar
+  | Bound BoundKey
+  | Pat   PatKey
+  deriving Eq
+
+canonOcc :: PatKeys -> BoundVarEnv -> Var -> Occ
+canonOcc pks be v
+  | Just bv <- lookupDBE v be    = Bound bv
+  | Just pv <- Map.lookup v pks  = Pat pv
+  | otherwise                    = Free v
+
+matchE :: Pat AlphaExpr -> AlphaExpr -> MatchState AlphaExpr -> Maybe (MatchState AlphaExpr)
+matchE (P pks (A bve_pat e_pat)) tar@(A bve_tar e_tar) ms =
+  case (e_pat, e_tar) of
+  (Var v, _) -> case canonOcc pks bve_pat v of
+    Pat pv -> equateE pv tar ms
+    occ -> do
+      Var v2 <- pure e_tar
+      guard (occ == canonOcc emptyPatKeys bve_tar v2)
+      pure ms
+  ...
+\end{code}
+If the occurrence canonicalises (via |canonOcc|) to a pattern variable,
+|equate| it to the given expression. As we have seen, |equate| takes care of
+repeated occurrences of pattern keys by testing solutions for equality as
+appropriate.
+If it's not a pattern variable, make sure the target expression is a variable
+itself that canonicalises to the same |Occ|. The |App| and |Lam| cases are
+similar.
+
+\subsection{Implementation: altering a matching trie} \label{sec:matching-alter}
+
+Somewhat surprisingly, |alterPatMM| is given a |Pat AlphaExpr|, it's
+The code for |alterPatMSEM| is in fact very similar
+
+
+
 
 The core lookup function looks like this:
 %{
