@@ -57,7 +57,7 @@ prop_match_miss = withMaxSuccess 10000 $
   forAll (genInstance pat) $ \e ->
   let matches = matchPM e ps in
   -- now delete these matches and try again
-  let ps' = foldr (\(subst, e) ps -> deletePM (map fst subst) e ps) ps matches in
+  let ps' = foldr (\(subst, e) ps -> deletePM (map fst subst, e) ps) ps matches in
   counterexample (show pat) $
     null $ matchPM e ps' -- should show now matches
 

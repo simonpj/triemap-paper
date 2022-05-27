@@ -13,7 +13,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE StrictData #-}
 
-{-# OPTIONS_GHC -Wincomplete-patterns -Wunused-binds -W unused-imports #-}
+{-# OPTIONS_GHC -Wincomplete-patterns -Wunused-binds -Wunused-imports #-}
 
 -- | This module presents
 --
@@ -647,13 +647,12 @@ addMatch :: PatKey -> e -> MatchState e -> MatchState e
 addMatch pv e ms = IntMap.insert pv e ms
 
 class Eq (Pat e) => Matchable e where
-  equate :: PatKey -> e -> MatchState e -> Maybe (MatchState e)
   match  :: Pat e -> e -> MatchState e -> Maybe (MatchState e)
 
-instance Eq (Pat (ModAlpha Expr)) where
+instance Eq (Pat AlphaExpr) where
   (==) = eqPatExpr
 
-eqPatExpr :: Pat (ModAlpha Expr) -> Pat (ModAlpha Expr) -> Bool
+eqPatExpr :: Pat AlphaExpr -> Pat AlphaExpr -> Bool
 eqPatExpr v1@(P _ (A _ (App s1 t1))) v2@(P _ (A _ (App s2 t2)))
   = eqPatExpr (s1 <$$ v1) (s2 <$$ v2) &&
     eqPatExpr (t1 <$$ v1) (t2 <$$ v2)
@@ -667,27 +666,17 @@ eqPatExpr (P pks1 (A bve1 (Lam v1 e1))) (P pks2 (A bve2 (Lam v2 e2)))
 
 eqPatExpr _ _ = False
 
-instance Matchable (ModAlpha Expr) where
-  equate = equateExpr
-  match  = matchExpr
-
-equateExpr :: PatKey -> ModAlpha Expr -> MatchState (ModAlpha Expr) -> Maybe (MatchState (ModAlpha Expr))
-equateExpr pv (A bve e) ms = case hasMatch pv ms of
-  Just (A _ sol)
-    | eqClosedExpr e sol  -> Just ms
-    | otherwise           -> Nothing
-  Nothing
-    | noCaptured bve e   -> Just (addMatch pv (A emptyDBE e) ms)
-    | otherwise           -> Nothing
+instance Matchable AlphaExpr where
+  match = matchE
 
 traceWith f x = trace (f x) x
 
-matchExpr :: Pat AlphaExpr -> AlphaExpr -> MatchState AlphaExpr -> Maybe (MatchState AlphaExpr)
-matchExpr pat@(P pks (A bve_pat e_pat)) tar@(A bve_tar e_tar) ms =
-  -- traceWith (\res -> show ms ++ "  ->  matchExpr " ++ show pat ++ "   " ++ show tar ++ "  -> " ++ show res) $
+matchE :: Pat AlphaExpr -> AlphaExpr -> MatchState AlphaExpr -> Maybe (MatchState AlphaExpr)
+matchE pat@(P pks (A bve_pat e_pat)) tar@(A bve_tar e_tar) ms =
+  -- traceWith (\res -> show ms ++ "  ->  matchE " ++ show pat ++ "   " ++ show tar ++ "  -> " ++ show res) $
   case (e_pat, e_tar) of
   (Var v, _) -> case canonOcc pks bve_pat v of
-    Pat pv -> equate pv tar ms
+    Pat pv -> equateE pv tar ms
     occ -> do
       Var v2 <- pure e_tar
       guard (occ == canonOcc emptyPatKeys bve_tar v2)
@@ -695,6 +684,16 @@ matchExpr pat@(P pks (A bve_pat e_pat)) tar@(A bve_tar e_tar) ms =
   (App f1 a1, App f2 a2) -> match (f1 <$$ pat) (f2 <$ tar) ms >>= match (a1 <$$ pat) (a2 <$ tar)
   (Lam b1 e1, Lam b2 e2) -> match (P pks (A (extendDBE b1 bve_pat) e1)) (A (extendDBE b2 bve_tar) e2) ms
   (_, _) -> Nothing
+
+equateE :: PatKey -> ModAlpha Expr -> MatchState AlphaExpr -> Maybe (MatchState AlphaExpr)
+equateE pv (A bve e) ms = case hasMatch pv ms of
+  Just (A _ sol)
+    | eqClosedExpr e sol
+    , noCaptured bve e    -> Just ms
+    | otherwise           -> Nothing
+  Nothing
+    | noCaptured bve e    -> Just (addMatch pv (A emptyDBE e) ms)
+    | otherwise           -> Nothing
 
 {- *********************************************************************
 *                                                                      *
@@ -724,11 +723,11 @@ runMatchResult (MR f) = swap <$> runStateT f emptyMS
 *                                                                      *
 ********************************************************************* -}
 
-class Matchable (Term tm) => MTrieMap tm where
-  type Term tm :: Type
+class Matchable (MTrieKey tm) => MTrieMap tm where
+  type MTrieKey tm :: Type
   emptyMTM :: tm a
-  lookupPatMTM :: Term tm -> tm a -> MatchResult (Term tm) a
-  alterPatMTM  :: Pat (Term tm) -> XT a -> tm a -> tm a
+  lookupPatMTM :: MTrieKey tm -> tm a -> MatchResult (MTrieKey tm) a
+  alterPatMTM  :: Pat (MTrieKey tm) -> XT a -> tm a -> tm a
 
 {- *********************************************************************
 *                                                                      *
@@ -738,20 +737,20 @@ class Matchable (Term tm) => MTrieMap tm where
 
 data MSEMap tm v
   = EmptyMSEM
-  | SingleMSEM (Pat (Term tm)) v
+  | SingleMSEM (Pat (MTrieKey tm)) v
   | MultiMSEM  (tm v)
 
-deriving instance (Show v, Show (tm v), Show (Term tm))
+deriving instance (Show v, Show (tm v), Show (MTrieKey tm))
                => Show (MSEMap tm v)
 
 instance MTrieMap tm => MTrieMap (MSEMap tm) where
-  type Term (MSEMap tm) = Term tm
+  type MTrieKey (MSEMap tm) = MTrieKey tm
   emptyMTM     = EmptyMSEM
   lookupPatMTM = lookupPatMSEM
   alterPatMTM  = alterPatMSEM
 
 lookupPatMSEM
-  :: MTrieMap tm => Term tm -> MSEMap tm a -> MatchResult (Term tm) a
+  :: MTrieMap tm => MTrieKey tm -> MSEMap tm a -> MatchResult (MTrieKey tm) a
 lookupPatMSEM k m = case m of
   EmptyMSEM        -> mzero
   MultiMSEM m      -> lookupPatMTM k m
@@ -761,7 +760,7 @@ lookupPatMSEM k m = case m of
 
 alterPatMSEM
   :: MTrieMap tm
-  => Pat (Term tm) -> XT a -> MSEMap tm a -> MSEMap tm a
+  => Pat (MTrieKey tm) -> XT a -> MSEMap tm a -> MSEMap tm a
 alterPatMSEM k xt EmptyMSEM
   = case xt Nothing of
       Nothing -> EmptyMSEM
@@ -796,7 +795,7 @@ data MExprMap' a
 deriving instance Show v => Show (MExprMap' v)
 
 instance MTrieMap MExprMap' where
-  type Term MExprMap' = AlphaExpr
+  type MTrieKey MExprMap' = AlphaExpr
   emptyMTM     = mkEmptyMExprMap
   lookupPatMTM = lookupPatMM
   alterPatMTM  = alterPatMM
@@ -811,12 +810,12 @@ mkEmptyMExprMap
 
 lookupPatMM :: AlphaExpr -> MExprMap' a -> MatchResult AlphaExpr a
 lookupPatMM ae@(A bve e) (MM { .. })
-  = match <|> decompose
+  = flex <|> rigid
   where
-    match = mm_pvar |> IntMap.toList |> map match_one |> msum
-    match_one (pv, x) = refine (equate pv ae) >> pure x
+    flex = mm_pvar |> IntMap.toList |> map match_one |> msum
+    match_one (pv, x) = refine (equateE pv ae) >> pure x
 
-    decompose = case e of
+    rigid = case e of
       Var x     -> case lookupDBE x bve of
         Just bv -> mm_bvar |> liftMaybe . lookupBoundVarOcc bv
         Nothing -> mm_fvar |> liftMaybe . lookupFreeVarOcc  x
@@ -869,11 +868,10 @@ emptyPatMap :: PatMap v
 emptyPatMap = emptyMTM
 
 insertPM :: PatExpr -> v -> PatMap v -> PatMap v
-insertPM (pvars, e) x pm = alterPatMTM pat xt pm
+insertPM (pvars, e) x pm = alterPatMTM pat (\_ -> Just (pks, x)) pm
   where
     pks = canonPatKeys (Set.fromList pvars) e
     pat = P pks (deBruijnize e)
-    xt _ = Just (pks, x)
 
 matchPM :: Expr -> PatMap v -> [Match v]
 matchPM e pm
@@ -885,7 +883,7 @@ matchPM e pm
       where A _ e = lookupPatSubst pv subst
 
 deletePM :: PatExpr -> PatMap v -> PatMap v
-deletePM (pvars, e) pm = alterPatMTM pat (const Nothing) pm
+deletePM (pvars, e) pm = alterPatMTM pat (\_ -> Nothing) pm
   where
     pks = canonPatKeys (Set.fromList pvars) e
     pat = P pks (deBruijnize e)
@@ -1157,7 +1155,7 @@ instance Pretty a => Pretty (ExprMap' a) where
                     , text "em_app ="  <+> ppr em_app
                     , text "em_lam ="  <+> ppr em_lam ])
 
-instance (Pretty v, Pretty (tm v), Pretty (Pat (Term tm)))
+instance (Pretty v, Pretty (tm v), Pretty (Pat (MTrieKey tm)))
       => Pretty (MSEMap tm v) where
   ppr EmptyMSEM        = text "EmptyMSEM"
   ppr (SingleMSEM k v) = text "SingleMSEM" <+> ppr k <+> ppr v
