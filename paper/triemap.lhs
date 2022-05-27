@@ -1538,11 +1538,26 @@ similar.
 
 \subsection{Implementation: altering a matching trie} \label{sec:matching-alter}
 
-Somewhat surprisingly, |alterPatMM| is given a |Pat AlphaExpr|, it's
-The code for |alterPatMSEM| is in fact very similar
+Bring |alterPatMM|, see that it's similar to |alterEM|
 
+No need to show |alterPatMSEM|
 
+\subsection{Implementation: matching lookup} \label{sec:matching-lookup}
 
+Introduce |lookupPatMSEM| by giving a refactored defn of |lookupSEM| first.
+That motivates |refine| and |MatchResult|.
+
+Introduce |MatchResult|
+
+Show |lookupPatMM|
+
+\subsection{Implementation: canonicalisation and impedance matching} \label{sec:patmap-impl}
+
+|insertPM| and |canonPatKeys|
+
+|matchPM|. Done
+
+\section{To recycle}
 
 The core lookup function looks like this:
 %{
