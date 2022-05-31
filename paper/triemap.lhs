@@ -1771,7 +1771,7 @@ But there are problems:
 \end{itemize}
 
 So while embodying full-blown unification into the lookup algorithm seems
-attractive at first, it appears equally hard in the end.
+attractive at first, in the end it appears equally complicated to present.
 By contrast, for our most-specific matching problem it is relatively easy to
 return a set of \emph{candidates} that then be post-processed with a full
 unifier to see if the candidate does indeed unify with the target.
@@ -1816,10 +1816,7 @@ Not bad for a data structure that we can also extend to support matching lookup!
 \end{table}
 
 We measured the runtime performance of the (non-matching) |ExprMap| data
-structure%
-\footnote{Called just |ExprMap| in the supplemental, also supporting an
-additional |Lit Var| constructor in |Expr|.}
-on a selection of workloads, conducted using the \hackage{criterion}
+structure on a selection of workloads, conducted using the \hackage{criterion}
 benchmarking library%
 \footnote{The benchmark machine runs Ubuntu 18.04 on an Intel Core i5-8500 with
 16GB RAM. All programs were compiled with \texttt{-O2 -fproc-alignment=64} to
@@ -1863,10 +1860,8 @@ add a shared prefix to each of the expressions before building the initial
 map:
 \begin{itemize}
   \item \benchname{\_lam} wraps $N$ layers of |(Lam "$")| around each expression
-  \item \benchname{\_app1} wraps $N$ layers of |(Lit "$"^^^`App`)| around each expression%
-    \footnote{Recall that |Lit| is only present in the Supplemental and works
-    like a constant occurrence of a free variable.}
-  \item \benchname{\_app2} wraps $N$ layers of |(`App`^^^Lit "$")| around each expression
+  \item \benchname{\_app1} wraps $N$ layers of |(Var "$"^^^`App`)| around each expression
+  \item \benchname{\_app2} wraps $N$ layers of |(`App`^^^Var "$")| around each expression
 \end{itemize}
 where |"$"| is a name that doesn't otherwise occur in the generated expressions.
 
