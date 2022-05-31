@@ -397,9 +397,8 @@ instance Eq Expr where
 \email{sebastian.graf@@kit.edu}
 
 % Some conditional build stuff for handling the Appendix
-% main is set by default, appendix is turned off.
-% Can be turned on with --set=appendix from the commandline
-%let main     = True
+% Both conditionals, main and appendix, will be set from the Makefile depending
+% on the target (main, extended, appendix).
 %if main
 
 %% Abstract
