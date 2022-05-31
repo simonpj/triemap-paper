@@ -1428,9 +1428,6 @@ case! For our exposition it's far simpler to continue with a brand new copy of
 our |TrieMap| class for the matching scenario. Here is the complete API we are
 about to cover
 \begin{code}
-class Eq (Pat e) => Matchable e where
-  match  :: Pat e -> e -> PatKeyMap e -> Maybe (PatKeyMap e)
-
 class Matchable (MTrieKey tm) => MTrieMap tm where
   type MTrieKey tm  :: Type
   emptyMTM      :: tm a
@@ -1506,7 +1503,7 @@ lookup.
 Here's a slightly refactored version of |lookupSEM| on the left and the
 implementation of |lookupPatMSEM| on the right:\\
 %\colorbox{pink}{%
-\begin{minipage}[t]{0.45\textwidth}
+\begin{minipage}[t]{0.35\textwidth}
 \begin{code}
 lookupSEM k m = case m of
   EmptySEM        -> mzero
@@ -1572,9 +1569,9 @@ lookupPatMM ae@(A bve e) (MM { .. })
 
     rigid = case e of
       Var x      -> case lookupDBE x bve of
-        Just bv  -> mm_bvar  |> liftMaybe . lookupBoundVarOcc bv
-        Nothing  -> mm_fvar  |> liftMaybe . lookupFreeVarOcc  x
-      App e1 e2  -> mm_app   |>  lookupPatMTM (e1 <$ ae) >=> lookupPatMTM (e2 <$ ae)
+        Just bv  -> mm_bvar  |> liftMaybe . Map.lookup bv
+        Nothing  -> mm_fvar  |> liftMaybe . Map.lookup x
+      App e1 e2  -> mm_app   |> lookupPatMTM (e1 <$ ae) >=> lookupPatMTM (e2 <$ ae)
       Lam x e    -> mm_lam   |> lookupPatMTM (A (extendDBE x bve) e)
 \end{code}
 Where |match| would consider matching the target expression against \emph{one}
@@ -1672,9 +1669,7 @@ than that, there is a lot of rejigging the items in |MatchResult| to undo the
 pattern keys and turning the map into an association list, as required by our
 |Match| interface.
 
-\section{To recycle}
-
-\subsection{Further developments: most specific match, and unification} \label{sec:most-specific}
+\subsection{Further developments: most specific match} \label{sec:most-specific}
 
 It is sometimes desirable to be able to look up the \emph{most specific match}
 in the matching triemap.
@@ -1682,20 +1677,17 @@ For example, suppose the matching trie contains the following two (pattern,value
 $$
 \{ ([a],\, f\, a),\;\; ([p,q],\, f\,(p+q)) \}
 $$
-and suppose we look up $(f\,(2+x))$ in the trie.  The first entry matches, but the second also matches (with $S = [p \mapsto 2, q \mapsto x]$), and \emph{the second pattern is a substitution instance of the first}.  In some applications
-we may want to return just the second match.  We call this \emph{most-specific matching}.
+and suppose we look up $(f\,(2+x))$ in the trie. The first entry matches, but
+the second also matches (with $S = [p \mapsto 2, q \mapsto x]$), and \emph{the
+second pattern is a substitution instance of the first}. In some applications
+we may want to return just the second match. We call this \emph{most-specific
+matching}.
 
 The implementation we have shown returns \emph{all} matches, leaving it to
 a post-pass to pick only the most-specific ones.  It seems plausible that some
 modification to the lookup algorithm might suffice to identify the most-specific matches,
 but it turns out to be hard to achieve this, because each case only has a local
 view of the overall match.
-
-Sometimes one wants to find all patterns that \emph{unify} with the target,
-assuming we have some notion of ``unifiable variable'' in the target.  Embodying
-full-blown unification into the lookup algorithm seems hard, but it is relatively
-easy to return a set of \emph{candidates} that then be post-processed with a full
-unifier to see if the candidate does indeed unify with the target.
 
 %             FAILSED ATTEMPT
 % to get most specific matching
@@ -1721,6 +1713,68 @@ unifier to see if the candidate does indeed unify with the target.
 % forcing a lexicographic ordering on patterns where I don't think there should
 % be one.}
 
+A data structure that would be useful in the post-pass to maintain most-specific
+candidates would be a map of patterns (just like |MExprMap|) that allows
+\emph{unifying} lookup with the new trial pattern (unlike |MExprMap|). Then
+we would keep candidates which are unchanged under the unifier, because that
+candidate is clearly at least as specific than the pattern it unifies with.
+We'll briefly discuss that in the following section.
+
+\section{Triemaps that unify?}
+
+% Sometimes one wants to find all patterns that \emph{unify} with the target,
+% assuming we have some notion of ``unifiable variable'' in the target.
+
+In effect, the |PatVar|s of the patterns stored in our matching triemaps act
+like unification variables. The unification problems we solve are always
+particularly simple, because pattern variables only ever match against are
+\emph{expression} keys in which no pattern variable can occur.
+
+Another frustrating point is that we had to duplicate the |TrieMap| class in
+\Cref{sec:matching-class} because the key types for lookup and insertion no
+longer match up. If we managed to generalise the lookup key from expressions to
+patterns, too, we could continue to extend good old |TrieMap|.
+All this begs the question: \emph{Can we extend our idiomatic triemaps to facilitate
+unifying lookup?}
+
+At first blush, the generalisation seems simple. We already carefully confined
+the matching logic to |Matchable| and |MatchState|.
+It should be possible to
+generalise to
+\begin{code}
+type UniState = ...
+class Eq e => Matchable e where
+  unify :: e -> e -> UniState e -> Maybe (UniState e)
+class (Matchable (TrieKey tm), TrieMap tm) => UTrieMap tm where
+  lookupUniUTM :: TrieKey tm -> tm v -> UniResult (TrieKey tm) v
+\end{code}
+But there are problems:
+\begin{itemize}
+  \item We would need all unification variables to be globally unique lest we
+    open ourselves to numerous shadowing issues when reporting unifiers.
+  \item Consider the Unimap for
+    $$
+      (([a], T\;a\;A), v1) \quad \text{and} \quad (([b], T\;b\;B), v2)
+    $$
+    After canonicalisation, we get
+    $$
+      ((T\;\pv{1}\;A), ([(a,\pv{1})], v1)) \quad \text{and} \quad (T\;\pv{1}\;B, ([(b,\pv{1})], v2))
+    $$
+    and both patterns share a prefix in the trie.
+    Suppose now we uni-lookup the pattern $([c,d], T c d)$.
+    What should we store in our |UniState| when unifying $c$ with $\pv{1}$?
+    There simply is no unique pattern variable to \enquote{decanonicalise} to!
+    In general, it appears we'd get terms in the range of our substitution that
+    mix |PatVar|s and |PatKey|s. Clearly, the vanilla |Expr| datatype doesn't
+    accomodate such an extension and we'd have to complicate its definition with
+    techniques such as Trees that Grow \cite{ttg}.
+\end{itemize}
+
+So while embodying full-blown unification into the lookup algorithm seems
+attractive at first, it appears equally hard in the end.
+By contrast, for our most-specific matching problem it is relatively easy to
+return a set of \emph{candidates} that then be post-processed with a full
+unifier to see if the candidate does indeed unify with the target.
 
 \section{Evaluation} \label{sec:eval}
 
