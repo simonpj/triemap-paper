@@ -24,7 +24,7 @@
 \acmNumber{ICFP} % CONF = POPL or ICFP or OOPSLA
 \acmArticle{1}
 \acmYear{2022}
-\acmMonth{8}
+\acmMonth{5}
 \acmDOI{} % \acmDOI{10.1145/nnnnnnn.nnnnnnn}
 \startPage{1}
 
@@ -395,6 +395,12 @@ instance Eq Expr where
   \country{Germany}
 }
 \email{sebastian.graf@@kit.edu}
+
+% Some conditional build stuff for handling the Appendix
+% main is set by default, appendix is turned off.
+% Can be turned on with --set=appendix from the commandline
+%let main     = True
+%if main
 
 %% Abstract
 %% Note: \begin{abstract}...\end{abstract} environment must come
@@ -2306,5 +2312,14 @@ trees~\cite{handbook:2001}, drawing a nice connection to term indexing problems
 in the automated theorem proving community.
 
 \bibliography{refs}
+
+% Closing main part of the paper
+%endif
+% Now the appendix
+%if appendix
+\appendix
+\section{Appendix}\label{sec:appendix}
+%include appendix.lhs
+%endif
 
 \end{document}

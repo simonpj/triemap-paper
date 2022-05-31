@@ -1,5 +1,7 @@
-triemap.pdf
+*.pdf
 triemap.tex
+triemap_ext.tex
+appendix.tex
 triemap.hs
 *.hi
 *.o

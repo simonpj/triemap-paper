@@ -5,15 +5,37 @@ FMT_FILES = rae.fmt
 GHC_OPTS = -dynamic-too
 HS_MODULES = Bag RandomType
 
-all: $(PAPER).pdf
+# -halt-on-error: Halts on first error, rather than prompting the user
+REPL_FLAGS := -halt-on-error
+
+all: main
 
 code: $(PAPER).o
 
-%.tex: %.lhs $(FMT_FILES)
-	lhs2TeX -o $@ $<
+$(PAPER).tex: $(PAPER).lhs $(FMT_FILES)
+	lhs2TeX --set=main -o $@ $<
+
+$(PAPER)_ext.tex: $(PAPER).lhs $(FMT_FILES)
+	lhs2TeX --set=main --set=appendix -o $@ $<
+
+appendix.tex: $(PAPER).lhs $(FMT_FILES)
+	lhs2TeX --set=main --set=appendix -o $@ $<
 
 %.pdf: %.tex refs.bib
 	latexmk -pdf $<
+
+# The main paper without appendix
+main: $(PAPER).pdf
+
+# Fast, possibly incomplete rebuild. Mostly sufficient for quick rebuilds
+fast: $(PAPER).tex
+	pdflatex $(REPL_FLAGS) triemap
+
+# Just a standalone appendix.pdf
+appendix: appendix.pdf
+
+# Main paper including appendix
+extended: $(PAPER)_ext.pdf
 
 $(PAPER).o: $(HS_MODULES:%=%.o)
 
@@ -24,11 +46,11 @@ $(PAPER).o: $(HS_MODULES:%=%.o)
 	lhs2TeX --newcode -o $@ $<
 
 watch:
-	ls *.fmt *.tex *.lhs | entr make all
+	ls *.fmt *.tex *.lhs | entr make main_fast
 
 clean:
 	rm -f *.hi *.o *.ptb
 	rm -f $(PAPER).pdf $(PAPER).tex $(PAPER).hs
 
-.PHONY: all code
+.PHONY: all code main fast appendix extended watch clean
 .SECONDARY:
