@@ -119,8 +119,8 @@ lookupBoundVarOcc = IntMap.lookup
 foldrBVM :: (v -> a -> a) -> BoundKeyMap v -> a -> a
 foldrBVM k m z = foldr k z m
 
-alterBoundVarOcc :: BoundKey -> XT a -> BoundKeyMap a -> BoundKeyMap a
-alterBoundVarOcc v xt = IntMap.alter xt v
+alterBoundVarOcc :: BoundKey -> TF a -> BoundKeyMap a -> BoundKeyMap a
+alterBoundVarOcc v tf = IntMap.alter tf v
 
 -- | @ModAlpha a@ represents @a@ modulo alpha-renaming.  This is achieved
 -- by equipping the value with a 'DeBruijnEnv', which tracks an on-the-fly deBruijn
@@ -219,8 +219,8 @@ foldrFVM k m z = foldr k z m
 lookupFreeVarOcc :: FreeVar -> FreeVarMap a -> Maybe a
 lookupFreeVarOcc = Map.lookup
 
-alterFreeVarOcc :: FreeVar -> XT a -> FreeVarMap a -> FreeVarMap a
-alterFreeVarOcc v xt = Map.alter xt v
+alterFreeVarOcc :: FreeVar -> TF a -> FreeVarMap a -> FreeVarMap a
+alterFreeVarOcc v tf = Map.alter tf v
 
 {- *********************************************************************
 *                                                                      *
@@ -241,8 +241,8 @@ lookupPatSubst key subst
       Just e  -> e
       Nothing -> error ("lookupPatSubst " ++ show key)
 
-alterPatVarOcc :: PatKey -> XT a -> PatKeyMap a -> PatKeyMap a
-alterPatVarOcc v xt tm = IntMap.alter xt v tm
+alterPatVarOcc :: PatKey -> TF a -> PatKeyMap a -> PatKeyMap a
+alterPatVarOcc v tf tm = IntMap.alter tf v tm
 
 foldrPVM :: (v -> a -> a) -> PatKeyMap v -> a -> a
 foldrPVM f m a = foldr f a m
@@ -296,7 +296,7 @@ class Eq (TrieKey tm) => TrieMap tm where
    type TrieKey tm :: Type
    emptyTM        :: tm v
    lookupTM       :: TrieKey tm -> tm v -> Maybe v
-   alterTM        :: TrieKey tm -> XT v -> tm v -> tm v
+   alterTM        :: TrieKey tm -> TF v -> tm v -> tm v
    unionWithTM    :: (v -> v -> v) -> tm v -> tm v -> tm v
    foldrTM        :: (v -> a -> a) -> tm v -> a -> a
    fromListWithTM :: ([r] -> v) -> [(TrieKey tm, r)] -> tm v
@@ -308,7 +308,7 @@ class Eq (TrieKey tm) => TrieMap tm where
 insertTM :: TrieMap tm => TrieKey tm -> v -> tm v -> tm v
 insertTM k v = alterTM k (const $ Just v)
 
-type XT v = Maybe v -> Maybe v  -- How to alter a non-existent elt (Nothing)
+type TF v = Maybe v -> Maybe v  -- How to alter a non-existent elt (Nothing)
                                 --               or an existing elt (Just)
 
 -- Recall that
@@ -318,7 +318,7 @@ type XT v = Maybe v -> Maybe v  -- How to alter a non-existent elt (Nothing)
 infixl 0 |>
 x |> f = f x
 
-(|>>) :: TrieMap m2 => (XT (m2 a) -> m1 (m2 a) -> m1 (m2 a))
+(|>>) :: TrieMap m2 => (TF (m2 a) -> m1 (m2 a) -> m1 (m2 a))
                     -> (m2 a -> m2 a)
                     -> m1 (m2 a) -> m1 (m2 a)
 infixl 1 |>>
@@ -328,7 +328,7 @@ deMaybe :: TrieMap m => Maybe (m a) -> m a
 deMaybe Nothing  = emptyTM
 deMaybe (Just m) = m
 
-(|>>>) :: MTrieMap m2 => (XT (m2 a) -> m1 (m2 a) -> m1 (m2 a))
+(|>>>) :: MTrieMap m2 => (TF (m2 a) -> m1 (m2 a) -> m1 (m2 a))
                       -> (m2 a -> m2 a)
                       -> m1 (m2 a) -> m1 (m2 a)
 infixl 1 |>>>
@@ -373,22 +373,22 @@ lookupSEM tk (SingleSEM pk v) | tk == pk  = Just v
 lookupSEM tk (MultiSEM tm) = lookupTM tk tm
 
 
-alterSEM :: TrieMap tm => TrieKey tm -> XT v -> SEMap tm v -> SEMap tm v
-alterSEM k xt EmptySEM
-  = case xt Nothing of
+alterSEM :: TrieMap tm => TrieKey tm -> TF v -> SEMap tm v -> SEMap tm v
+alterSEM k tf EmptySEM
+  = case tf Nothing of
       Nothing -> EmptySEM
       Just v  -> SingleSEM k v
-alterSEM k1 xt tm@(SingleSEM k2 v2)
-  | k1 == k2 = case xt (Just v2) of
+alterSEM k1 tf tm@(SingleSEM k2 v2)
+  | k1 == k2 = case tf (Just v2) of
                   Nothing -> EmptySEM
                   Just v' -> SingleSEM k2 v'
-  | otherwise = case xt Nothing of
+  | otherwise = case tf Nothing of
                   Nothing -> tm
                   Just v1  -> MultiSEM $ alterTM k1 (\_ -> Just v1)
                                        $ alterTM k2 (\_ -> Just v2)
                                        $ emptyTM
-alterSEM k xt (MultiSEM tm)
-  = MultiSEM (alterTM k xt tm)
+alterSEM k tf (MultiSEM tm)
+  = MultiSEM (alterTM k tf tm)
 
 unionWithSEM :: TrieMap tm => (v -> v -> v) -> SEMap tm v -> SEMap tm v -> SEMap tm v
 unionWithSEM _ EmptySEM        m        = m
@@ -401,10 +401,10 @@ unionWithSEM f (SingleSEM k1 v1) (SingleSEM k2 v2)
 unionWithSEM _ (MultiSEM tm)   (SingleSEM k v)
   = MultiSEM $ alterTM k (\_ -> Just v) tm
 unionWithSEM _ (SingleSEM k v) (MultiSEM tm)
-  = MultiSEM $ alterTM k xt tm
+  = MultiSEM $ alterTM k tf tm
   where
-    xt Nothing = Just v
-    xt old     = old
+    tf Nothing = Just v
+    tf old     = old
 unionWithSEM f (MultiSEM tm1)  (MultiSEM tm2)
   = MultiSEM $ unionWithTM f tm1 tm2
 
@@ -448,11 +448,11 @@ lookupLM key (LM {..})
       []     -> lm_nil
       (k:ks) -> lm_cons |> lookupTM k >=> lookupTM ks
 
-alterLM :: TrieMap tm => [TrieKey tm] -> XT v -> ListMap' tm v -> ListMap' tm v
-alterLM ks xt tm@(LM {..})
+alterLM :: TrieMap tm => [TrieKey tm] -> TF v -> ListMap' tm v -> ListMap' tm v
+alterLM ks tf tm@(LM {..})
   = case ks of
-      []      -> tm { lm_nil  = lm_nil |> xt }
-      (k:ks') -> tm { lm_cons = lm_cons |> alterTM k |>> alterTM ks' xt }
+      []      -> tm { lm_nil  = lm_nil |> tf }
+      (k:ks') -> tm { lm_cons = lm_cons |> alterTM k |>> alterTM ks' tf }
 
 unionWithMaybe :: (v -> v -> v) -> Maybe v -> Maybe v -> Maybe v
 unionWithMaybe f (Just v1) (Just v2) = Just (f v1 v2)
@@ -525,13 +525,13 @@ lookupEM ae@(A bve e) (EM { .. }) = case e of
                        >=> lookupTM (e2 <$ ae)
   Lam x e   -> em_lam  |> lookupTM (A (extendDBE x bve) e)
 
-alterEM :: AlphaExpr -> XT v -> ExprMap' v -> ExprMap' v
-alterEM ae@(A bve e) xt m@(EM {..}) = case e of
+alterEM :: AlphaExpr -> TF v -> ExprMap' v -> ExprMap' v
+alterEM ae@(A bve e) tf m@(EM {..}) = case e of
   Var x -> case lookupDBE x bve of
-    Just bv -> m { em_bvar = alterBoundVarOcc bv xt em_bvar }
-    Nothing -> m { em_fvar = alterFreeVarOcc  x  xt em_fvar }
-  App e1 e2 -> m { em_app = em_app |> alterTM (e1 <$ ae) |>> alterTM (e2 <$ ae) xt }
-  Lam x e   -> m { em_lam = em_lam |> alterTM (A (extendDBE x bve) e) xt }
+    Just bv -> m { em_bvar = alterBoundVarOcc bv tf em_bvar }
+    Nothing -> m { em_fvar = alterFreeVarOcc  x  tf em_fvar }
+  App e1 e2 -> m { em_app = em_app |> alterTM (e1 <$ ae) |>> alterTM (e2 <$ ae) tf }
+  Lam x e   -> m { em_lam = em_lam |> alterTM (A (extendDBE x bve) e) tf }
 
 unionWithEM :: (v -> v -> v) -> ExprMap' v -> ExprMap' v -> ExprMap' v
 unionWithEM f m1 m2
@@ -727,7 +727,7 @@ class Matchable (MTrieKey tm) => MTrieMap tm where
   type MTrieKey tm :: Type
   emptyMTM :: tm a
   lookupPatMTM :: MTrieKey tm -> tm a -> MatchResult (MTrieKey tm) a
-  alterPatMTM  :: Pat (MTrieKey tm) -> XT a -> tm a -> tm a
+  alterPatMTM  :: Pat (MTrieKey tm) -> TF a -> tm a -> tm a
 
 {- *********************************************************************
 *                                                                      *
@@ -760,22 +760,22 @@ lookupPatMSEM k m = case m of
 
 alterPatMSEM
   :: MTrieMap tm
-  => Pat (MTrieKey tm) -> XT a -> MSEMap tm a -> MSEMap tm a
-alterPatMSEM k xt EmptyMSEM
-  = case xt Nothing of
+  => Pat (MTrieKey tm) -> TF a -> MSEMap tm a -> MSEMap tm a
+alterPatMSEM k tf EmptyMSEM
+  = case tf Nothing of
       Nothing -> EmptyMSEM
       Just v  -> SingleMSEM k v
-alterPatMSEM k1 xt tm@(SingleMSEM k2 v2)
-  | k1 == k2 = case xt (Just v2) of
+alterPatMSEM k1 tf tm@(SingleMSEM k2 v2)
+  | k1 == k2 = case tf (Just v2) of
                   Nothing -> EmptyMSEM
                   Just v' -> SingleMSEM k2 v'
-  | otherwise = case xt Nothing of
+  | otherwise = case tf Nothing of
                   Nothing -> tm
                   Just v1  -> MultiMSEM $ alterPatMTM k1 (\_ -> Just v1)
                                         $ alterPatMTM k2 (\_ -> Just v2)
                                         $ emptyMTM
-alterPatMSEM k xt (MultiMSEM tm)
-  = MultiMSEM (alterPatMTM k xt tm)
+alterPatMSEM k tf (MultiMSEM tm)
+  = MultiMSEM (alterPatMTM k tf tm)
 
 
 {- *********************************************************************
@@ -823,14 +823,14 @@ lookupPatMM ae@(A bve e) (MM { .. })
                            >=> lookupPatMTM (e2 <$ ae)
       Lam x e   -> mm_lam  |> lookupPatMTM (A (extendDBE x bve) e)
 
-alterPatMM :: Pat AlphaExpr -> XT a -> MExprMap' a -> MExprMap' a
-alterPatMM pat@(P pks (A bve e)) xt m@(MM {..}) = case e of
+alterPatMM :: Pat AlphaExpr -> TF a -> MExprMap' a -> MExprMap' a
+alterPatMM pat@(P pks (A bve e)) tf m@(MM {..}) = case e of
   Var x -> case canonOcc pks bve x of
-    Pat pv   -> m { mm_pvar = alterPatVarOcc   pv xt mm_pvar }
-    Bound bv -> m { mm_bvar = alterBoundVarOcc bv xt mm_bvar }
-    Free fv  -> m { mm_fvar = alterFreeVarOcc  fv xt mm_fvar }
-  App e1 e2  -> m { mm_app  = mm_app |> alterPatMTM (e1 <$$ pat) |>>> alterPatMTM (e2 <$$ pat) xt }
-  Lam x e    -> m { mm_lam  = mm_lam |> alterPatMTM (P pks (A (extendDBE x bve) e)) xt }
+    Pat pv   -> m { mm_pvar = alterPatVarOcc   pv tf mm_pvar }
+    Bound bv -> m { mm_bvar = alterBoundVarOcc bv tf mm_bvar }
+    Free fv  -> m { mm_fvar = alterFreeVarOcc  fv tf mm_fvar }
+  App e1 e2  -> m { mm_app  = mm_app |> alterPatMTM (e1 <$$ pat) |>>> alterPatMTM (e2 <$$ pat) tf }
+  Lam x e    -> m { mm_lam  = mm_lam |> alterPatMTM (P pks (A (extendDBE x bve) e)) tf }
 
 -- An ad-hoc definition of foldrMM, because I don't want to define another
 -- (duplicate) type class method. We need this one in the testuite to extract
@@ -937,8 +937,8 @@ class TrieMap tm => TrieMapLens tm where
   atTM  :: TrieKey tm -> Lens' (tm v) (Maybe v)
   nullTM :: tm v -> Bool
 
-alterTM' :: TrieMapLens tm => TrieKey tm -> XT v -> tm v -> tm v
-alterTM' k xt m = runIdentity $ atTM k (Identity . xt) m
+alterTM' :: TrieMapLens tm => TrieKey tm -> TF v -> tm v -> tm v
+alterTM' k tf m = runIdentity $ atTM k (Identity . tf) m
 
 lookupTM' :: TrieMapLens tm => TrieKey tm -> tm v -> Maybe v
 lookupTM' k m = getConst $ atTM k Const m
@@ -953,29 +953,29 @@ nullSEM EmptySEM      = True
 nullSEM _             = False
 
 atSEM :: TrieMapLens tm => TrieKey tm -> Lens' (SEMap tm v) (Maybe v)
-atSEM !k xt EmptySEM
-  = xt Nothing <&> \case
+atSEM !k tf EmptySEM
+  = tf Nothing <&> \case
       Nothing -> EmptySEM
       Just v  -> SingleSEM k v
-atSEM k1 xt tm@(SingleSEM k2 v2)
-  | k1 == k2 = xt (Just v2) <&> \case
+atSEM k1 tf tm@(SingleSEM k2 v2)
+  | k1 == k2 = tf (Just v2) <&> \case
                   Nothing -> EmptySEM
                   Just v' -> SingleSEM k2 v'
-  | otherwise = xt Nothing <&> \case
+  | otherwise = tf Nothing <&> \case
                   Nothing -> tm
                   Just v1  -> MultiSEM $ insertTM k1 v1 (insertTM k2 v2 emptyTM)
-atSEM k xt (MultiSEM tm)
-  = atTM k xt tm <&> \tm' -> if nullTM tm' then EmptySEM else MultiSEM tm'
+atSEM k tf (MultiSEM tm)
+  = atTM k tf tm <&> \tm' -> if nullTM tm' then EmptySEM else MultiSEM tm'
 
 instance TrieMapLens tm => TrieMapLens (ListMap' tm) where
   atTM = atList
   nullTM = nullList
 
 lens_lm_nil :: Lens' (ListMap' tm v) (Maybe v)
-lens_lm_nil xt lm@(LM { .. }) = xt lm_nil <&> \nil' -> lm { lm_nil = nil' }
+lens_lm_nil tf lm@(LM { .. }) = tf lm_nil <&> \nil' -> lm { lm_nil = nil' }
 
 lens_lm_cons :: Lens' (ListMap' tm v) (tm (ListMap tm v))
-lens_lm_cons xt lm@(LM { .. }) = xt lm_cons <&> \cons' -> lm { lm_cons = cons' }
+lens_lm_cons tf lm@(LM { .. }) = tf lm_cons <&> \cons' -> lm { lm_cons = cons' }
 
 nullList :: TrieMapLens tm => ListMap' tm v -> Bool
 nullList (LM {..}) = isNothing lm_nil && nullTM lm_cons
@@ -992,10 +992,10 @@ atList []     = lens_lm_nil
 atList (k:ks) = lens_lm_cons . atTM k . nonEmpty . atTM ks
 
 atBoundVarOcc :: BoundKey -> Lens' (BoundKeyMap v) (Maybe v)
-atBoundVarOcc v xt tm = IntMap.alterF xt v tm
+atBoundVarOcc v tf tm = IntMap.alterF tf v tm
 
 atFreeVarOcc :: Var -> Lens' (FreeVarMap v) (Maybe v)
-atFreeVarOcc v xt tm = Map.alterF xt v tm
+atFreeVarOcc v tf tm = Map.alterF tf v tm
 
 instance TrieMapLens ExprMap' where
   atTM = atExpr

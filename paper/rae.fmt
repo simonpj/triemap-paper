@@ -45,19 +45,23 @@
 %format alpha = "\alpha"
 %format alphas = "\overline\alpha"
 %format beta = "\beta"
-%format <$ = "\mathop{{<}{\$}}"
-%format <$$ = "\mathop{{<}{\$}{\$}}"
+%format <$ = "\mathop{\raisebox{0.025em}{$<$}\hspace{-0.16em}{\$}}"
+%format <$$ = "\mathop{\raisebox{0.025em}{$<$}\hspace{-0.16em}{\$}\hspace{-0.18em}{\$}}"
 %format <$> = "\mathop{{\langle}{\$}{\rangle}}"
 %format <*> = "\mathop{{\langle}{*}{\rangle}}"
 %format <|> = "\mathop{{<}{|}{>}}"
+%format >=> = "\mathrel{{>}\hspace{-0.32em}{=}\hspace{-0.32em}{>}}"
+%format >>  = "\mathrel{{>}\hspace{-0.4em}{>}}"
+%format >>> = "\mathrel{{>}\hspace{-0.4em}{>}\hspace{-0.4em}{>}}"
+%format |> = "\triangleright"
+%format |-> = "\mapsto"
+
 %format ^ = "\string^"
 %format bottom = "\bot"
 %format prag_begin = "\{-{\#}"
 %format prag_end = "{\#}{-}\}"
 %format k1
 %format k2
-%format << = "\lfloor"
-%format >> = "\rfloor"
 
 % suppress some built-in formatting of lhs2TeX:
 %format not = "\varid{not}"

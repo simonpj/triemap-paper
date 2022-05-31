@@ -78,6 +78,7 @@
 \usepackage{multirow}
 \usepackage{diagbox}
 \usepackage{csquotes}
+\usepackage{relsize}
 
 % \RequirePackage{xargs}
 
@@ -104,6 +105,14 @@
 \crefname{figure}{Fig.}{Figs.}
 \Crefname{figure}{Fig.}{Figs.}
 \crefname{restriction}{Restriction}{Restrictions}
+
+% Tables should have the caption above
+\floatstyle{plaintop}
+\restylefloat{table}
+
+\clubpenalty = 1000000
+\widowpenalty = 1000000
+\displaywidowpenalty = 1000000
 
 % Some colors:
 \definecolor{dkcyan}{rgb}{0.1, 0.3, 0.3}
@@ -183,23 +192,40 @@
 
 % Change lhs2TeX code indentation
 % https://tex.stackexchange.com/a/186520/52414
-\setlength\mathindent{1.5em}
+\setlength\mathindent{0em}
+% https://tex.stackexchange.com/a/58131
+\renewcommand{\hscodestyle}{\small}
 
 %if style == poly
 %format checktype(e) = e
-%format |-> = "\mapsto"
-%format >=> = "\mathrel{{>}\!{=}\!{>}}"
-%format >.> = "\mathrel{{>}\!{\circ}\!{>}}"
-%format |> = "\triangleright"
-%format /= = "\neq"
-
 %format property name (vars) (lhs) (rhs) = "\forall" vars ", " lhs "\equiv" rhs
 %format propertyImpl name (vars) (premise) (lhs) (rhs) = "\forall" vars ", " premise "\Rightarrow" lhs "\equiv" rhs
 
+% Abbreviations
+%format realLookupEM = "\varid{lookupEM}"
+%format realAlterEM = "\varid{alterEM}"
+%format lookupEM = lkEM
+%format lookupTM = lkTM
+%format lookupMM = lkMM
+%format lookupMTM = lkMTM
+%format lookupLM = lkLM
+%format lookupLEM = lkLEM
+%format lookupSEM = lkSEM
+%format lookupMSEM = lkMSEM
+%format alterEM = atEM
+%format alterTM = atTM
+%format alterMM = atMM
+%format alterMTM = atMTM
+%format alterLM = atLM
+%format alterSEM = atSEM
+%format alterMSEM = atMSEM
 %format e1
 %format e2
 %format m1
 %format m2
+%format z1
+%format v1
+%format v2
 %endif
 
 %if style == newcode
@@ -235,7 +261,7 @@ class Dummy (n :: Nat) where
 f1 >=> f3 = \x -> do y <- f1 x
                      f3 y
 
-(>.>) = flip (.)
+(>>>) = flip (.)
 
 (|>) = flip ($)
 
@@ -295,6 +321,10 @@ instance Eq Expr where
 
 
 \begin{document}
+
+\special{papersize=8.5in,11in}
+\setlength{\pdfpageheight}{\paperheight}
+\setlength{\pdfpagewidth}{\paperwidth}
 
 \newcommand{\simon}[1]{[{\bf SLPJ}: {\color{red} #1}]}
 \newcommand{\js}[1]{{\bf JS}: {\color{olive} #1} {\bf End JS}}
@@ -473,20 +503,20 @@ old ideas. We discuss related work in \Cref{sec:related}.
 %format Dots = "\ldots"
 %endif
 \begin{code}
-type XT v = Maybe v -> Maybe v
+type TF v = Maybe v -> Maybe v
 
 data Map0 k v = Dots  -- Keys k, values v
 checktype(Map.empty      :: Map k v)
 checktype(Map.insert     :: Ord k  => k -> v -> Map k v -> Map k v)
 checktype(Map.lookup     :: Ord k  => k -> Map k v -> Maybe v)
-checktype(Map.alter      ::  Ord k  => XT v -> k
+checktype(Map.alter      ::  Ord k  => TF v -> k
                              -> Map k v -> Map k v)
 checktype(Map.foldr      :: (v -> r -> r) -> r -> Map k v -> r)
 checktype(Map.map        :: (v -> w) -> Map k v -> Map k w)
 checktype(Map.unionWith  ::  Ord k  => (v->v->v)
                              -> Map k v -> Map k v -> Map k v)
 checktype(Map.size       :: Map k v -> Int)
- 
+
 infixl 4 <$, <$$      -- Set value in functor
 (<$)   :: Functor f => a -> f b -> f a
 (<$$)  :: (Functor f, Functor g) => a -> f (g b) -> f (g a)
@@ -495,8 +525,8 @@ infixr 1 >=>          -- Kleisli composition
 (>=>) :: Monad m  => (a -> m b) -> (b -> m c)
                   -> a -> m c
 
-infixr 1 >.>          -- Forward composition
-(>.>)  :: (a -> b) -> (b -> c) -> a -> c
+infixr 1 >>>          -- Forward composition
+(>>>)  :: (a -> b) -> (b -> c) -> a -> c
 
 infixr 0 |>           -- Reverse function application
 (|>)  :: a -> (a -> b) -> b
@@ -517,15 +547,13 @@ For example, an |Expr| data type might be defined like this:
 %format Var = "Var0"
 %endif
 \begin{code}
+type Var = String
 data Expr = App Expr Expr | Lam  Var Expr | Var Var
 \end{code}
 Here |Var| is the type of variables; these can be compared for
 equality and used as the key of a finite map.  Its definition is not important
 for this paper, but for the sake of concreteness,
 you may wish to imagine it is simply a string:
-\begin{code}
-type Var = String
-\end{code}
 %}
 % Convention: object language expressions like add x y in math mode
 The data type |Expr| is capable of representing expressions like $(add\,x\,y)$ and
@@ -592,24 +620,27 @@ type-class instances and for type-family instances can have thousands
 of candidates. We would like to find a matching candidate more efficiently
 than by linear search.
 
-\subsection{The interface of of a finite map} \label{sec:interface}
+\subsection{The interface of a finite map} \label{sec:interface}
 
 What API might such a map have? Building on the design of widely
 used functions in Haskell (see \cref{fig:containers}), we
 seek these basic operations:
 \begin{code}
-emptyEM   :: ExprMap v
-lookupEM  :: Expr -> ExprMap v -> Maybe v
-alterEM   :: Expr -> XT v -> ExprMap v -> ExprMap v
+emptyEM       :: ExprMap v
+realLookupEM  :: Expr -> ExprMap v -> Maybe v
+realAlterEM   :: Expr -> TF v -> ExprMap v -> ExprMap v
 \end{code}
-The functions |emptyEM| and |lookupEM| should be
-self-explanatory.  The function |alterTM| is a standard
-generalisation of |insertEM|: instead of providing just
-a new element to be inserted, the caller provides a
-\emph{value transformation} |XT v|, an
-abbreviation for |Maybe v -> Maybe v| (see \Cref{fig:library}).  This function
-transforms the existing value associated with the key, if any (hence the
-input |Maybe|), to a new value, if any (hence the output |Maybe|).
+The functions |emptyEM| and |realLookupEM|%
+\footnote{henceforth abbreviated |lookupEM|}
+should be self-explanatory. The function |realAlterEM|%
+\footnote{henceforth abbreviated |alterEM|}
+is a standard generalisation of |insertEM|: instead of providing just a new
+element to be inserted, the caller provides a \emph{value transformation} |TF v|, an
+abbreviation for |Maybe v -> Maybe v| (see \Cref{fig:library}). This function
+transforms the existing value associated with the key, if any (hence the input
+|Maybe|), to a new value, if any (hence the output |Maybe|). By supplying
+|alterEM| a key and a transformation on |v|, we get back a transformation on
+|ExprMap v|.
 We can easily define |insertEM| and |deleteEM| from |alterEM|:
 \begin{code}
 insertEM :: Expr -> v -> ExprMap v -> ExprMap v
@@ -634,7 +665,7 @@ propertyImpl propWrongElt (e1 e2 m xt) (e1 /= e2)  (lookup e1 (alter e2 xt m)  ^
 
 We would also like to support other standard operations on finite maps,
 with types analogous to those in \Cref{fig:library}, including |unionEM|, |mapEM|, and |foldrEM|.
-% 
+%
 % \begin{itemize}
 % \item An efficient union operation to combine two finite maps into one:
 % \begin{code}
@@ -703,23 +734,23 @@ Here is a trie-based implementation for |Expr|:
 %format em_app = "em_app0"
 %format lookupEM = "lookupExpr0"
 %format alterEM = "alterExpr0"
-%format liftXT = "liftXT0"
+%format liftFT = "liftFT0"
 %format emptyEM = "emptyExpr0"
 %endif
 \begin{code}
-data ExprMap v = EM  { em_var  :: Map Var v, em_app  :: ExprMap (ExprMap v) }
+data ExprMap v
+  = EM { em_var  :: Map Var v, em_app  :: ExprMap (ExprMap v) }
 \end{code}
 Here |Map Var v| is any standard, existing finite map, such as the
 \hackage{containers} library keyed by |Var|, with values |v|.
 One way to understand this slightly odd data type is to study its lookup function:
 \begin{code}
 lookupEM :: Expr -> ExprMap v -> Maybe v
-lookupEM e (EM { em_var = m_var, em_app = m_app })
-  =  case e of
-      Var x      -> Map.lookup x m_var
-      App e1 e2  ->  case lookupEM e1 m_app of
-                        Nothing  -> Nothing
-                        Just m1  -> lookupEM e2 m1
+lookupEM e (EM { em_var = m_var, em_app = m_app }) = case e of
+  Var x      -> Map.lookup x m_var
+  App e1 e2  ->  case lookupEM e1 m_app of
+     Nothing  -> Nothing
+     Just m1  -> lookupEM e2 m1
 \end{code}
 This function pattern-matches on the target |e|.  The |Var| alternative
 says that to look up a variable occurrence, just look that variable up in the
@@ -738,13 +769,13 @@ lookupEM :: Expr -> ExprMap v -> Maybe v
 \end{code}
 %endif
 \begin{code}
-lookupEM (Var x)      = em_var  >.> Map.lookup x
-lookupEM (App e1 e2)  = em_app  >.> lookupEM e1 >=> lookupEM e2
+lookupEM (Var x)      = em_var  >>> Map.lookup x
+lookupEM (App e1 e2)  = em_app  >>> lookupEM e1 >=> lookupEM e2
 \end{code}
 %}
 The function |em_var :: ExprMap v -> Map Var v|
 is the auto-generated selector that picks the |em_var| field from an |EM| record, and similarly |em_app|.
-The functions |(>.>)| and |(>=>)| are right-associative forward composition
+The functions |(>>>)| and |(>=>)| are right-associative forward composition
 operators, respectively monadic and non-monadic,
 that chain the individual operations together (see \Cref{fig:library}).
 Finally, we have $\eta$-reduced the definition, by omitting the |m| parameter.
@@ -786,24 +817,23 @@ definition in \Cref{sec:empty}, but it works perfectly well for now.
 
 Next, we need to |alter| a triemap:
 \begin{code}
-alterEM :: Expr -> XT v -> ExprMap v -> ExprMap v
-alterEM e xt m@(EM { em_var = m_var, em_app = m_app })
-  =  case e of
-       Var x      -> m { em_var  = Map.alter xt x m_var }
-       App e1 e2  -> m { em_app  = alterEM e1 (liftXT (alterEM e2 xt)) m_app }
+alterEM :: Expr -> TF v -> ExprMap v -> ExprMap v
+alterEM e tf m@(EM { em_var = m_var, em_app = m_app }) = case e of
+  Var x      -> m { em_var  = Map.alter tf x m_var }
+  App e1 e2  -> m { em_app  = alterEM e1 (liftFT (alterEM e2 tf)) m_app }
 
-liftXT :: (ExprMap v -> ExprMap v) -> XT (ExprMap v)
-liftXT f Nothing    = Just (f emptyEM)
-liftXT f (Just m)   = Just (f m)
+liftFT :: (ExprMap v -> ExprMap v) -> TF (ExprMap v)
+liftFT f Nothing    = Just (f emptyEM)
+liftFT f (Just m)   = Just (f m)
 \end{code}
 %}
 In the |Var| case, we must just update the map stored in the |em_var| field,
-using the |Map.alter| function from \Cref{fig:containers};
-in Haskell the notation ``|m { fld = e }|'' means the result
-of updating the |fld| field of record |m| with new value |e|.
+using the |Map.alter| function from \Cref{fig:containers}.
+% in Haskell the notation ``|m { fld = e }|'' means the result
+% of updating the |fld| field of record |m| with new value |e|.
 In the |App| case we look up |e1| in |m_app|;
-we should find a |ExprMap| there, which we want to alter with |xt|.
-We can do that with a recursive call to |alterEM|, using |liftXT|
+we should find a |ExprMap| there, which we want to alter with |tf|.
+We can do that with a recursive call to |alterEM|, using |liftFT|
 for impedance-matching.
 
 The |App| case shows why we need the generality of |alter|.
@@ -859,7 +889,8 @@ this is the function |Map.size| (\Cref{fig:containers}).  We might attempt:
 %endif
 \begin{code}
 sizeEM :: ExprMap v -> Int
-sizeEM (EM { em_var = m_var, em_app = m_app }) = Map.size m_var + undefined
+sizeEM (EM { em_var = m_var, em_app = m_app })
+  = Map.size m_var + undefined
 \end{code}
 %}
 We seem stuck because the size of the |m_app| map is not what we want: rather,
@@ -892,15 +923,15 @@ Here is one way to do it (we will see another in \Cref{sec:generalised}):
 %format em_app = "em_app1"
 %endif
 \begin{code}
-data ExprMap v  = EmptyEM
-                | EM { em_var :: Map Var v, em_app :: ExprMap (ExprMap v) }
+data ExprMap v  = EmptyEM | EM { em_var :: ..., em_app :: ... }
 
 emptyEM :: ExprMap v
 emptyEM = EmptyEM
 
 foldrEM :: (v -> r -> r) -> r -> ExprMap v -> r
-foldrEM k z EmptyEM                                   = z
-foldrEM k z (EM { em_var = m_var, em_app = m_app })  = Map.foldr k z1 m_var
+foldrEM k z EmptyEM = z
+foldrEM k z (EM { em_var = m_var, em_app = m_app })
+  = Map.foldr k z1 m_var
   where
     z1 = foldrEM kapp z m_app
     kapp m1 r = foldrEM k r m1
@@ -931,7 +962,7 @@ class Eq (TrieKey tm) => TrieMap tm where
    type TrieKey tm :: Type
    emptyTM      :: tm a
    lookupTM     :: TrieKey tm -> tm a -> Maybe a
-   alterTM      :: TrieKey tm -> XT a -> tm a -> tm a
+   alterTM      :: TrieKey tm -> TF a -> tm a -> tm a
    foldrTM      :: (a -> b -> b) -> tm a -> b -> b
    unionWithTM  :: (a -> a -> a) -> tm a -> tm a -> tm a
    dots
@@ -993,7 +1024,7 @@ to build a trie for lists of \emph{any type}, like this \cite{hinze:generalized}
 \begin{code}
 lookupLM :: TrieMap tm => [TrieKey tm] -> ListMap tm v -> Maybe v
 lookupLM []      = lm_nil
-lookupLM (k:ks)  = lm_cons >.> lookupTM k >=> lookupLM ks
+lookupLM (k:ks)  = lm_cons >>> lookupTM k >=> lookupLM ks
 
 emptyLM :: TrieMap tm => ListMap tm
 emptyLM = LM { lm_nil = Nothing, lm_cons = emptyTM }
@@ -1035,47 +1066,50 @@ as directly a key-value pair, like this:
 \begin{code}
 data ExprMap v  = EmptyEM
                 | SingleEM Expr v   -- A single key/value pair
-                | EM { em_var :: Map Var v, em_app :: ExprMap (ExprMap v) }
+                | EM { em_var :: ..., em_app :: ... }
 \end{code}
 But we will have to tiresomely repeat these extra data constructors, |EmptyX| and |SingleX|
 for each new data type |X| for which we want a triemap.
 For example we would have to add |EmptyList| and |SingleList| to the |ListMap| data type
 of \Cref{sec:class}.
 It is better instead to abstract over the enclosed triemap, as follows%
-\footnote{|SEMap| stands for \enquote{singleton and empty map}.}:
+\footnote{|SEMap| stands for \enquote{singleton or empty map}.}:
 \begin{code}
 data SEMap tm v  = EmptySEM
                  | SingleSEM (TrieKey tm) v
                  | MultiSEM  (tm v)
 \end{code}
-The code for lookup practically writes itself:
+The code for lookup practically writes itself. We abstract over |Maybe|
+with some |MonadPlus| combinators to enjoy forwards compatibility to
+\Cref{sec:matching}:
 \begin{code}
 lookupSEM :: TrieMap tm => TrieKey tm -> SEMap tm v -> Maybe v
-lookupSEM _  EmptySEM                       = Nothing
-lookupSEM k  (SingleSEM pk v)  | k == pk    = Just v
-                               | otherwise  = Nothing
-lookupSEM k  (MultiSEM tm)                  = lookupTM k tm
+lookupSEM k m = case m of
+  EmptySEM        -> mzero
+  SingleSEM pk v  -> guard (k == pk) >> pure v
+  MultiSEM m      -> lookupTM k m
 \end{code}
-Notice that in the |SingleSEM| case we need equality on the key type |TrieKey tm|,
-to tell if the key being looked up, |k| is the same as the key in
-the |SingleEM|, namely |pk|.
-That is why we made |Eq (TrieKey tm)| a superclass of |TrieMap tm|
-in the |class| declaration in \Cref{sec:class}.
+Where |mzero| means |Nothing| and |pure| means |Just|. The |guard| expression
+in the |SingleSEM| will return |Nothing| when the key expression |k| doesn't
+equate to the pattern expression |pk|.
+To test for said equality we require an |Eq (TrieKey tm)| instance, hence it is
+a superclass of |TrieMap tm| in the |class| declaration in \Cref{sec:class}.
 
 The code for alter is more interesting, because it governs the shift from
 |EmptySEM| to |SingleSEM| and thence to |MultiSEM|:
 \begin{code}
-alterSEM :: TrieMap tm => TrieKey tm -> XT v -> SEMap tm v -> SEMap tm v
-alterSEM k xt EmptySEM = case xt Nothing of  Nothing  -> EmptySEM
+alterSEM  :: TrieMap tm
+          => TrieKey tm -> TF v -> SEMap tm v -> SEMap tm v
+alterSEM k tf EmptySEM = case tf Nothing of  Nothing  -> EmptySEM
                                              Just v   -> SingleSEM k v
-alterSEM k1 xt (SingleSEM k2 v2)
-  | k1 == k2   = case xt (Just v2) of
-                      Nothing  -> EmptySEM
-                      Just v'  -> SingleSEM k2 v'
-  | otherwise  = case xt Nothing of
-                      Nothing  -> SingleSEM k2 v2
-                      Just v1  -> MultiSEM (insertTM k1 v1 (insertTM k2 v2 emptyTM))
-alterSEM k xt (MultiSEM tm) = MultiSEM (alterTM k xt tm)
+alterSEM k1 tf (SingleSEM k2 v2) = if k1 == k2
+  then case tf (Just v2) of
+      Nothing  -> EmptySEM
+      Just v'  -> SingleSEM k2 v'
+  else case tf Nothing of
+      Nothing  -> SingleSEM k2 v2
+      Just v1  -> MultiSEM (insertTM k1 v1 (insertTM k2 v2 emptyTM))
+alterSEM k tf (MultiSEM tm) = MultiSEM (alterTM k tf tm)
 \end{code}
 Now, of course, we can make |SEMap| itself an instance of |TrieMap|:
 \begin{code}
@@ -1096,10 +1130,10 @@ that it is worth doing so.
 Finally, we need to re-define |ExprMap| and |ListMap| using |SEMap|:
 \begin{code}
   type ExprMap       = SEMap ExprMap'
-  data ExprMap' v    = EM { em_var  :: Map Var v, em_app  :: ExprMap (ExprMap v) }
+  data ExprMap' v    = EM { em_var  :: ..., em_app  :: ExprMap (ExprMap v) }
 
   type ListMap        = SEMap ListMap'
-  data ListMap' tm v  = LM { lm_nil  :: Maybe v, lm_cons :: tm (ListMap tm v) }
+  data ListMap' tm v  = LM { lm_nil  :: ..., lm_cons :: tm (ListMap tm v) }
 \end{code}
 The auxiliary data types |ExprMap'| and |ListMap'| have only a single constructor, because
 the empty and singleton cases are dealt with by |SEMap|.  We reserve the original,
@@ -1132,7 +1166,8 @@ with an automated approach to generating boilerplate code.
 \begin{figure}
 \begin{code}
 type DBNum = Int
-data DeBruijnEnv = DBE { dbe_next :: DBNum, dbe_env :: Map Var DBNum }
+data DeBruijnEnv
+  = DBE { dbe_next :: DBNum, dbe_env :: Map Var DBNum }
 
 emptyDBE :: DeBruijnEnv
 emptyDBE = DBE { dbe_next = 1, dbe_env = Map.empty }
@@ -1164,26 +1199,25 @@ each $\bv{i}$ stands for an occurrence of the variable bound by the $i$'th
 lambda, counting from the root of the expression. In effect, then, we behave as
 if the data type was like this:
 \begin{spec}
-data Expr' = App Expr Expr | Lam Expr | FreeVar Var | BoundVar BoundKey
+data Expr' = App Expr Expr | Lam Expr | FVar Var | BVar BoundKey
 \end{spec}
 Notice (a) the |Lam| node no longer has a binder and (b) there are
 two sorts of |Var| nodes, one for free variables and one for bound
 variables, carrying a |BoundKey| (see below). We will not actually
 build a value of type |Expr'| and look that up in a trie keyed by |Expr'|;
 rather, we are going to \emph{behave as if we did}. Here is the code
-\sg{Take care of nasty page break. Perhaps break up in multiple blocks?}
 \begin{code}
-data ModAlpha a = A DeBruijnEnv a deriving Functor -- Functor for |<$|
+data ModAlpha a = A DeBruijnEnv a deriving Functor
 type AlphaExpr = ModAlpha Expr
+instance Eq AlphaExpr where ...
 
 type BoundKey  = DBNum
 type ExprMap = SEMap ExprMap'
-data ExprMap' v = EM  {  em_app   :: ExprMap (ExprMap v)
-                      ,  em_lam   :: ExprMap v
-                      ,  em_fvar  :: Map Var v         -- Free variables
-                      ,  em_bvar  :: Map BoundKey v }  -- Lambda-bound variables
-
-instance Eq AlphaExpr where ...
+data ExprMap' v
+  = EM  {  em_app   :: ExprMap (ExprMap v)
+        ,  em_lam   :: ExprMap v
+        ,  em_fvar  :: Map Var v         -- Free vars
+        ,  em_bvar  :: Map BoundKey v }  -- Lambda-bound vars
 
 instance TrieMap ExprMap' where
   type TrieKey ExprMap' = AlphaExpr
@@ -1191,11 +1225,12 @@ instance TrieMap ExprMap' where
   ...
 
 lookupEM :: AlphaExpr -> ExprMap' v -> Maybe v
-lookupEM ae@(A _   (App e1 e2))  = em_app >.> lookupTM (e1 <$ ae) >=> lookupTM (e1 <$ ae)
-lookupEM (A dbe (Lam v e))       = em_lam >.> lookupTM (A (extendDBE v dbe) e)
-lookupEM (A dbe (Var v))         = case lookupDBE v dbe of
-                                    Nothing -> em_fvar  >.> Map.lookup v   -- Free
-                                    Just bv -> em_bvar  >.> Map.lookup bv  -- Lambda-bound
+lookupEM ae@(A dbe e) = case e of
+  Var v -> case lookupDBE v dbe of
+    Nothing  -> em_fvar  >>> Map.lookup v
+    Just bv  -> em_bvar  >>> Map.lookup bv
+  App e1 e2  -> em_app   >>> lookupTM (e1 <$ ae) >=> lookupTM (e1 <$ ae)
+  Lam v e    -> em_lam   >>> lookupTM (A (extendDBE v dbe) e)
 
 lookupClosedExpr :: Expr -> ExprMap v -> Maybe v
 lookupClosedExpr e = lookupEM (A emptyDBE e)
@@ -1442,7 +1477,7 @@ class Matchable (MTrieKey tm) => MTrieMap tm where
   type MTrieKey tm  :: Type
   emptyMTM      :: tm a
   lookupPatMTM  :: MTrieKey tm -> tm a -> MatchResult (MTrieKey tm) a
-  alterPatMTM   :: Pat (MTrieKey tm) -> XT a -> tm a -> tm a
+  alterPatMTM   :: Pat (MTrieKey tm) -> TF a -> tm a -> tm a
 \end{code}
 Note the different key types for |lookupPatMTM| and |alterPatMTM|, as well as
 the change in return types from |Maybe| to |MatchResult| for |lookupPatMTM|
@@ -1510,22 +1545,7 @@ The major new operation of matching trie maps is matching lookup. Now we'll see
 how to systematically derive it from our previous definition of exact
 lookup.
 
-Here's a slightly refactored version of |lookupSEM| on the left and the
-implementation of |lookupPatMSEM| on the right:\\
-%\colorbox{pink}{%
-\begin{minipage}[t]{0.35\textwidth}
-\begin{code}
-lookupSEM k m = case m of
-  EmptySEM        -> mzero
-  MultiSEM m      -> lookupSEM k m
-  SingleSEM k' v  -> do
-    guard (k == k')
-    pure v
-\end{code}
-\end{minipage}%}%
-\rule[-2.5cm]{0.5pt}{2.0cm}%
-%\colorbox{pink}{%
-\begin{minipage}[t]{0.45\textwidth}
+We begin with |lookupPatMSEM|:
 \begin{code}
 lookupPatMSEM k m = case m of
   EmptyMSEM         -> mzero
@@ -1534,15 +1554,15 @@ lookupPatMSEM k m = case m of
     refine (match pat k)
     pure v
 \end{code}
-\end{minipage}%}
-\\
-Both implementations make use of the |MonadPlus| instance. Where the exact
-version on the left returns a |Maybe|, the matching version on the right returns
-a |MatchResult|. Thus, by squinting through |MonadPlus| glasses, we can see
-that the only noteworthy change is in the |SingleMSEM| case, where we \emph{refine}
-the substitution with any constraints gathered while matching the single pattern
-against the target expression, rather than require that the singular trie key
-matches the target expression \emph{exactly}.
+Finally, the |MonadPlus|-based implementation of |lookupSEM| in
+\Cref{sec:singleton} pays off, as it easily transfers our intution to
+|lookupPatMSEM|. Where the exact version on the left returns a |Maybe|, the
+matching version on the right returns a |MatchResult|. Thus, by squinting
+through |MonadPlus| glasses, we can see that the only noteworthy change is
+in the |SingleMSEM| case, where we \emph{refine} the substitution with any
+constraints gathered while matching the single pattern against the target
+expression, rather than require that the singular trie key matches the target
+expression \emph{exactly}.
 
 Let's look inside |MatchResult|:
 \begin{code}
@@ -1576,21 +1596,21 @@ lookupPatMM ae@(A bve e) (MM { .. })
   where
     flex = mm_pvar |> IntMap.toList |> map match_one |> msum
     match_one (pv, x) = refine (equateE pv ae) >> pure x
-
-    rigid = case e of
-      Var x      -> case lookupDBE x bve of
-        Just bv  -> mm_bvar  |> liftMaybe . Map.lookup bv
-        Nothing  -> mm_fvar  |> liftMaybe . Map.lookup x
-      App e1 e2  -> mm_app   |> lookupPatMTM (e1 <$ ae) >=> lookupPatMTM (e2 <$ ae)
-      Lam x e    -> mm_lam   |> lookupPatMTM (A (extendDBE x bve) e)
+    rigid = ...
+%    rigid = case e of
+%      Var x      -> case lookupDBE x bve of
+%        Just bv  -> mm_bvar  |> liftMaybe . Map.lookup bv
+%        Nothing  -> mm_fvar  |> liftMaybe . Map.lookup x
+%      App e1 e2  -> mm_app   |> lookupPatMTM (e1 <$ ae) >=> lookupPatMTM (e2 <$ ae)
+%      Lam x e    -> mm_lam   |> lookupPatMTM (A (extendDBE x bve) e)
 \end{code}
 Where |match| would consider matching the target expression against \emph{one}
 pattern, matching lookup on a trie has to consider matching the target
 expression against \emph{all patterns the trie represents}.
-The |rigid| case is no different from exact lookup. For the |flex| case,
-we enumerate all pattern variables that occur at this trie node and try
-to refine the |MatchResult| by equating said pattern variable with the target
-expression. \sg{Bring |equateE|? Or at least point to the Supplemental?}
+The |rigid| case is no different from exact lookup and hence omitted. For the
+|flex| case, we enumerate all pattern variables that occur at this trie node
+and try to refine the |MatchResult| by equating said pattern variable with the
+target expression. \sg{Bring |equateE|? Or at least point to the Supplemental?}
 Every successful match ends up as an item in the returned bag (via |msum|), as
 well as the original exact matches in |rigid|.
 
