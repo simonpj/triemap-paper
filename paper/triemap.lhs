@@ -370,9 +370,10 @@ instance Eq Expr where
 %% Note: \begin{abstract}...\end{abstract} environment must come
 %% before \maketitle command
 \begin{abstract}
-  In applications such as compilers and theorem provers, we often want to match
-  a target term against multiple patterns (representing rewrite rules or axioms)
-  simultaneously. Efficient matching of this kind is well studied in the theorem prover
+  The \emph{trie} data structure is a good choice for finite maps whose
+  keys are data structures (trees) rather than atomic values. But what if we want
+  the keys to be \emph{patterns}, each of which matches many lookup keys?
+  Efficient matching of this kind is well studied in the theorem prover
   community, but much less so in the context of statically typed functional programming.
   Doing so yields an interesting new viewpoint --- and a practically useful design
   pattern, with good runtime performance.
@@ -395,7 +396,8 @@ consider the Haskell expression
 \begin{code}
   let x = a+b in ...(let y = a+b in x+y)....
 \end{code}
-We might hope that the compiler will recognise the repeated |(a+b)| and transform to
+We might hope that the compiler will recognise the repeated sub-expression
+|(a+b)| and transform to
 \begin{code}
   let x = a+b in ...(x+x)....
 \end{code}
@@ -409,8 +411,8 @@ a fast, constant-time operation.  That assumption is false for tree-structured k
 
 Another time that a compiler may want to look up a tree-structured key is
 when rewriting expressions: it wants to see if any rewrite rule matches the
-sub-expression in hand and subsequently rewrite with the instantiated right-hand
-side (RHS) of the rule. For a compiler developer to accommodate such a feature,
+sub-expression in hand, and if so rewrite with the instantiated right-hand
+side of the rule. For a compiler developer to accommodate such a feature,
 we need an extended version of a finite map in which we can insert a collection
 of rewrite rules, expressed as (\varid{pattern},~\varid{rhs}) pairs, and
 then look up an expression in the map, getting a hit if one or more of the
@@ -420,25 +422,25 @@ than checking them one by one. Several parts of GHC, a Haskell compiler, need
 matching lookup, and currently use an inefficient linear algorithm to do so.
 
 In principle it is well known how to build a finite map for a deeply-structured
-key: use a \emph{trie}.  For the
-matching task, use \emph{discrimination trees}, a variant of tries that are heavily used
-by the automated reasoning community (\Cref{sec:discrim-trees}).  In this paper we apply these
+key: use a \emph{trie}.  The matching task is also well studied but, surprisingly,
+only in the automated reasoning community (\Cref{sec:discrim-trees}): they use
+so-called \emph{discrimination trees}.
+In this paper we apply these
 ideas in the context of a statically-typed functional programming language, Haskell.
 This shift of context is surprisingly fruitful, and we make the following contributions:
 \begin{itemize}
 \item Following \citet{hinze:generalized}, we develop a standard pattern for
-  a statically typed triemap for an arbitrary new algebraic data type (\Cref{sec:basic}). In
+  a \emph{statically-typed triemap} for an arbitrary algebraic data type (\Cref{sec:basic}). In
   contrast, most of the literature describes untyped tries for a
   fixed, generic tree type.
   In particular:
   \begin{itemize}
-    \item Supported by type class, we can make good use of polymorphism to build triemaps
+    \item Supported by type classes, we can make good use of polymorphism to build triemaps
       for polymorphic data types, such as lists (\Cref{sec:class}).
 
     \item We cover the full range of operations expected for finite maps:
-      not only |insert|ion and |lookup|, but |alter|, |union|, and |fold|
-      (\Cref{sec:basic}). Other operations like |map| and |filter| are easily
-      implemented, too.
+      not only |insert|ion and |lookup|, but |alter|, |union|, |fold|, |map| and |filter|
+      (\Cref{sec:basic}).
 
     \item We develop a generic optimisation for singleton maps that
       compresses leaf paths. Intriguingly, the resulting triemap
@@ -460,7 +462,7 @@ This shift of context is surprisingly fruitful, and we make the following contri
   Haskell (\Cref{sec:eval}).
 \end{itemize}
 Our contribution is not so much a clever new idea as an exposition of
-some old ideas in a new context, perhaps providing some new perspective on those
+some old ideas in a new context, providing some new perspective on those
 old ideas. We discuss related work in \Cref{sec:related}.
 
 \section{The problem we address} \label{sec:problem}
@@ -473,21 +475,25 @@ old ideas. We discuss related work in \Cref{sec:related}.
 \begin{code}
 type XT v = Maybe v -> Maybe v
 
-data Map0 k v = Dots  -- a finite map from keys of type |k| to values of type |v|
+data Map0 k v = Dots  -- Keys k, values v
 checktype(Map.empty      :: Map k v)
-checktype(Map.insert     :: Ord k => k -> v -> Map k v -> Map k v)
-checktype(Map.lookup     :: Ord k => k -> Map k v -> Maybe v)
-checktype(Map.alter      :: Ord k => XT v -> k -> Map k v -> Map k v)
-checktype(Map.unionWith  :: Ord k => (v->v->v) -> Map k v -> Map k v -> Map k v)
-checktype(Map.size       :: Map k v -> Int)
+checktype(Map.insert     :: Ord k  => k -> v -> Map k v -> Map k v)
+checktype(Map.lookup     :: Ord k  => k -> Map k v -> Maybe v)
+checktype(Map.alter      ::  Ord k  => XT v -> k
+                             -> Map k v -> Map k v)
 checktype(Map.foldr      :: (v -> r -> r) -> r -> Map k v -> r)
-
+checktype(Map.map        :: (v -> w) -> Map k v -> Map k w)
+checktype(Map.unionWith  ::  Ord k  => (v->v->v)
+                             -> Map k v -> Map k v -> Map k v)
+checktype(Map.size       :: Map k v -> Int)
+ 
 infixl 4 <$, <$$      -- Set value in functor
 (<$)   :: Functor f => a -> f b -> f a
 (<$$)  :: (Functor f, Functor g) => a -> f (g b) -> f (g a)
 
 infixr 1 >=>          -- Kleisli composition
-(>=>) :: Monad m => (a -> m b) -> (b -> m c) -> a -> m c
+(>=>) :: Monad m  => (a -> m b) -> (b -> m c)
+                  -> a -> m c
 
 infixr 1 >.>          -- Forward composition
 (>.>)  :: (a -> b) -> (b -> c) -> a -> c
@@ -530,14 +536,14 @@ lambdas which can bind variables (|Lam|), and occurrences of those bound variabl
 and nodes with multiple children (|App|).  A real-world expression type would have
 many more constructors, including literals, let-expressions and suchlike.
 
-A finite map keyed by such expressions is extremely useful.
-The Introduction gave the example of a simple common sub-expression
-elimination pass.
-GHC also does many lookups based on \emph{types} rather than
-\emph{expressions}.  For example, when implementing type-class
-instance lookup, or doing type-family reduction, GHC needs a map whose
-key is a type.  Both types and expressions are simply trees, and so are
-particular instances of the general task.
+% A finite map keyed by such expressions is extremely useful.
+% The Introduction gave the example of a simple common sub-expression
+% elimination pass.
+% GHC also does many lookups based on \emph{types} rather than
+% \emph{expressions}.  For example, when implementing type-class
+% instance lookup, or doing type-family reduction, GHC needs a map whose
+% key is a type.  Both types and expressions are simply trees, and so are
+% particular instances of the general task.
 
 In the context of a compiler, where the keys are expressions or types,
 the keys may contain internal \emph{binders}, such as the binder |x| in
@@ -552,7 +558,8 @@ in GHC demands more: we want to do a lookup that does \emph{matching}.  GHC supp
 so-called \emph{rewrite rules}~\cite{rewrite-rules}, which the user can specify
 in their source program, like this:
 \begin{code}
-prag_begin RULES "map/map"  forall f g xs. map f (map g xs)  =  map (f . g) xs prag_end
+prag_begin RULES "map/map"  forall f g xs.  map f (map g xs)
+                                            =  map (f . g) xs prag_end
 \end{code}
 This rule asks the compiler to rewrite any target expression that matches the shape
 of the left-hand side (LHS) of the rule into the right-hand side
@@ -560,11 +567,11 @@ of the left-hand side (LHS) of the rule into the right-hand side
 the expression we are looking up in the map.
 The pattern is explicitly quantified over the \emph{pattern variables}
 (here |f|, |g|, and |xs|) that
-can be bound during the matching process.  In other words, \emph{we seek a substitution
-for the pattern variables that makes the pattern equal to the target expression}.
+can be bound during the matching process.  In other words, we seek a substitution
+for the pattern variables that makes the pattern equal to the target expression.
 For example, if the program we are compiling contains the expression
 |map double (map square nums)|, we would like to produce a substitution
-|f ||-> double, g ||-> square, xs ||-> nums| so that the substituted RHS
+|[f ||-> double, g ||-> square, xs ||-> nums]| so that the substituted RHS
 becomes |map (double . square) nums|; we would replace the former expression
 with the latter in the code under consideration.
 
@@ -599,17 +606,10 @@ The functions |emptyEM| and |lookupEM| should be
 self-explanatory.  The function |alterTM| is a standard
 generalisation of |insertEM|: instead of providing just
 a new element to be inserted, the caller provides a
-\emph{transformation} |XT v|, an
+\emph{value transformation} |XT v|, an
 abbreviation for |Maybe v -> Maybe v| (see \Cref{fig:library}).  This function
 transforms the existing value associated with the key, if any (hence the
 input |Maybe|), to a new value, if any (hence the output |Maybe|).
-These fundamental operations on a finite map must obey the following properties:
-\begin{code}
-property propLookupEmpty (e)                       (lookup e empty             ^^^^)  (Nothing)
-property propLookupAlter (e m xt)                  (lookup e (alter e xt m)    ^^^^)  (xt (lookup e m))
-propertyImpl propWrongElt (e1 e2 m xt) (e1 /= e2)  (lookup e1 (alter e2 xt m)  ^^^^)  (lookup e1 m)
-\end{code}
-
 We can easily define |insertEM| and |deleteEM| from |alterEM|:
 \begin{code}
 insertEM :: Expr -> v -> ExprMap v -> ExprMap v
@@ -624,21 +624,31 @@ leaving |alter| for the Supplemental%
 but as we will see in \Cref{sec:alter}, our approach using tries fundamentally
 requires the generality of |alter|.
 
-We would also like to support other standard operations on finite maps, including
-\begin{itemize}
-\item An efficient union operation to combine two finite maps into one:
+These fundamental operations on a finite map must obey the following properties:
+\simon{Let's omit the foralls in the typeset version}
 \begin{code}
-unionEM :: ExprMap v -> ExprMap v -> ExprMap v
+property propLookupEmpty (e)                       (lookup e empty             ^^^^)  (Nothing)
+property propLookupAlter (e m xt)                  (lookup e (alter e xt m)    ^^^^)  (xt (lookup e m))
+propertyImpl propWrongElt (e1 e2 m xt) (e1 /= e2)  (lookup e1 (alter e2 xt m)  ^^^^)  (lookup e1 m)
 \end{code}
-\item A map operation to apply a function to the range of the finite map:
-\begin{code}
-mapEM :: (a -> b) -> ExprMap a -> ExprMap b
-\end{code}
-\item A fold operation to combine together the elements of the range:
-\begin{code}
-foldrEM :: (a -> b -> b) -> ExprMap a -> b -> b
-\end{code}
-\end{itemize}
+
+We would also like to support other standard operations on finite maps,
+with types analogous to those in \Cref{fig:library}, including |unionEM|, |mapEM|, and |foldrEM|.
+% 
+% \begin{itemize}
+% \item An efficient union operation to combine two finite maps into one:
+% \begin{code}
+% unionEM :: ExprMap v -> ExprMap v -> ExprMap v
+% \end{code}
+% \item A map operation to apply a function to the range of the finite map:
+% \begin{code}
+% mapEM :: (a -> b) -> ExprMap a -> ExprMap b
+% \end{code}
+% \item A fold operation to combine together the elements of the range:
+% \begin{code}
+% foldrEM :: (a -> b -> b) -> ExprMap a -> b -> b
+% \end{code}
+% \end{itemize}
 
 \subsection{Non-solutions} \label{sec:ord}
 
@@ -658,7 +668,7 @@ one to compute its hash code for every lookup, and a full equality
 comparison on a ``hit'' because hash-codes can collide.
 While this double-check is not so terrible, we will see that
 the naive approach described here does not extend well to support
-the extra features we require in our finite maps.
+the extra features we require in our finite maps. \simon{where, exactly, do we see this?}
 
 But the killer is this: \emph{neither binary search trees nor hashing is compatible
 with matching lookup}.  For our purposes they are non-starters.
