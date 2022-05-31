@@ -543,7 +543,12 @@ infixr 0 |>           -- Reverse function application
 
 Our general task is as follows: \emph{implement an efficient finite mapping
 from keys to values, in which the key is a tree}.
-For example, an |Expr| data type might be defined like this:
+Semantically, such a finite map is just a set of \emph{(key,value)}
+pairs; we query the map by looking up a \emph{target}.  Initially
+keys and target are the same thing, but that will change when we
+get to matching (\Cref{sec:matching}).
+
+For example, the key might be a data type of syntax trees, defined like this:
 %{
 %if style == newcode
 %format Expr = "Expr0"
@@ -577,6 +582,8 @@ many more constructors, including literals, let-expressions and suchlike.
 % instance lookup, or doing type-family reduction, GHC needs a map whose
 % key is a type.  Both types and expressions are simply trees, and so are
 % particular instances of the general task.
+
+\subsection{Alpha-renaming} \label{sec:alpha-renaming}
 
 In the context of a compiler, where the keys are expressions or types,
 the keys may contain internal \emph{binders}, such as the binder |x| in
@@ -625,66 +632,6 @@ type-class instances and for type-family instances can have thousands
 of candidates. We would like to find a matching candidate more efficiently
 than by linear search.
 
-\subsection{The interface of a finite map} \label{sec:interface}
-
-What API might such a map have? Building on the design of widely
-used functions in Haskell (see \cref{fig:containers}), we
-seek these basic operations:
-\begin{code}
-emptyEM       :: ExprMap v
-realLookupEM  :: Expr -> ExprMap v -> Maybe v
-realAlterEM   :: Expr -> TF v -> ExprMap v -> ExprMap v
-\end{code}
-The functions |emptyEM| and |realLookupEM|%
-\footnote{henceforth abbreviated |lookupEM|}
-should be self-explanatory. The function |realAlterEM|%
-\footnote{henceforth abbreviated |alterEM|}
-is a standard generalisation of |insertEM|: instead of providing just a new
-element to be inserted, the caller provides a \emph{value transformation} |TF v|, an
-abbreviation for |Maybe v -> Maybe v| (see \Cref{fig:library}). This function
-transforms the existing value associated with the key, if any (hence the input
-|Maybe|), to a new value, if any (hence the output |Maybe|). By supplying
-|alterEM| a key and a transformation on |v|, we get back a transformation on
-|ExprMap v|.
-We can easily define |insertEM| and |deleteEM| from |alterEM|:
-\begin{code}
-insertEM :: Expr -> v -> ExprMap v -> ExprMap v
-insertEM e v = alterEM e (\_ -> Just v)
-
-deleteEM :: Expr -> ExprMap v -> ExprMap v
-deleteEM e = alterEM e (\_ -> Nothing)
-\end{code}
-You might wonder whether, for the purposes of this paper, we could just define |insert|,
-leaving |alter| for the Supplemental%
-\footnote{In the supplemental file \texttt{TrieMap.hs}},
-but as we will see in \Cref{sec:alter}, our approach using tries fundamentally
-requires the generality of |alter|.
-
-These fundamental operations on a finite map must obey the following properties:
-\begin{code}
-property propLookupEmpty (e)                       (lookup e empty             ^^^^)  (Nothing)
-property propLookupAlter (e m xt)                  (lookup e (alter e xt m)    ^^^^)  (xt (lookup e m))
-propertyImpl propWrongElt (e1 e2 m xt) (e1 /= e2)  (lookup e1 (alter e2 xt m)  ^^^^)  (lookup e1 m)
-\end{code}
-
-We would also like to support other standard operations on finite maps,
-with types analogous to those in \Cref{fig:library}, including |unionEM|, |mapEM|, and |foldrEM|.
-%
-% \begin{itemize}
-% \item An efficient union operation to combine two finite maps into one:
-% \begin{code}
-% unionEM :: ExprMap v -> ExprMap v -> ExprMap v
-% \end{code}
-% \item A map operation to apply a function to the range of the finite map:
-% \begin{code}
-% mapEM :: (a -> b) -> ExprMap a -> ExprMap b
-% \end{code}
-% \item A fold operation to combine together the elements of the range:
-% \begin{code}
-% foldrEM :: (a -> b -> b) -> ExprMap a -> b -> b
-% \end{code}
-% \end{itemize}
-
 \subsection{Non-solutions} \label{sec:ord}
 
 At first sight, our task can be done easily: define a total order on |Expr|
@@ -730,7 +677,68 @@ We leave lambdas out for now,
 so that all |Var| nodes represent free variables, which are treated as constants.
 We will return to lambdas in \Cref{sec:binders}.
 
-\subsection{The basic idea} \label{sec:basic}
+\subsection{The interface of a finite map} \label{sec:interface}
+
+What API might such a map have? Building on the design of widely
+used functions in Haskell (see \cref{fig:containers}), we
+seek these basic operations:
+\begin{code}
+emptyEM       :: ExprMap v
+realLookupEM  :: Expr -> ExprMap v -> Maybe v
+realAlterEM   :: Expr -> TF v -> ExprMap v -> ExprMap v
+\end{code}
+The functions |emptyEM| and |realLookupEM|%
+\footnote{henceforth abbreviated |lookupEM|}
+should be self-explanatory. The function |realAlterEM|%
+\footnote{henceforth abbreviated |alterEM|}
+is a standard generalisation of |insertEM|: instead of providing just a new
+element to be inserted, the caller provides a \emph{value transformation} |TF v|, an
+abbreviation for |Maybe v -> Maybe v| (see \Cref{fig:library}). This function
+transforms the existing value associated with the key, if any (hence the input
+|Maybe|), to a new value, if any (hence the output |Maybe|). By supplying
+|alterEM| a key and a transformation on |v|, we get back a transformation on
+|ExprMap v|.
+We can easily define |insertEM| and |deleteEM| from |alterEM|:
+\begin{code}
+insertEM :: Expr -> v -> ExprMap v -> ExprMap v
+insertEM e v = alterEM e (\_ -> Just v)
+
+deleteEM :: Expr -> ExprMap v -> ExprMap v
+deleteEM e = alterEM e (\_ -> Nothing)
+\end{code}
+You might wonder whether, for the purposes of this paper, we could just define |insert|,
+leaving |alterEM| for the Supplemental%
+\footnote{In the supplemental file \texttt{TrieMap.hs}},
+but as we will see in \Cref{sec:alter}, our approach using tries fundamentally
+requires the generality of |alterEM|.
+
+
+These fundamental operations on a finite map must obey the following properties:
+\begin{code}
+property propLookupEmpty (e)                       (lookup e empty             ^^^^)  (Nothing)
+property propLookupAlter (e m xt)                  (lookup e (alter e xt m)    ^^^^)  (xt (lookup e m))
+propertyImpl propWrongElt (e1 e2 m xt) (e1 /= e2)  (lookup e1 (alter e2 xt m)  ^^^^)  (lookup e1 m)
+\end{code}
+
+We would also like to support other standard operations on finite maps,
+with types analogous to those in \Cref{fig:library}, including |unionEM|, |mapEM|, and |foldrEM|.
+%
+% \begin{itemize}
+% \item An efficient union operation to combine two finite maps into one:
+% \begin{code}
+% unionEM :: ExprMap v -> ExprMap v -> ExprMap v
+% \end{code}
+% \item A map operation to apply a function to the range of the finite map:
+% \begin{code}
+% mapEM :: (a -> b) -> ExprMap a -> ExprMap b
+% \end{code}
+% \item A fold operation to combine together the elements of the range:
+% \begin{code}
+% foldrEM :: (a -> b -> b) -> ExprMap a -> b -> b
+% \end{code}
+% \end{itemize}
+
+\subsection{Tries: the basic idea} \label{sec:basic}
 
 Here is a trie-based implementation for |Expr|:
 %{
@@ -791,10 +799,11 @@ to the key data type.
 
 Notice that in contrast to the approach of \Cref{sec:ord}, \emph{we never compare two expressions
 for equality or ordering}.  We simply walk down the |ExprMap| structure, guided
-at each step by the next node in the target.  (We typically use the term ``target'' for the
-key we are looking up in the finite map.)
+at each step by the next node in the target.
+% (We typically use the term ``target'' for the
+% key we are looking up in the finite map.)
 
-This definition is extremely short and natural. But it conceals a hidden
+This definition is extremely short and natural. But it embodies a hidden
 complexity: \emph{it requires polymorphic recursion}. The recursive call to |lookupEM e1|
 instantiates |v| to a different type than the parent function definition.
 Haskell supports polymorphic recursion readily, provided you give type signature to
@@ -802,7 +811,7 @@ Haskell supports polymorphic recursion readily, provided you give type signature
 
 \subsection{Modifying tries} \label{sec:alter} \label{sec:empty-infinite}
 
-It is not enough to look up in a trie -- we need to \emph{build} them too!
+It is not enough to look up in a trie -- we need to \emph{build} them too.
 First, we need an empty trie. Here is one way to define it:
 %{
 %if style == newcode
@@ -904,16 +913,16 @@ We seem stuck because the size of the |m_app| map is not what we want: rather,
 we want to add up the sizes of its \emph{elements}, and we don't have a way to do that yet.
 The right thing to do is to generalise to a fold:
 \begin{code}
-foldrEM :: (v -> r -> r) -> r -> ExprMap v -> r
+foldrEM :: forall v. (v -> r -> r) -> r -> ExprMap v -> r
 foldrEM k z (EM { em_var = m_var, em_app = m_app })
   = Map.foldr k z1 m_var
   where
-    z1 = foldrEM kapp z m_app
+    z1 = foldrEM kapp z (m_app :: ExprMap (ExprMap v))
     kapp m1 r = foldrEM k r m1
 \end{code}
 %}
-In the binding for |z1| we fold over |m_app :: ExprMap (ExprMap v)|.
-The function |kapp| is combines the map we find with the accumulator, by again
+In the binding for |z1| we fold over |m_app|, using
+|kapp| to combine the map we find with the accumulator, by again
 folding over the map with |foldrEM|.
 
 But alas, |foldrEM| will never terminate!  It always invokes itself immediately
@@ -1006,9 +1015,10 @@ insertTM k v = alterTM k (\_ -> Just v)
 deleteEM :: TrieMap tm => TrieKey tm -> tm v -> tm v
 deleteEM k = alterEM k (\_ -> Nothing)
 \end{code}
+\simon{deleteTM, alterTM surely?  Or am I confused?}
 But that is not all.
 Suppose our expressions had multi-argument apply nodes, |AppV|, thus
-%{
+%{ So
 %if style == poly
 %format dots = "\ldots"
 %else
@@ -1029,26 +1039,25 @@ But rather than define a |ListExprMap| for keys of type |[Expr]|,
 and a |ListDeclMap| for keys of type |[Decl]|, etc, we would obviously prefer
 to build a trie for lists of \emph{any type}, like this \cite{hinze:generalized}:
 \begin{code}
-lookupLM :: TrieMap tm => [TrieKey tm] -> ListMap tm v -> Maybe v
-lookupLM []      = lm_nil
-lookupLM (k:ks)  = lm_cons >>> lookupTM k >=> lookupLM ks
-
-emptyLM :: TrieMap tm => ListMap tm
-emptyLM = LM { lm_nil = Nothing, lm_cons = emptyTM }
-
-data ListMap tm v = LM { lm_nil  :: Maybe v, lm_cons :: tm (ListMap tm  v) }
-\end{code}
-The code for |alterLM| and |foldrLM| is routine. Notice that all of
-these functions are polymorphic in |tm|, the triemap for the list elements.
-So |ListMap| is a \emph{triemap-transformer}; and if |tm| is a |TrieMap| then
-so is |ListMap tm|:
-\begin{code}
 instance TrieMap tm => TrieMap (ListMap tm) where
    type TrieKey (ListMap tm) = [TrieKey tm]
    emptyTM   = emptyLM
    lookupTM  = lookupLM
    ...
+
+data ListMap tm v = LM  { lm_nil  :: Maybe v
+                        , lm_cons :: tm (ListMap tm  v) }
+
+emptyLM :: TrieMap tm => ListMap tm
+emptyLM = LM { lm_nil = Nothing, lm_cons = emptyTM }
+
+lookupLM :: TrieMap tm => [TrieKey tm] -> ListMap tm v -> Maybe v
+lookupLM []      = lm_nil
+lookupLM (k:ks)  = lm_cons >>> lookupTM k >=> lookupLM ks
 \end{code}
+The code for |alterLM| and |foldrLM| is routine. Notice that all of
+these functions are polymorphic in |tm|, the triemap for the list elements.
+
 \subsection{Singleton maps, and empty maps revisited} \label{sec:singleton}
 
 Suppose we start with an empty map, and insert a value
@@ -1085,6 +1094,13 @@ It is better instead to abstract over the enclosed triemap, as follows%
 data SEMap tm v  = EmptySEM
                  | SingleSEM (TrieKey tm) v
                  | MultiSEM  (tm v)
+
+instance TrieMap tm => TrieMap (SEMap tm) where
+  type TrieKey (SEMap tm) = TrieKey tm
+  emptyTM   = EmptySEM
+  lookupTM  = lookupSEM
+  alterTM   = alterSEM
+  ...
 \end{code}
 The code for lookup practically writes itself. We abstract over |Maybe|
 with some |MonadPlus| combinators to enjoy forwards compatibility to
@@ -1118,20 +1134,11 @@ alterSEM k1 tf (SingleSEM k2 v2) = if k1 == k2
       Just v1  -> MultiSEM (insertTM k1 v1 (insertTM k2 v2 emptyTM))
 alterSEM k tf (MultiSEM tm) = MultiSEM (alterTM k tf tm)
 \end{code}
-Now, of course, we can make |SEMap| itself an instance of |TrieMap|:
-\begin{code}
-instance TrieMap tm => TrieMap (SEMap tm) where
-  type TrieKey (SEMap tm) = TrieKey tm
-  emptyTM   = EmptySEM
-  lookupTM  = lookupSEM
-  alterTM   = alterSEM
-  ...
-\end{code}
 Adding a new item to a triemap can turn |EmptySEM| into |SingleSEM| and |SingleSEM|
 into |MultiSEM|; and deleting an item from a |SingleSEM| turns it back into |EmptySEM|.
 But you might wonder whether we can shrink a |MultiSEM| back to a |SingleSEM| when it has
 only one remaining element?
-Yes, of course we can, but it takes quite a bit of code, and it is far from clear
+Yes we can, but it takes quite a bit of code, and it is far from clear
 that it is worth doing so.
 
 Finally, we need to re-define |ExprMap| and |ListMap| using |SEMap|:
@@ -1147,6 +1154,7 @@ the empty and singleton cases are dealt with by |SEMap|.  We reserve the origina
 un-primed, names for the user-visible |ExprMap| and |ListMap| constructors.
 
 The singleton-map optimisation makes a big difference in practice.
+\simon{Forward refernce to evidence, even if it's in the Appendix.}
 
 \subsection{Generic programming}\label{sec:generic}
 
@@ -1192,8 +1200,8 @@ lookupDBE v (DBE {dbe_env = dbe }) = Map.lookup v dbe
 
 If our keys are expressions (in a compiler, say) they may contain
 binders, and we want insert and lookup to be insensitive to
-$\alpha$-renaming (\Cref{sec:problem}).  That is the challenge we
-address next. Here is the final evolution of our data type |Expr|, featuring a
+$\alpha$-renaming (\Cref{sec:alpha-renaming}).  That is the challenge we
+address next. Here is our data type |Expr|, extended with a
 new |Lam| constructor with binding semantics:
 \begin{code}
 data Expr = App Expr Expr | Lam Var Expr | Var Var
@@ -1242,22 +1250,22 @@ lookupEM ae@(A dbe e) = case e of
 lookupClosedExpr :: Expr -> ExprMap v -> Maybe v
 lookupClosedExpr e = lookupEM (A emptyDBE e)
 \end{code}
-We maintain a |DeBruijnEnv| (cf.~\cref{fig:debruijn}) for lambda binders that
+We maintain a |DeBruijnEnv| (cf.~\cref{fig:debruijn}) that
 maps each lambda-bound variable to its de-Bruijn level%
 \footnote{
   The de-Bruijn \emph{index} of the occurrence of a variable $v$ counts the number
   of lambdas between the occurrence of $v$ and its binding site.  The de-Bruijn \emph{level}
   of $v$ counts the number of lambdas between the root of the expression and $v$'s binding site.
   It is convenient for us to use \emph{levels}.}
-\cite{debruijn}, and call it its |BoundKey|.
+\cite{debruijn}, its |BoundKey|.
 The expression we look up --- the first argument of |lookupEM| --- becomes an
 |AlphaExpr|, which is a pair of a |DeBruijnEnv| and an |Expr|.
 At a |Lam|
 node we extend the |DeBruijnEnv|. At a |Var| node we
 look up the variable in the |DeBruijnEnv| to decide whether it is
 lambda-bound (within the key) or free, and behave appropriately%
-\footnote{The implementation from the Supplement uses more efficient |IntMap|s
-for mapping |BoundKey|. |IntMap| is a trie data structure itself, so it would
+\footnote{The implementation from the Appendix uses more efficient |IntMap|s
+for mapping |BoundKey|. |IntMap| is a itself trie data structure, so it could
 have made a nice \enquote{Tries all the way down} argument. But we found it
 distracting to present here, hence regular ordered |Map|.}.
 
@@ -1277,7 +1285,8 @@ declarations.
 \section{Tries that match} \label{sec:matching}
 
 A key advantage of tries over hash-maps and balanced trees is
-that they can naturally extend to support \emph{matching} (\Cref{sec:matching-intro}).
+that they can naturally extend to support \emph{matching}
+(\Cref{sec:matching-intro}).
 In this section we explain how.
 
 \subsection{What ``matching'' means} \label{sec:matching-spec}
@@ -1285,7 +1294,7 @@ In this section we explain how.
 First, we have to ask what the API should be.
 Our overall goal is to build a \emph{matching trie} into which we can:
 \begin{itemize}
-\item \emph{Insert} (pattern, value) pairs
+\item \emph{Insert} a (pattern, value) pair; here the insertion key is a pattern.
 \item \emph{Look up} a target expression, and return all the values whose pattern \emph{matches} that expression.
 \end{itemize}
 Semantically, then, a matching trie can be thought of as a set of \emph{entries},
