@@ -198,8 +198,8 @@
 
 %if style == poly
 %format checktype(e) = e
-%format property name (vars) (lhs) (rhs) = "\forall" vars ", " lhs "\equiv" rhs
-%format propertyImpl name (vars) (premise) (lhs) (rhs) = "\forall" vars ", " premise "\Rightarrow" lhs "\equiv" rhs
+%format property name (vars) (lhs) (rhs) = " " lhs "\equiv" rhs
+%format propertyImpl name (vars) (premise) (lhs) (rhs) = premise "\Rightarrow" lhs "\equiv" rhs
 
 % Abbreviations
 %format realLookupEM = "\varid{lookupEM}"
@@ -656,7 +656,6 @@ but as we will see in \Cref{sec:alter}, our approach using tries fundamentally
 requires the generality of |alter|.
 
 These fundamental operations on a finite map must obey the following properties:
-\simon{Let's omit the foralls in the typeset version}
 \begin{code}
 property propLookupEmpty (e)                       (lookup e empty             ^^^^)  (Nothing)
 property propLookupAlter (e m xt)                  (lookup e (alter e xt m)    ^^^^)  (xt (lookup e m))
@@ -700,6 +699,9 @@ comparison on a ``hit'' because hash-codes can collide.
 While this double-check is not so terrible, we will see that
 the naive approach described here does not extend well to support
 the extra features we require in our finite maps. \simon{where, exactly, do we see this?}
+\sg{Not sure. What HashMaps definitely lack is any notion of order. I don't
+even think |foldr| is deterministic! So that's definitely something to be aware
+of in a compiler.}
 
 But the killer is this: \emph{neither binary search trees nor hashing is compatible
 with matching lookup}.  For our purposes they are non-starters.
