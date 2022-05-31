@@ -1343,6 +1343,7 @@ type PatMap v  = ... -- in Section 5.5
 insertPM  :: PatExpr -> v -> PatMap v -> PatMap v
 matchPM   :: Expr -> PatMap v -> [Match v]
 \end{code}
+\simon{I'd be inclined to use just |Pat| for patterns, not |PatExpr|.}
 A |PatMap| is a trie, keyed by |PatExpr| \emph{patterns}.
 A pattern variable, of type |PatVar| is just a |Var|; we
 use the type synonym just for documentation purposes. When inserting into a
@@ -1387,6 +1388,7 @@ first occurrence in a left-to-right scan of the expression}\footnote{As we shall
   see, this is very convenient in implementation terms.}.
 As in \Cref{sec:binders} we will imagine that we canonicalise the pattern, although
 in reality we will do so on-the-fly, without ever constructing the canonicalised pattern.
+\simon{This is no longer true is it?}
 Be that as it may, the canonicalised patterns become:
 $$
    f~\pv{1}~\pv{2}~True      \qquad \text{and} \qquad  f~\pv{1}~\pv{2}~False
@@ -1431,9 +1433,10 @@ $$
 $$
 Then we will build a trie with the following entries (key-value pairs):
 $$
-( (f \;\pv{1}\;(g\;\pv{1}\;\pv{2})),\; ([(x,\pv{2}),(y,\pv{1})], v_1) )
-  \qquad \text{and} \qquad
-( (f \;\pv{1}\;True),\; ([(a,\pv{1})],\;v_2) )
+\begin{array}{ll}
+( (f \;\pv{1}\;(g\;\pv{1}\;\pv{2})), & ([(x,\pv{2}),(y,\pv{1})], v_1) ) \\
+( (f \;\pv{1}\;True), & ([(a,\pv{1})],\;v_2) )
+\end{array}
 $$
 
 
@@ -1715,7 +1718,9 @@ than that, there is a lot of rejigging the items in |MatchResult| to undo the
 pattern keys and turning the map into an association list, as required by our
 |Match| interface.
 
-\subsection{Further developments: most specific match} \label{sec:most-specific}
+\section{Further developments}
+
+\subsection{Most specific match} \label{sec:most-specific}
 
 It is sometimes desirable to be able to look up the \emph{most specific match}
 in the matching triemap.
@@ -1766,7 +1771,7 @@ we would keep candidates which are unchanged under the unifier, because that
 candidate is clearly at least as specific than the pattern it unifies with.
 We'll briefly discuss that in the following section.
 
-\section{Triemaps that unify?}
+\subsection{Triemaps that unify?}
 
 % Sometimes one wants to find all patterns that \emph{unify} with the target,
 % assuming we have some notion of ``unifiable variable'' in the target.
