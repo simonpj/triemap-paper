@@ -219,6 +219,7 @@
 %format alterLM = atLM
 %format alterSEM = atSEM
 %format alterMSEM = atMSEM
+%format DeBruijnEnv = DBEnv
 %format e1
 %format e2
 %format m1
@@ -679,25 +680,24 @@ We will return to lambdas in \Cref{sec:binders}.
 
 \subsection{The interface of a finite map} \label{sec:interface}
 
-What API might such a map have? Building on the design of widely
+Building on the design of widely
 used functions in Haskell (see \cref{fig:containers}), we
 seek these basic operations:
 \begin{code}
-emptyEM       :: ExprMap v
-realLookupEM  :: Expr -> ExprMap v -> Maybe v
-realAlterEM   :: Expr -> TF v -> ExprMap v -> ExprMap v
+emptyEM   :: ExprMap v
+lookupEM  :: Expr -> ExprMap v -> Maybe v
+alterEM   :: Expr -> TF v -> ExprMap v -> ExprMap v
 \end{code}
-The functions |emptyEM| and |realLookupEM|%
-\footnote{henceforth abbreviated |lookupEM|}
-should be self-explanatory. The function |realAlterEM|%
-\footnote{henceforth abbreviated |alterEM|}
-is a standard generalisation of |insertEM|: instead of providing just a new
-element to be inserted, the caller provides a \emph{value transformation} |TF v|, an
+The lookup function |lookupEM|\footnote{We use short names |lookupEM| and |alterEM|
+  consistently in this paper to reflect the single-column format.
+}
+has a type that is familiar from every finite map.
+The update function |alterEM|, typically called |alter| in Haskell libraries,
+changes the value stored at a particular key.
+The caller provides a \emph{value transformation function} |TF v|, an
 abbreviation for |Maybe v -> Maybe v| (see \Cref{fig:library}). This function
 transforms the existing value associated with the key, if any (hence the input
-|Maybe|), to a new value, if any (hence the output |Maybe|). By supplying
-|alterEM| a key and a transformation on |v|, we get back a transformation on
-|ExprMap v|.
+|Maybe|), to a new value, if any (hence the output |Maybe|).
 We can easily define |insertEM| and |deleteEM| from |alterEM|:
 \begin{code}
 insertEM :: Expr -> v -> ExprMap v -> ExprMap v
@@ -707,7 +707,7 @@ deleteEM :: Expr -> ExprMap v -> ExprMap v
 deleteEM e = alterEM e (\_ -> Nothing)
 \end{code}
 You might wonder whether, for the purposes of this paper, we could just define |insert|,
-leaving |alterEM| for the Supplemental%
+leaving |alterEM| for the Appendix%
 \footnote{In the supplemental file \texttt{TrieMap.hs}},
 but as we will see in \Cref{sec:alter}, our approach using tries fundamentally
 requires the generality of |alterEM|.
@@ -720,7 +720,7 @@ property propLookupAlter (e m xt)                  (lookup e (alter e xt m)    ^
 propertyImpl propWrongElt (e1 e2 m xt) (e1 /= e2)  (lookup e1 (alter e2 xt m)  ^^^^)  (lookup e1 m)
 \end{code}
 
-We would also like to support other standard operations on finite maps,
+We also support other standard operations on finite maps,
 with types analogous to those in \Cref{fig:library}, including |unionEM|, |mapEM|, and |foldrEM|.
 %
 % \begin{itemize}
@@ -756,8 +756,8 @@ Here is a trie-based implementation for |Expr|:
 data ExprMap v
   = EM { em_var  :: Map Var v, em_app  :: ExprMap (ExprMap v) }
 \end{code}
-Here |Map Var v| is any standard, existing finite map, such as the
-\hackage{containers} library keyed by |Var|, with values |v|.
+Here |Map Var v| is any standard finite map (e.g. in \hackage{containers})
+keyed by |Var|, with values |v|.
 One way to understand this slightly odd data type is to study its lookup function:
 \begin{code}
 lookupEM :: Expr -> ExprMap v -> Maybe v
@@ -830,17 +830,16 @@ emptyEM = EM { em_var = Map.empty, em_app = emptyEM }
 It is interesting to note that |emptyEM| is an infinite, recursive structure:
 the |em_app| field refers back to |emptyEM|.  We will change this
 definition in \Cref{sec:empty}, but it works perfectly well for now.
-
 Next, we need to |alter| a triemap:
 \begin{code}
 alterEM :: Expr -> TF v -> ExprMap v -> ExprMap v
 alterEM e tf m@(EM { em_var = m_var, em_app = m_app }) = case e of
   Var x      -> m { em_var  = Map.alter tf x m_var }
-  App e1 e2  -> m { em_app  = alterEM e1 (liftFT (alterEM e2 tf)) m_app }
+  App e1 e2  -> m { em_app  = alterEM e1 (liftTF (alterEM e2 tf)) m_app }
 
-liftFT :: (ExprMap v -> ExprMap v) -> TF (ExprMap v)
-liftFT f Nothing    = Just (f emptyEM)
-liftFT f (Just m)   = Just (f m)
+liftTF :: (ExprMap v -> ExprMap v) -> TF (ExprMap v)
+liftTF f Nothing    = Just (f emptyEM)
+liftTF f (Just m)   = Just (f m)
 \end{code}
 %}
 In the |Var| case, we must just update the map stored in the |em_var| field,
@@ -849,7 +848,7 @@ using the |Map.alter| function from \Cref{fig:containers}.
 % of updating the |fld| field of record |m| with new value |e|.
 In the |App| case we look up |e1| in |m_app|;
 we should find a |ExprMap| there, which we want to alter with |tf|.
-We can do that with a recursive call to |alterEM|, using |liftFT|
+We can do that with a recursive call to |alterEM|, using |liftTF|
 for impedance-matching.
 
 The |App| case shows why we need the generality of |alter|.
@@ -863,7 +862,7 @@ lookup, and doing so pays dividends when the key is a data type with
 many constructors, each with many fields.  However, the details are
 fiddly and not illuminating, so we omit them here.  Indeed, for the
 same reason, in the rest of this paper we will typically omit the code
-for |alter|, though the full code is available in the Supplemental.
+for |alter|, though the full code is available in the Appendix.
 
 \subsection{Unions of maps}
 
@@ -929,7 +928,7 @@ But alas, |foldrEM| will never terminate!  It always invokes itself immediately
 (in |z1|) on |m_app|; but that invocation will again recursively invoke
 |foldrEM|; and so on forever.
 The solution is simple: we just need an explicit representation of the empty map.
-Here is one way to do it (we will see another in \Cref{sec:generalised}):
+Here is one way to do it (we will see another in \Cref{sec:singleton}):
 %{
 %if style == newcode
 %format ExprMap = "ExprMap1"
@@ -1061,7 +1060,7 @@ these functions are polymorphic in |tm|, the triemap for the list elements.
 \subsection{Singleton maps, and empty maps revisited} \label{sec:singleton}
 
 Suppose we start with an empty map, and insert a value
-with a key (an |Expr|) that is large, say
+with a key (an |Expr|) such as
 \begin{spec}
   App (App (Var "f") (Var "x")) (Var "y")
 \end{spec}
@@ -1075,7 +1074,7 @@ empty map, while the |em_app| field is a further |EM| record.
 
 In effect, the key is linearised into a chain of |EM| records.
 This is great when there are a lot of keys with shared structure, but
-once we are in a sub-tree that represents a single key-value pair it is
+once we are in a sub-tree that represents a \emph{single} key-value pair it is
 a rather inefficient way to represent the key.  So a simple idea is this:
 when a |ExprMap| represents a single key-value pair, represent it
 as directly a key-value pair, like this:
@@ -1084,8 +1083,8 @@ data ExprMap v  = EmptyEM
                 | SingleEM Expr v   -- A single key/value pair
                 | EM { em_var :: ..., em_app :: ... }
 \end{code}
-But we will have to tiresomely repeat these extra data constructors, |EmptyX| and |SingleX|
-for each new data type |X| for which we want a triemap.
+But in the triemap for for each new data type |X|,
+we will have to tiresomely repeat these extra data constructors, |EmptyX| and |SingleX|.
 For example we would have to add |EmptyList| and |SingleList| to the |ListMap| data type
 of \Cref{sec:class}.
 It is better instead to abstract over the enclosed triemap, as follows%
@@ -1136,7 +1135,7 @@ alterSEM k tf (MultiSEM tm) = MultiSEM (alterTM k tf tm)
 \end{code}
 Adding a new item to a triemap can turn |EmptySEM| into |SingleSEM| and |SingleSEM|
 into |MultiSEM|; and deleting an item from a |SingleSEM| turns it back into |EmptySEM|.
-But you might wonder whether we can shrink a |MultiSEM| back to a |SingleSEM| when it has
+You might wonder whether we can shrink a |MultiSEM| back to a |SingleSEM| when it has
 only one remaining element?
 Yes we can, but it takes quite a bit of code, and it is far from clear
 that it is worth doing so.
@@ -1181,8 +1180,7 @@ with an automated approach to generating boilerplate code.
 \begin{figure}
 \begin{code}
 type DBNum = Int
-data DeBruijnEnv
-  = DBE { dbe_next :: DBNum, dbe_env :: Map Var DBNum }
+data DeBruijnEnv = DBE { dbe_next :: DBNum, dbe_env :: Map Var DBNum }
 
 emptyDBE :: DeBruijnEnv
 emptyDBE = DBE { dbe_next = 1, dbe_env = Map.empty }
@@ -1221,6 +1219,7 @@ two sorts of |Var| nodes, one for free variables and one for bound
 variables, carrying a |BoundKey| (see below). We will not actually
 build a value of type |Expr'| and look that up in a trie keyed by |Expr'|;
 rather, we are going to \emph{behave as if we did}. Here is the code
+(which uses \Cref{fig:debruijn}):
 \begin{code}
 data ModAlpha a = A DeBruijnEnv a deriving Functor
 type AlphaExpr = ModAlpha Expr
@@ -1263,18 +1262,18 @@ The expression we look up --- the first argument of |lookupEM| --- becomes an
 At a |Lam|
 node we extend the |DeBruijnEnv|. At a |Var| node we
 look up the variable in the |DeBruijnEnv| to decide whether it is
-lambda-bound (within the key) or free, and behave appropriately%
+lambda-bound or free, and behave appropriately%
 \footnote{The implementation from the Appendix uses more efficient |IntMap|s
 for mapping |BoundKey|. |IntMap| is a itself trie data structure, so it could
 have made a nice \enquote{Tries all the way down} argument. But we found it
 distracting to present here, hence regular ordered |Map|.}.
 
-The construction of \Cref{sec:generalised}, to handle empty and singleton maps,
-applies without difficulty to this generalised map. All we need to do to use it
-is to define an instance |Eq AlphaExpr| to satisfy the |Eq| super class constraint
-on the trie key so that we can instantiate |TrieMap ExprMap'|.
-Said |Eq AlphaExpr| instance is entirely standard and equates two
-$\alpha$-equivalent expressions.
+The construction of \Cref{sec:singleton}, to handle empty and singleton maps,
+applies without difficulty to this generalised map. To use it
+we must define an instance |Eq AlphaExpr| to satisfy the |Eq| super class constraint
+on the trie key, so that we can instantiate |TrieMap ExprMap'|.
+That |Eq AlphaExpr| instance simply equates two
+$\alpha$-equivalent expressions in the standard way.
 The code for |alter| and |foldr| holds no new surprises either.
 
 And that is really all there is to it: it is remarkably easy to extend the basic
@@ -1285,19 +1284,16 @@ declarations.
 \section{Tries that match} \label{sec:matching}
 
 A key advantage of tries over hash-maps and balanced trees is
-that they can naturally extend to support \emph{matching}
-(\Cref{sec:matching-intro}).
-In this section we explain how.
+that we can support \emph{matching} (\Cref{sec:matching-intro}).
 
 \subsection{What ``matching'' means} \label{sec:matching-spec}
 
-First, we have to ask what the API should be.
-Our overall goal is to build a \emph{matching trie} into which we can:
-\begin{itemize}
-\item \emph{Insert} a (pattern, value) pair; here the insertion key is a pattern.
-\item \emph{Look up} a target expression, and return all the values whose pattern \emph{matches} that expression.
-\end{itemize}
-Semantically, then, a matching trie can be thought of as a set of \emph{entries},
+% Our overall goal is to build a \emph{matching trie} into which we can:
+% \begin{itemize}
+% \item \emph{Insert} a (pattern, value) pair; here the insertion key is a pattern.
+% \item \emph{Look up} a target expression, and return all the values whose pattern \emph{matches} that expression.
+% \end{itemize}
+Semantically, a matching trie can be thought of as a set of \emph{entries},
 each of which is a (pattern, value) pair.
 What is a pattern? It is a pair $(vs,p)$ where
 \begin{itemize}
@@ -1310,29 +1306,35 @@ A pattern $(vs, p)$ \emph{matches} a target expression $e$ iff there is a unique
 $S$ whose domain is $vs$, such that $S(p) = e$.
 
 We allow the same variable to occur more than once in the pattern.
-For example, suppose we wanted to encode the rewrite rule
-%{
-%if style == newcode
-%format f = "exf"
-%format f2 = "exf2"
-%endif
-\begin{code}
-prag_begin RULES "foo" forall x. f x x = f2 x prag_end
-\end{code}
-%}
-We would perhaps associate the (pattern, value) pair
-$(([x], f~ x~ x), (|"foo"|, f2~ x))$ with this rule, so that the value
-$(|"foo"|, f2~ x)$ returned from a successful match of the pattern allows us to
-map back to the rule name and its right-hand side, for example.
-Here the pattern $([x], f~ x~ x)$ has a repeated variable $x$,
-and should match targets like $(f~ 1~ 1)$ or $(f ~(g~ v)~ (g ~v))$,
+For example, the pattern $([x], f~ x~ x)$
+should match targets like $(f~ 1~ 1)$ or $(f ~(g~ v)~ (g ~v))$,
 but not $(f~ 1~ (g~ v))$.  This ability is important if we are to use matching tries
 to implement class or type-family look in GHC.
+
+%
+%For example, suppose we wanted to encode the rewrite rule
+%%{
+%%if style == newcode
+%%format f = "exf"
+%%format f2 = "exf2"
+%%endif
+%\begin{code}
+%prag_begin RULES "foo" forall x. f x x = f2 x prag_end
+%\end{code}
+%%}
+%We would perhaps associate the (pattern, value) pair
+%$(([x], f~ x~ x), (|"foo"|, f2~ x))$ with this rule, so that the value
+%$(|"foo"|, f2~ x)$ returned from a successful match of the pattern allows us to
+%map back to the rule name and its right-hand side, for example.
+%Here the pattern $([x], f~ x~ x)$ has a repeated variable $x$,
+%and should match targets like $(f~ 1~ 1)$ or $(f ~(g~ v)~ (g ~v))$,
+%but not $(f~ 1~ (g~ v))$.  This ability is important if we are to use matching tries
+%to implement class or type-family look in GHC.
 
 
 \subsection{The API of a matching trie} \label{sec:match-api}
 
-Here are the signatures of the lookup and insertion\footnote{We begin with |insert|
+Here are the signatures of the lookup and insertion\footnote{This time we begin with |insert|
   because it is simpler than |alter|} functions for our new matching triemap, |PatMap|:
 \begin{code}
 type PatVar    = Var
@@ -1344,6 +1346,7 @@ insertPM  :: PatExpr -> v -> PatMap v -> PatMap v
 matchPM   :: Expr -> PatMap v -> [Match v]
 \end{code}
 \simon{I'd be inclined to use just |Pat| for patterns, not |PatExpr|.}
+\simon{Why |matchPM| not |lookupPM|?}
 A |PatMap| is a trie, keyed by |PatExpr| \emph{patterns}.
 A pattern variable, of type |PatVar| is just a |Var|; we
 use the type synonym just for documentation purposes. When inserting into a
@@ -1355,10 +1358,11 @@ matching the pattern, plus the value in the map (which presumably mentions those
 pattern variables).
 
 We need to return a list of matches because there may be multiple matches (or
-none). Note that order in the list is insignificant. We could have chosen a
+none). The order in the list is insignificant. We could have chosen a
 \emph{bag} data structure that capitalises on that by providing a more efficient
 implementation or a data structure such as provided by the \hackage{logict}
 package \cite{logict} to tweak the order so that it fits our use case.
+\simon{Don't understand this tweaking business.}
 
 We could even have abstracted |matchPM| over the particular |MonadPlus| instance
 and let the user specify it. For example, the user might only be interested in
@@ -1498,6 +1502,7 @@ class Matchable (MTrieKey tm) => MTrieMap tm where
   lookupPatMTM  :: MTrieKey tm -> tm a -> MatchResult (MTrieKey tm) a
   alterPatMTM   :: Pat (MTrieKey tm) -> TF a -> tm a -> tm a
 \end{code}
+\simon{Why |lookupPatMTM|?  I was expecting |lkMTM|; c.f. |lkTM| before.}
 Note the different key types for |lookupPatMTM| and |alterPatMTM|, as well as
 the change in return types from |Maybe| to |MatchResult| for |lookupPatMTM|
 compared to |lookupTM|. Intuitively, a |MatchResult| represents a bag of zero
@@ -1507,7 +1512,7 @@ or many matches at once.
 |TrieKey| before:
 \begin{code}
 instance Eq (Pat AlphaExpr) where ...   -- Refer to the
-instance Matchable AlphaExpr where ...  -- Supplemental
+instance Matchable AlphaExpr where ...  -- Appendix
 instance MTrieMap MExprMap' where
   type MTrieKey MExprMap' = AlphaExpr
   emptyMTM     = ... -- boring
@@ -1521,7 +1526,7 @@ So far, we have glossed over the following outstanding implementation obligation
     We'll cover that next, in \Cref{sec:matchable}.
   \item What does |alterPatMM| (and |alterPatMSEM|) look like?
     To our satisfaction, they look entirely as you would expect them to look
-    like after reading previous sections. See the Supplemental for details.
+    like after reading previous sections. See the Appendix for details.
   \item What is |lookupPatMM| (and |lookupPatMSEM|) and how does its
     use of |MatchResult| relate to |Maybe| in non-matching lookup?
     See \Cref{sec:matching-lookup}.
@@ -1545,7 +1550,7 @@ class Eq (Pat e) => Matchable e where
   match :: Pat e -> e -> MatchState e -> Maybe (MatchState e)
 
 instance Eq (Pat AlphaExpr) where ...   -- Refer to the
-instance Matchable AlphaExpr where ...  -- Supplement
+instance Matchable AlphaExpr where ...  -- Appendix
 \end{code}
 We won't look at the implementation in detail, because we will see the same
 ideas when we look at |lookupPatMM|, which matches many patterns at once
@@ -1629,7 +1634,7 @@ expression against \emph{all patterns the trie represents}.
 The |rigid| case is no different from exact lookup and hence omitted. For the
 |flex| case, we enumerate all pattern variables that occur at this trie node
 and try to refine the |MatchResult| by equating said pattern variable with the
-target expression. \sg{Bring |equateE|? Or at least point to the Supplemental?}
+target expression. \sg{Bring |equateE|? Or at least point to the Appendix?}
 Every successful match ends up as an item in the returned bag (via |msum|), as
 well as the original exact matches in |rigid|.
 
