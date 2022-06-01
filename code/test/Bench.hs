@@ -141,10 +141,10 @@ criterionAllSizes = [10, 100, 1000, 10000]
 criterion :: [Benchmark]
 criterion =
   [ bgroup "filler, so that the first line begins with a leading comma" []
-  , rnd_lookup_all
-  , rnd_lookup_all_app1
-  , rnd_lookup_all_app2
-  , rnd_lookup_all_lam
+  , rnd_lookup
+  , rnd_lookup_app1
+  , rnd_lookup_app2
+  , rnd_lookup_lam
   , rnd_lookup_one
   , rnd_insert_lookup_one
   , rnd_fromList_app1
@@ -184,8 +184,8 @@ criterion =
         ]
     {-# INLINE bench_diag_variants #-}
 
-    rnd_lookup_all :: Benchmark
-    rnd_lookup_all = bench_all_variants "lookup_all" criterionAllSizes criterionAllSizes $ \(_ :: em) n m ->
+    rnd_lookup :: Benchmark
+    rnd_lookup = bench_all_variants "lookup" criterionAllSizes criterionAllSizes $ \(_ :: em) n m ->
       with_map_of_exprs @em n m $ \exprs expr_map ->
       bench "" $ nf (map (`lookupMap` expr_map)) exprs
 
@@ -200,20 +200,20 @@ criterion =
       env (pure (runGenDet m genClosedExpr)) $ \e ->
       bench "" $ nf (\e' -> lookupMap e' (insertMap e' (n+1) expr_map)) e
 
-    rnd_lookup_all_lam :: Benchmark
-    rnd_lookup_all_lam = bench_diag_variants "lookup_all_lam" criterionDiagSizes $ \(_ :: em) n m ->
+    rnd_lookup_lam :: Benchmark
+    rnd_lookup_lam = bench_diag_variants "lookup_lam" criterionDiagSizes $ \(_ :: em) n m ->
       env (pure (mkNExprsWithPrefix n m (Lam "$"))) $ \exprs ->
       env (pure ((mapFromList $ zip exprs [0..]) :: em)) $ \(expr_map :: em) ->
       bench "" $ nf (map (`lookupMap` expr_map)) exprs
 
-    rnd_lookup_all_app1 :: Benchmark
-    rnd_lookup_all_app1 = bench_all_variants "lookup_all_app1" criterionAllSizes criterionAllSizes $ \(_ :: em) n m ->
+    rnd_lookup_app1 :: Benchmark
+    rnd_lookup_app1 = bench_all_variants "lookup_app1" criterionAllSizes criterionAllSizes $ \(_ :: em) n m ->
       env (pure (mkNExprsWithPrefix n m (Var "$" `App`))) $ \exprs ->
       env (pure ((mapFromList $ zip exprs [0..]) :: em)) $ \(expr_map :: em) ->
       bench "" $ nf (map (`lookupMap` expr_map)) exprs
 
-    rnd_lookup_all_app2 :: Benchmark
-    rnd_lookup_all_app2 = bench_diag_variants "lookup_all_app2" criterionDiagSizes $ \(_ :: em) n m ->
+    rnd_lookup_app2 :: Benchmark
+    rnd_lookup_app2 = bench_diag_variants "lookup_app2" criterionDiagSizes $ \(_ :: em) n m ->
       env (pure (mkNExprsWithPrefix n m (`App` Var "$"))) $ \exprs ->
       env (pure ((mapFromList $ zip exprs [0..]) :: em)) $ \(expr_map :: em) ->
       bench "" $ nf (map (`lookupMap` expr_map)) exprs

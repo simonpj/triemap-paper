@@ -18,7 +18,7 @@ $(PAPER).tex: $(PAPER).lhs $(FMT_FILES)
 $(PAPER)_ext.tex: $(PAPER).lhs $(FMT_FILES)
 	lhs2TeX --set=main --set=appendix -o $@ $<
 
-appendix.tex: $(PAPER).lhs $(FMT_FILES)
+appendix.tex: $(PAPER).lhs appendix.lhs $(FMT_FILES)
 	lhs2TeX --unset=main --set=appendix -o $@ $<
 
 %.pdf: %.tex refs.bib

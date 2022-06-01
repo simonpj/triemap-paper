@@ -4,6 +4,7 @@ import csv
 import datetime
 import math
 import sys
+import re
 from decimal import Decimal
 from collections import defaultdict
 
@@ -28,6 +29,9 @@ n_digits=3
 
 def mark_digit_insignificant(dig):
   return '\insigdig{'+dig+'}'
+
+def subst_latex_command(cmd: str, latex: str):
+  return re.sub(r'\\'+cmd+r'{([^}]*)}', r'\1', latex)
 
 def mark_insignificant_digits(val: str, significant_digs: int):
   """
@@ -110,12 +114,36 @@ def csv_to_cleaned_table(filename):
     return table
 
 table = csv_to_cleaned_table(sys.argv[1])
-#print(table['lookup_all'][(100, 100)])
+#print(table['lookup'][(100, 100)])
 
 variants=['ExprMap','Map','HashMap']
+# Format overview bar chart for all benchmarks and N=1000
+s = 'name id ' + ' '.join(variants) + '\n'
+id = 0
+graph_names=['lookup','lookup_lam','fromList','union']
+for name in graph_names:
+  inputs=table[name]
+  id = id+1
+  s = s+'\\benchname{'+name.replace('_','\\_')+'} '+str(id)+' '
+  for size in [1000]:
+    measurements = inputs[(size, size)]
+    (winner,_) = min([(v, measurements[v][0]) for v in variants], key=lambda p: p[1])
+    for v in variants:
+      #print(name,size,v)
+      (_, entry) = measurements[v]
+      entry = subst_latex_command("insigdig", entry) # discard the \insigdig{_} we so painfully added
+      if 's' in entry: # if it's an absolute number
+        s = s+'1.00 ' # we simply report a relative one
+      else:
+        s = s+entry+' '
+  s = s+'\n'
+
+print(s)
+with open('../paper/bench-plot.txt', 'w') as f: f.write(s)
+
 # Format overview table for all benchmarks
 s = ''
-overview_names=['lookup_all','lookup_all_app1','lookup_all_app2','lookup_all_lam','lookup_one','fold','insert_lookup_one','fromList','fromList_app1','union','union_app1']
+overview_names=['lookup','lookup_app1','lookup_app2','lookup_lam','lookup_one','fold','insert_lookup_one','fromList','fromList_app1','union','union_app1']
 for name in overview_names:
   inputs=table[name]
   s = s + '\\benchname{'+name.replace('_','\\_')+'} & '
@@ -136,7 +164,7 @@ print(s)
 with open('../paper/bench-overview.tex-incl', 'w') as f: f.write(s)
 
 # Format E x M table for runtime-finer
-finer_names=['lookup_all','lookup_all_app1','insert_lookup_one','fromList','union']
+finer_names=['lookup','lookup_app1','insert_lookup_one','fromList','union']
 for name in finer_names:
   s = ''
   inputs=table[name]

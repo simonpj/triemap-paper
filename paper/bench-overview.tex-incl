@@ -1,7 +1,7 @@
-\benchname{lookup\_all} & \textbf{1.9\insigdig{0}\textmu{}s} & 1.0\insigdig{0} & 1.4\insigdig{3} & \textbf{130\textmu{}s} & 1.09 & 1.72 & \textbf{19.\insigdig{3}ms} & 1.0\insigdig{6} & 1.6\insigdig{4} \\
-\benchname{lookup\_all\_app1} & \textbf{3.6\insigdig{3}\textmu{}s} & 1.5\insigdig{5} & 1.4\insigdig{0} & \textbf{293\textmu{}s} & 2.7\insigdig{0} & 1.5\insigdig{1} & \textbf{42.9ms} & 4.96 & 1.5\insigdig{3} \\
-\benchname{lookup\_all\_app2} & \textbf{3.5\insigdig{6}\textmu{}s} & 1.1\insigdig{6} & 1.4\insigdig{1} & \textbf{38\insigdig{7}\textmu{}s} & 1.4\insigdig{2} & 1.2\insigdig{6} & 84.\insigdig{8}ms & 3.3\insigdig{0} & \textbf{0.9\insigdig{4}} \\
-\benchname{lookup\_all\_lam} & \textbf{3.61\textmu{}s} & 2.7\insigdig{2} & 1.9\insigdig{6} & \textbf{322\textmu{}s} & 5.57 & 2.1\insigdig{7} & \textbf{49.9ms} & 7.8\insigdig{2} & 1.9\insigdig{5} \\
+\benchname{lookup} & \textbf{1.9\insigdig{0}\textmu{}s} & 1.0\insigdig{0} & 1.4\insigdig{3} & \textbf{130\textmu{}s} & 1.09 & 1.72 & \textbf{19.\insigdig{3}ms} & 1.0\insigdig{6} & 1.6\insigdig{4} \\
+\benchname{lookup\_app1} & \textbf{3.6\insigdig{3}\textmu{}s} & 1.5\insigdig{5} & 1.4\insigdig{0} & \textbf{293\textmu{}s} & 2.7\insigdig{0} & 1.5\insigdig{1} & \textbf{42.9ms} & 4.96 & 1.5\insigdig{3} \\
+\benchname{lookup\_app2} & \textbf{3.5\insigdig{6}\textmu{}s} & 1.1\insigdig{6} & 1.4\insigdig{1} & \textbf{38\insigdig{7}\textmu{}s} & 1.4\insigdig{2} & 1.2\insigdig{6} & 84.\insigdig{8}ms & 3.3\insigdig{0} & \textbf{0.9\insigdig{4}} \\
+\benchname{lookup\_lam} & \textbf{3.61\textmu{}s} & 2.7\insigdig{2} & 1.9\insigdig{6} & \textbf{322\textmu{}s} & 5.57 & 2.1\insigdig{7} & \textbf{49.9ms} & 7.8\insigdig{2} & 1.9\insigdig{5} \\
 \benchname{lookup\_one} & 177ns & \textbf{0.74} & 1.3\insigdig{8} & \textbf{81\insigdig{1}ns} & 1.\insigdig{0}\insigdig{7} & 1.64 & 13.5\textmu{}s & \textbf{0.98} & 1.64 \\
 \benchname{fold} & 35\insigdig{7}ns & 0.37 & \textbf{0.30} & 4.0\insigdig{3}\textmu{}s & 0.34 & \textbf{0.33} & 68.\insigdig{4}\textmu{}s & \textbf{0.30} & 0.36 \\
 \benchname{insert\_lookup\_one} & \textbf{42.\insigdig{0}ns} & 1.9\insigdig{8} & 1.8\insigdig{6} & \textbf{1.39\textmu{}s} & 1.24 & 2.07 & \textbf{15.6\textmu{}s} & 1.0\insigdig{3} & 2.26 \\
