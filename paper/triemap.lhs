@@ -1414,8 +1414,9 @@ returning a list of all the successful |(Subst,v)| matches.
 
 \subsubsection{Matching summary}
 
-The implementation of |matchE| is entirely straightforward, and is
-given in the Appendix.
+The implementation of |matchE| is entirely straightforward, using
+simultaneous recursive descent over the pattern and target.
+The code is given in the Appendix.
 
 The key point is this: nothing in this section is concerned with
 tries.  Here we are simply concerned with the mechanics of matching,
@@ -1560,6 +1561,10 @@ variable (see \Cref{sec:matching-spec}), and we must check that
 the target expression is equal (using |eqExpr|) to the the one already bound to |pv|.
 Once again, however, we must check that the target does not contain any locally-bound
 variables, hence the |noCaptured| check.
+
+|lookupPatMM| is the trickiest case.  The code for |alterPatMM|, and
+the other operations of the class, is very straightforward, and is given
+in the Appendix.
 
 \subsection{The external API} \label{sec:match-api}
 
@@ -2257,8 +2262,12 @@ insignificance for \benchname{fromList} and \benchname{union}. One reason is
 the uniform distribution of expressions in these benchmarks, which favors |Map|.
 Still, it is a surprise that the naïve |fromList| implementations of |ExprMap| and
 |Map| as list folds beat the one of |HashMap|, although its implementation is
-much less naïve: it makes use of transient mutability and performs
+much less naïve:
+it makes use of transient mutability and performs
 destructive inserts on the map data structure during |fromList|.
+\simon{what is ``its'' in ``its implementation''.  I think you mean
+  ``...although that latter has a tricky, performance-optimised implementation
+  using mutablity.''}
 
 What would a non-naïve version of |fromList| for |ExprMap| look like? Perhaps
 the process could be sped up considerably by partitioning the input list
