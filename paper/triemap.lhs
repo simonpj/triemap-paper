@@ -1619,7 +1619,7 @@ canonical de Bruijn index.  |canonPatKeys| is entirely staightforward: it simply
 walks the expression, numbering off the pattern variables in left-to-right order.
 
 Then we can simply call the internal |alterPatMTM| function,
-passing it: a canonical |pat :: PatExpr|; and 
+passing it: a canonical |pat :: PatExpr|; and
 a transformer |ptf :: TF (PatKeys,v)| that will pair the |PatKeys| with
 the value supplied by the user via |tf :: TF v|.
 Lookup is equally easy:
@@ -2050,9 +2050,6 @@ with the target.  Both would have useful applications, in GHC at least.
 However, both seem difficult to achieve.  All our attempts became mired in complexity,n
 and we leave this for further work, and as a challenge for the reader.
 
-% -----------------------------------------------------------
-\begin{comment}
-
 \subsection{Most specific match} \label{sec:most-specific}
 
 It is sometimes desirable to be able to look up the \emph{most specific match}
@@ -2101,68 +2098,8 @@ A data structure that would be useful in the post-pass to maintain most-specific
 candidates would be a map of patterns (just like |MExprMap|) that allows
 \emph{unifying} lookup with the new trial pattern (unlike |MExprMap|). Then
 we would keep candidates which are unchanged under the unifier, because that
-candidate is clearly at least as specific than the pattern it unifies with.
-We'll briefly discuss that in the following section.
-
-\subsection{Triemaps that unify?}
-
-% Sometimes one wants to find all patterns that \emph{unify} with the target,
-% assuming we have some notion of ``unifiable variable'' in the target.
-
-In effect, the |PatVar|s of the patterns stored in our matching triemaps act
-like unification variables. The unification problems we solve are always
-particularly simple, because pattern variables only ever match against are
-\emph{expression} keys in which no pattern variable can occur.
-
-Another frustrating point is that we had to duplicate the |TrieMap| class in
-\Cref{sec:matching-class} because the key types for lookup and insertion no
-longer match up. If we managed to generalise the lookup key from expressions to
-patterns, too, we could continue to extend good old |TrieMap|.
-All this begs the question: \emph{Can we extend our idiomatic triemaps to facilitate
-unifying lookup?}
-
-At first blush, the generalisation seems simple. We already carefully confined
-the matching logic to |Matchable| and |MatchState|.
-It should be possible to
-generalise to
-\begin{code}
-type UniState = ...
-class Eq e => Matchable e where
-  unify :: e -> e -> UniState e -> Maybe (UniState e)
-class (Matchable (TrieKey tm), TrieMap tm) => UTrieMap tm where
-  lookupUniUTM :: TrieKey tm -> tm v -> UniResult (TrieKey tm) v
-\end{code}
-But there are problems:
-\begin{itemize}
-  \item We would need all unification variables to be globally unique lest we
-    open ourselves to numerous shadowing issues when reporting unifiers.
-  \item Consider the Unimap for
-    $$
-      (([a], T\;a\;A), v1) \quad \text{and} \quad (([b], T\;b\;B), v2)
-    $$
-    After canonicalisation, we get
-    $$
-      ((T\;\pv{1}\;A), ([(a,\pv{1})], v1)) \quad \text{and} \quad (T\;\pv{1}\;B, ([(b,\pv{1})], v2))
-    $$
-    and both patterns share a prefix in the trie.
-    Suppose now we uni-lookup the pattern $([c,d], T c d)$.
-    What should we store in our |UniState| when unifying $c$ with $\pv{1}$?
-    There simply is no unique pattern variable to \enquote{decanonicalise} to!
-    In general, it appears we'd get terms in the range of our substitution that
-    mix |PatVar|s and |PatKey|s. Clearly, the vanilla |Expr| datatype doesn't
-    accomodate such an extension and we'd have to complicate its definition with
-    techniques such as Trees that Grow \cite{ttg}.
-\end{itemize}
-
-So while embodying full-blown unification into the lookup algorithm seems
-attractive at first, in the end it appears equally complicated to present.
-By contrast, for our most-specific matching problem it is relatively easy to
-return a set of \emph{candidates} that then be post-processed with a full
-unifier to see if the candidate does indeed unify with the target.
-
-\end{comment}
-% -----------------------------------------------------------
-
+candidate is clearly at least as specific as the pattern it unifies with.
+We briefly discuss unifying maps in Appendix B.
 
 \section{Evaluation} \label{sec:eval}
 
@@ -2181,6 +2118,8 @@ unifier to see if the candidate does indeed unify with the target.
 \begin{axis}[
   ybar,
   bar width=7pt,
+  height=6.5cm,
+  width=8cm,
   %
   % Set up y axis
   ymin=0,
@@ -2227,8 +2166,8 @@ unifier to see if the candidate does indeed unify with the target.
 \legend{TM,OM,HM}
 \end{axis}
 \end{tikzpicture}
-\caption{Benchmarks comparing our trie map |ExprMap| (TM)
-  to ordered maps |Map Expr| (OM) and hash maps |HashMap Expr| (HM)}
+\caption{Benchmarks comparing our trie map (TM)
+  to ordered maps (OM) and hash maps (HM)}
 \label{fig:plot}
 \end{figure}
 
@@ -2449,8 +2388,7 @@ data Expr = App Con [Expr] | Var Var
 \end{code}
 In contrast to our |ExprMap|, \varid{twee}'s |Index| does path compression not
 only for paths ending in leaves (as we do) but also for internal paths, as is
-common for radix trees. That is an interesting optimisation that could decrease
-space usage in benchmarks such as \benchname{space\_app1}.
+common for radix trees.
 
 It is however unclear how to extend \varid{twee}'s |Index| to support
 $\alpha$-equivalence, hence we did not consider it for our benchmarks in

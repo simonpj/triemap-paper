@@ -125,17 +125,18 @@ for name in graph_names:
   inputs=table[name]
   id = id+1
   s = s+'\\benchname{'+name.replace('_','\\_')+'} '+str(id)+' '
-  for size in [1000]:
-    measurements = inputs[(size, size)]
-    (winner,_) = min([(v, measurements[v][0]) for v in variants], key=lambda p: p[1])
-    for v in variants:
-      #print(name,size,v)
-      (_, entry) = measurements[v]
-      entry = subst_latex_command("insigdig", entry) # discard the \insigdig{_} we so painfully added
-      if 's' in entry: # if it's an absolute number
-        s = s+'1.00 ' # we simply report a relative one
-      else:
-        s = s+entry+' '
+  e = 1000
+  n = 1000
+  measurements = inputs[(e, n)]
+  (winner,_) = min([(v, measurements[v][0]) for v in variants], key=lambda p: p[1])
+  for v in variants:
+    #print(name,size,v)
+    (_, entry) = measurements[v]
+    entry = subst_latex_command("insigdig", entry) # discard the \insigdig{_} we so painfully added
+    if 's' in entry: # if it's an absolute number
+      s = s+'1.00 ' # we simply report a relative one
+    else:
+      s = s+entry+' '
   s = s+'\n'
 
 print(s)

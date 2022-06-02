@@ -1,73 +1,6 @@
 %include rae.fmt
 \let\restriction\relax
 
-\renewcommand\thefigure{\thesection.\arabic{figure}}
-
-% For prototyping and getting a feel of the schema:
-%\pgfplotstableread[row sep=\\,col sep=&]{
-%  name                    & id & ExprMap & Map  & HashMap \\
-%  \benchname{lookup}      & 1  & 1.00    & 1.06 & 1.64    \\
-%  \benchname{lookup\_lam} & 2  & 1.00    & 7.82 & 1.95    \\
-%  \benchname{fromList}    & 3  & 1.00    & 1.00 & 2.26    \\
-%  \benchname{union}       & 4  & 1.00    & 1.09 & 1.06    \\
-%}\benchdata
-\pgfplotstableread{bench-plot.txt}\benchdata
-
-\begin{figure}[h]
-\begin{tikzpicture}
-\begin{axis}[
-  ybar,
-  bar width=7pt,
-  %
-  % Set up y axis
-  ymin=0,
-  ymax=2,
-  ylabel={Relative time (lower is better)},
-  % Highlight baseline https://tex.stackexchange.com/a/133760/52414
-  ytick={0.5,1.5,2.0},
-  extra y ticks=1, %
-  extra y tick style={grid=major, grid style={solid,black}},
-  yticklabel={\pgfmathprintnumber{\tick}x},
-  %
-  % Set up x axis
-  xmin=0.5,
-  xmax=4.5,
-  xtick=data,
-  xticklabels from table={\benchdata}{name},
-  x tick label style={font=\small},
-  major x tick style={opacity=0},    % hide x ticks
-  x tick label style={yshift=0.5em}, % and use the space for labels
-  %
-  % Indicate clipped bars by \cdots
-  visualization depends on=rawy \as \rawy,
-  nodes near coords={%
-    % Couldn't make \ifpgfmathfloatcomparison work, so I'm using a PGF match
-    % expression with a ternary returning a string
-    \pgfmathparse{\rawy>\pgfkeysvalueof{/pgfplots/ymax} ? "$\cdots$" : ""}%
-    \pgfmathresult\pgfmathprintnumber[precision=2,fixed zerofill]{\rawy}
-  },
-  restrict y to domain*={
-    \pgfkeysvalueof{/pgfplots/ymin}:\pgfkeysvalueof{/pgfplots/ymax}
-  },
-  % Make node labels smaller
-  every node near coord/.append style={
-    font=\small,
-    anchor=west,
-    rotate=90,
-  },
-]
-
-\addplot table[x=id,y=ExprMap]{\benchdata};
-\addplot table[x=id,y=Map]{\benchdata};
-\addplot table[x=id,y=HashMap]{\benchdata};
-
-\legend{TM,OM,HM}
-\end{axis}
-\end{tikzpicture}
-\caption{Benchmarks comparing our trie map |ExprMap| (TM)
-  to ordered maps |Map Expr| (OM) and hash maps |HashMap Expr| (HM)}
-\end{figure}
-
 \section{Evaluation} \label{sec:eval-extended}
 
 So far, we have seen that trie maps offer a significant advantage over other
@@ -414,4 +347,53 @@ For \benchname{space\_app2}, |ExprMap| can't share any prefixes because the
 shared structure turns into a suffix in the pre-order serialisation. As a result,
 |Map| and |HashMap| allocate less space, all consistent constant factors apart
 from each other. |HashMap| wins here again.
+
+\section{Triemaps that unify?}
+
+In effect, the |PatVar|s of the patterns stored in our matching triemaps act
+like unification variables. The unification problems we solve are always
+particularly simple, because pattern variables only ever match against are
+\emph{expression} keys in which no pattern variable can occur.
+
+Another frustrating point is that we had to duplicate the |TrieMap| class in
+\Cref{sec:matching-class} because the key types for lookup and insertion no
+longer match up. If we managed to generalise the lookup key from expressions to
+patterns, too, we could continue to extend good old |TrieMap|.
+All this begs the question: \emph{Can we extend our idiomatic triemaps to facilitate
+unifying lookup?}
+
+At first blush, the generalisation seems simple. We already carefully confined
+the matching logic to |Matchable|. It should be possible to generalise to
+\begin{code}
+class (Eq k, MonadPlus (Unify k)) => Unifiable k where
+  type Unify k :: Type -> Type
+  unify :: k -> k -> Unify k ()
+class (Unifiable (TrieKey tm), TrieMap tm) => UTrieMap tm where
+  lookupUniUTM :: TrieKey tm -> tm v -> Unify (TrieKey tm) v
+\end{code}
+But there are problems:
+\begin{itemize}
+  \item We would need all unification variables to be globally unique lest we
+    open ourselves to numerous shadowing issues when reporting unifiers.
+  \item Consider the Unimap for
+    $$
+      (([a], T\;a\;A), v1) \quad \text{and} \quad (([b], T\;b\;B), v2)
+    $$
+    After canonicalisation, we get
+    $$
+      ((T\;\pv{1}\;A), ([(a,\pv{1})], v1)) \quad \text{and} \quad (T\;\pv{1}\;B, ([(b,\pv{1})], v2))
+    $$
+    and both patterns share a prefix in the trie.
+    Suppose now we uni-lookup the pattern $([c,d], T c d)$.
+    What should we store in our |UniState| when unifying $c$ with $\pv{1}$?
+    There simply is no unique pattern variable to \enquote{decanonicalise} to!
+    In general, it appears we'd get terms in the range of our substitution that
+    mix |PatVar|s and |PatKey|s. Clearly, the vanilla |Expr| datatype doesn't
+    accomodate such an extension and we'd have to complicate its definition with
+    techniques such as Trees that Grow \cite{ttg}.
+\end{itemize}
+
+So while embodying full-blown unification into the lookup algorithm seems
+attractive at first, in the end it appears equally complicated to present.
+
 
