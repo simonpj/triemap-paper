@@ -44,13 +44,10 @@ instance NFData a => NFData (ModAlpha a) where
 instance NFData DeBruijnEnv where
   rnf env = rnf (dbe_env env)
 
-instance NFData a => NFData (Pat a) where
+instance NFData a => NFData (PatE a) where
   rnf (P env a) = rnf env `seq` rnf a
 
-instance NFData PatVarEnv where
-  rnf (PVE dbe caps) = rnf dbe `seq` rnf caps
-
-instance (TrieMap tm, TrieKey tm ~ e, NFData e, NFData (tm v), NFData v) => NFData (SEMap e tm v) where
+instance (TrieMap tm, NFData (TrieKey tm), NFData (tm v), NFData v) => NFData (SEMap tm v) where
   rnf EmptySEM = ()
   rnf (SingleSEM k v) = rnf k `seq` rnf v
   rnf (MultiSEM tm) = rnf tm
@@ -95,7 +92,7 @@ instance MapAPI (ExprMap Int) where
   lookupMap e = lookupTM (deBruijnize e)
   insertMap e = insertTM (deBruijnize e)
   unionMap = unionWithTM (\l r -> r)
-  fold = foldTM
+  fold = foldrTM
   {-# NOINLINE fold #-}
   mapFromList = foldr (uncurry insertMap) emptyMap
   -- mapFromList = fromListWithTM last . map (\(k,v) -> (deBruijnize k, v))
