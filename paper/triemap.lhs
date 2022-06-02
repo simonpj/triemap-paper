@@ -496,9 +496,11 @@ This shift of context is surprisingly fruitful, and we make the following contri
        Accounting for $\alpha$-equivalence is not hard, but it is crucial for
        the applications in compilers.
 
-\item We extend our triemaps to support \emph{matching} lookups (\Cref{sec:matching}).
-  This is an important step, because the only readily-available alternative is
-  linear lookup. The code is short, but surprisingly tricky.
+\item We extend our triemaps to support \emph{matching} lookups
+  (\Cref{sec:matching}).  This is an important step, because the only
+  readily-available alternative is linear lookup. Our main
+  contribution is to extend the established idea of tries keyed by
+  arbitrary data types, so that it can handle matching too.
 
 \item We present measurements that compare the performance of our triemaps (ignoring
   their matching capability) with traditional finite-map implementations in
@@ -530,10 +532,6 @@ checktype(Map.unionWith  ::  Ord k  => (v->v->v)
                              -> Map k v -> Map k v -> Map k v)
 checktype(Map.size       :: Map k v -> Int)
 
-infixl 4 <$, <$$      -- Set value in functor
-(<$)   :: Functor f => a -> f b -> f a
-(<$$)  :: (Functor f, Functor g) => a -> f (g b) -> f (g a)
-
 infixr 1 >=>          -- Kleisli composition
 (>=>) :: Monad m  => (a -> m b) -> (b -> m c)
                   -> a -> m c
@@ -552,10 +550,7 @@ infixr 0 |>           -- Reverse function application
 Our general task is as follows: \emph{implement an efficient finite mapping
 from keys to values, in which the key is a tree}.
 Semantically, such a finite map is just a set of \emph{(key,value)}
-pairs; we query the map by looking up a \emph{target}.  Initially
-keys and target are the same thing, but that will change when we
-get to matching (\Cref{sec:matching}).
-
+pairs; we query the map by looking up a \emph{target}.
 For example, the key might be a data type of syntax trees, defined like this:
 %{
 %if style == newcode
@@ -676,12 +671,15 @@ which attack the same problem from a rather different angle, as we discuss in \C
 
 A standard approach to a finite map in which the key has internal structure
 is to use a \emph{trie}\footnote{\url{https://en.wikipedia.org/wiki/Trie}}.
+Generalising tries to handle an arbitrary algebraic data type as the key is
+a well established, albeit under-used, idea \cite{connelly-morris,hinze:generalized}.
+We review these ideas in this section.
 Let us consider a simplified
 form of expression:
 \begin{code}
 data Expr = Var Var | App Expr Expr
 \end{code}
-We leave lambdas out for now,
+We omit lambdas for now,
 so that all |Var| nodes represent free variables, which are treated as constants.
 We will return to lambdas in \Cref{sec:binders}.
 
@@ -1018,10 +1016,9 @@ such as
 insertTM :: TrieMap tm => TrieKey tm -> v -> tm v -> tm v
 insertTM k v = alterTM k (\_ -> Just v)
 
-deleteEM :: TrieMap tm => TrieKey tm -> tm v -> tm v
-deleteEM k = alterEM k (\_ -> Nothing)
+deleteTM :: TrieMap tm => TrieKey tm -> tm v -> tm v
+deleteTM k = alterTM k (\_ -> Nothing)
 \end{code}
-\simon{deleteTM, alterTM surely?  Or am I confused?}
 But that is not all.
 Suppose our expressions had multi-argument apply nodes, |AppV|, thus
 %{ So
@@ -1159,9 +1156,6 @@ The auxiliary data types |ExprMap'| and |ListMap'| have only a single constructo
 the empty and singleton cases are dealt with by |SEMap|.  We reserve the original,
 un-primed, names for the user-visible |ExprMap| and |ListMap| constructors.
 
-The singleton-map optimisation makes a big difference in practice.
-\simon{Forward refernce to evidence, even if it's in the Appendix.}
-
 \subsection{Generic programming}\label{sec:generic}
 
 We have not described a triemap \emph{library}; rather we have described a \emph{design pattern}.
@@ -1236,10 +1230,10 @@ instance Eq AlphaExpr where ...
 type BoundKey  = DBNum
 type ExprMap = SEMap ExprMap'
 data ExprMap' v
-  = EM  {  em_app   :: ExprMap (ExprMap v)
-        ,  em_lam   :: ExprMap v
-        ,  em_fvar  :: Map Var v         -- Free vars
-        ,  em_bvar  :: Map BoundKey v }  -- Lambda-bound vars
+  = EM  {  em_fvar  :: Map Var v         -- Free vars
+        ,  em_bvar  :: Map BoundKey v    -- Lambda-bound vars
+        ,  em_app   :: ExprMap (ExprMap v)
+        ,  em_lam   :: ExprMap v }
 
 instance TrieMap ExprMap' where
   type TrieKey ExprMap' = AlphaExpr
@@ -1247,18 +1241,16 @@ instance TrieMap ExprMap' where
   ...
 
 lookupEM :: AlphaExpr -> ExprMap' v -> Maybe v
-lookupEM ae@(A dbe e) = case e of
-  Var v -> case lookupDBE v dbe of
+lookupEM (A bve e) = case e of
+  Var v -> case lookupDBE v bve of
     Nothing  -> em_fvar  >>> Map.lookup v
     Just bv  -> em_bvar  >>> Map.lookup bv
-  App e1 e2  -> em_app   >>> lookupTM (e1 <$ ae) >=> lookupTM (e1 <$ ae)
-  Lam v e    -> em_lam   >>> lookupTM (A (extendDBE v dbe) e)
+  App e1 e2  -> em_app   >>> lookupTM (A bve e1) >=> lookupTM (A bve e2)
+  Lam v e    -> em_lam   >>> lookupTM (A (extendDBE v bve) e)
 
 lookupClosedExpr :: Expr -> ExprMap v -> Maybe v
 lookupClosedExpr e = lookupEM (A emptyDBE e)
 \end{code}
-\simon{Urgh!  Do we *have* to say |(e1 <$ ae)| rather than |(A ae e1)|?
-  Doing so increases the cognitive burden on every reader -- and it even takes more space!}
 We maintain a |DeBruijnEnv| (cf.~\cref{fig:debruijn}) that
 maps each lambda-bound variable to its de-Bruijn level%
 \footnote{
@@ -1356,26 +1348,25 @@ Matching can fail or can return many result, so |Match k| is a |MonadPlus|:
   mzero :: MonadPlus m => m a
   mplus :: MonadPlus m => m a -> m a -> m a
 \end{code}
-
 To make this more concrete, here is a possible |Matchable| instance for |AlphaExpr|:
 \begin{code}
 instance Matchable AlphaExpr where
-  type Pat    AlphaExpr = PatE
-  type Match  AlphaExpr = MatchE
+  type Pat    AlphaExpr = PatExpr
+  type Match  AlphaExpr = MatchExpr
   match = matchE
 \end{code}
 Let's look at the pieces, one at a time
 
-\subsubsection{Patterns}
+\subsubsection{Patterns} \label{sec:patterns}
 
-A pattern |PatE| over |AlphaExpr| can be defined like this:
+A pattern |PatExpr| over |AlphaExpr| can be defined like this:
 \begin{code}
-data PatE = P PatKeys AlphaExpr
+data PatExpr = P PatKeys AlphaExpr
 type PatKeys = Map PatVar PatKey
 type PatVar  = Var
 type PatKey  = DBNum
 \end{code}
-A pattern |PatE| is a pair of an |AlphaExpr| and a |PatKeys| that maps
+A pattern |PatExpr| is a pair of an |AlphaExpr| and a |PatKeys| that maps
 each of the quantified pattern variables to a canonical de Bruijn |PatKey|.
 Just as in \Cref{sec:binders}, |PatKeys| make the pattern insensitive to
 the particular names, and order of quantification, of the pattern variables.
@@ -1384,20 +1375,20 @@ numbering pattern variables in the order they appear in a left-to-right scan.
 For example
 $$
 \begin{array}{r@@{\hspace{5mm}}l}
-\text{Original pattern} & \text{Canonical |PatE|} \\
+\text{Original pattern} & \text{Canonical |PatExpr|} \\
 |([a,b], f a b a)|  &  |P [a =-> 1, b =-> 2] (f a b a)|\\
 |([x,g], f (g x)|  &  |P [x =-> 2, g =-> 1] (f (g x))|
 \end{array}
 $$
 
-\subsubsection{The matching monad}
+\subsubsection{The matching monad} \label{sec:matching-monad}
 
-There are many possible implementation of the |MatchE| monad, but here is one:
+There are many possible implementation of the |MatchExpr| monad, but here is one:
 \begin{code}
-newtype MatchE v = MR (StateT Subst [] v)
+newtype MatchExpr v = MR (StateT Subst [] v)
 type Subst = Map PatKey Expr
 \end{code}
-The |MatchE| type is isomorphic to |Subst -> [(v,Subst)]|;
+The |MatchExpr| type is isomorphic to |Subst -> [(v,Subst)]|;
 matching takes a substitution for pattern variables (more precisely, their
 canonical |PatKey|s), and yields a possibly-empty list of values paired
 with an extended substitution.  Notice that the substitution binds pattern keys
@@ -1408,6 +1399,16 @@ The formulation in terms of |StateT| endows us with just the right
 |Monad| and |MonadPlus| instances, as well as favorable performance
 because of early failure on contradicting |match|es and the ability to
 share work done while matching a shared prefix of multiple patterns.
+
+The monad comes with some auxiliary functions that we will need later:
+\begin{code}
+runMatchExpr :: MatchExpr v -> [(Subst, v)]
+liftMaybe    :: Maybe v -> MatchExpr v
+refineMatch  :: (Subst -> Maybe Subst) -> MatchExpr ()
+\end{code}
+Their semantics should be apparent from their types.  For example, |runMatchExpr|
+runs a |MatchExpr| computation, starting with an empty |Subst|, and
+returning a list of all the successful |(Subst,v)| matches.
 
 \subsubsection{Matching summary}
 
@@ -1467,8 +1468,9 @@ Notice the call to |mzero| to make the lookup fail if the map is empty; and, in 
 
 \subsection{Matching tries for |Expr|}
 
-Next, we show how to implement a matching triemap for |AlphaExpr|.
-The data type follows closely the pattern we develpoed for |ExprMap| (\Cref{sec:binders}):
+Next, we show how to implement a matching triemap for our running
+example, |AlphaExpr|.
+The data type follows closely the pattern we developed for |ExprMap| (\Cref{sec:binders}):
 \begin{code}
 type MExprMap = MSEMap MExprMap'
 
@@ -1489,34 +1491,31 @@ The main difference is that we add an extra field |mm_pvar| to |MExprMap'|,
 for occurrences of a pattern variable.  You can see how this field is used
 in the lookup code:
 \begin{code}
-lookupPatMM :: forall v. AlphaExpr -> MExprMap' v -> MatchE v
+lookupPatMM :: forall v. AlphaExpr -> MExprMap' v -> MatchExpr v
 lookupPatMM ae@(A bve e) (MM { .. })
-  = flex `mplus` rigid
+  = rigit `mplus` flexi
   where
     rigid = case e of
       Var x      -> case lookupDBE x bve of
         Just bv  -> mm_bvar  |> liftMaybe . Map.lookup bv
         Nothing  -> mm_fvar  |> liftMaybe . Map.lookup x
-      App e1 e2  -> mm_app  |>   lookupPatMTM (e1 <$ ae)
-                            >=>  lookupPatMTM (e2 <$ ae)
+      App e1 e2  -> mm_app  |>   lookupPatMTM (A bve e1)
+                            >=>  lookupPatMTM (A bve e2)
       Lam x e    -> mm_lam  |>    lookupPatMTM (A (extendDBE x bve) e)
 
-    flex = mm_pvar |> IntMap.toList |> map match_one |> msum
+    flexi = mm_pvar |> IntMap.toList |> map match_one |> msum
 
-    match_one :: (PatVar,v) -> MatchE v
+    match_one :: (PatVar,v) -> MatchExpr v
     match_one (pv, v) = matchPatVarE pv ae >> pure v
 \end{code}
 Matching lookup on a trie matches the target
 expression against \emph{all patterns the trie represents}.
 The |rigid| case is no different from exact lookup; compare the
 code for |lookupEM| in \Cref{sec:binders}.  The only difference is that we need
-\begin{code}
-  liftMaybe :: Maybe v -> MatchE v
-\end{code}
-to take the |Maybe| returned by |Map.lookup| and lift it into the |MatchE| monad.
-Its implementation is routine, and is given in the Appendix.
+|liftMaybe| (from \Cref{sec:matching-monad}) to
+take the |Maybe| returned by |Map.lookup| and lift it into the |MatchExpr| monad.
 
-The |flex| case handles the triemap entries whose pattern is simply one of
+The |flexi| case handles the triemap entries whose pattern is simply one of
 the quantified pattern variables; these entries are stored in the new |mm_pvar| field.
 We enumerate these entries with |toList|, to get a list of |(PatVar,v)| pairs,
 match each such pair against the target with |match_one|, and finally accumulate
@@ -1527,26 +1526,23 @@ value |v|.
 The |matchPatVarE| function does the heavy lifting, using some
 simple auxiliary functions whose type are given below:
 \begin{code}
-matchPatVarE :: PatKey -> AlphaExpr -> MatchE ()
-matchPatVarE pv (A bve e) = refine $ \ms ->
-  case lookupSubst pv ms of
+matchPatVarE :: PatKey -> AlphaExpr -> MatchExpr ()
+matchPatVarE pv (A bve e) = refineMatch $ \ms ->
+  case Map.lookup pv ms of
     Nothing   -- pv is not bound
-      | noCaptured bve e  -> Just (extendSubst pv e ms)
+      | noCaptured bve e  -> Just (Map.insert pv e ms)
       | otherwise         -> Nothing
     Just sol  -- pv is already bound
       | noCaptured bve e
       , eqExpr e sol      -> Just ms
       | otherwise         -> Nothing
 
-refine      :: (Subst -> Maybe Subst) -> MatchE ()
 eqExpr      :: Expr -> Expr -> Bool
 noCaptured  :: DeBruijnEnv -> Expr -> Bool
-lookupSubst :: PatVar -> Subst -> Maybe Expr
-extendSubst :: PatVar -> Expr -> Subst -> Subst
 \end{code}
 To match a pattern variable |pv| against an expression |(A bve e)|,
 we first look up |pv| in the current substitution (obtained from the
-|MatchE| state monad.  If |pv| is not bound we simply extend the
+|MatchExpr| state monad.  If |pv| is not bound we simply extend the
 substitution.
 
 But wait!  Consider matching the pattern |([p], \x -> p)|
@@ -1563,10 +1559,91 @@ the target expression is equal (using |eqExpr|) to the the one already bound to 
 Once again, however, we must check that the target does not contain any locally-bound
 variables, hence the |noCaptured| check.
 
+\subsection{The external API} \label{sec:match-api}
+
+The matching tries we have described so far use canonical pattern keys,
+a matching monad, and other machinery that should be hidden from the client.
+We seek an external API more like this:
+\begin{code}
+type PatExprMap :: Type -> Type
+alterPM   :: ([Var], Expr) -> TF v -> PatExprMap v -> PatExprMap v
+lookupPM  :: Expr -> PatExprMap v -> [(PatSubst, v)]
+type PatSubst = [(Var,Expr)]
+\end{code}
+When altering a |PatExprMap| we supply a client-side pattern, which is
+just a pair |([Var],Expr)| of the quantified pattern variables and the pattern.
+When looking up in a |PatExprMap| we supply a target expresssion, and get back
+a list of matches, each of which is a pair of the value and the substitution
+for those original pattern variables that made the pattern equal to the target.
+
+So |alterPM| must canonicalise the client-side pattern variables
+before altering the trie; that is easy enough.
+But how can |lookupPM| recover the client-side |PatSubst|?
+Somehow we must remember the canonicalisation used when \emph{inserting}
+so that we can invert it when \emph{matching}.   For example, suppose we insert the two
+(pattern, value pairs)
+$$
+|(([p], f p True), v1)| \quad \text{and} \quad |(([q], f q False), v2)|
+$$
+Both patterns will canonicalise their (sole) pattern variable to the de Bruin index 1.
+So if we look up the target |(f e True)| the |MatchExpr| monad will produce a
+final |Subst| that maps |[1 =-> e]|, paired with the value |v1|.  But we want to return
+|([("p",e)], v1)| to the client, a |PatSubst| that uses the client variable |"p"|, not
+the internal index 1.
+
+The solution is simple enough: \emph{we store the mapping in the triemap's domain},
+along with the values, thus:
+\begin{code}
+type PatExprMap v = MExprMap (PatKeys, v)
+\end{code}
+Now the code writes itself. Here is |alterPM|:
+\begin{code}
+alterPM :: forall v. ([Var],Expr) -> TF v -> PatMap v -> PatMap v
+alterPM (pvars, e) tf pm = alterPatMTM pat ptf pm
+  where
+    pks :: PatKeys = canonPatKeys pvars e
+
+    pat :: PatExpr = P pks (A emptyDBE e)
+
+    ptf :: TF (PatKeys, v)
+    ptf Nothing         = fmap (\v -> (pks,v)) (tf Nothing)
+    ptf (Just (pks,v))  = fmap (\v -> (pks,v)) (tf (Just v))
+
+canonPatKeys :: [Var] -> Expr -> PatKeys
+\end{code}
+The auxiliary function |canonPatKeys| takes the client-side pattern |(pvars,e)|,
+and returns a |PatKeys| (\Cref{sec:patterns}) that maps each pattern variable its
+canonical de Bruijn index.  |canonPatKeys| is entirely staightforward: it simply
+walks the expression, numbering off the pattern variables in left-to-right order.
+
+Then we can simply call the internal |alterPatMTM| function,
+passing it: a canonical |pat :: PatExpr|; and 
+a transformer |ptf :: TF (PatKeys,v)| that will pair the |PatKeys| with
+the value supplied by the user via |tf :: TF v|.
+Lookup is equally easy:
+\begin{code}
+lookupPM  :: Expr -> PatExprMap v -> [(PatSubst, v)]
+lookupPM e pm
+  = [ (mk_pat_subst subst pks, x)
+    | (subst, (pks, x)) <-  runMatchExpr $
+                            lookupPatMTM (A emptyDBE e) pm ]
+  where
+    mk_pat_subst :: Subst -> PatKeys -> [(Var,Expr)]
+    mk_pat_subst subst pks
+      = [(v,e)  |  (v,pk) <- Map.toList pks
+                ,  Just e <- [Map.lookup pk subst] ]
+\end{code}
+We use |runMatchExpr| to get a list of successful matches, and then
+use |mk_pat_subst| to do the impedence matching, to turn an internal |Subst| into
+a client-side |PatSubst|.  The only tricky point is what to do with
+pattern variables that are not substituted. For example, suppose we insert
+the pattern |([p,q], f p)|. No lookup will bind |q|, because |q| simply
+does not appear in the pattern.   One could reject this on insertion, but
+here we simply return a |PatSubst| with no binding for |q|.
 
 % ---------------------------------------------------------
 \begin{comment}
-  
+
 \subsection{The API of a matching trie} \label{sec:match-api}
 
 Here are the signatures of the lookup and insertion\footnote{This time we begin with |insert|
@@ -1895,9 +1972,6 @@ well as the original exact matches in |rigid|.
 %   (\Cref{fig:library}) works for any monad, including bags.
 % \end{itemize}
 
-\end{comment}
-% ---------------------------------------------------------
-
 \subsection{Implementation: canonicalisation and impedance matching} \label{sec:patmap-impl}
 
 With the internals of the matching trie nailed down, we can turn our attention
@@ -1962,7 +2036,20 @@ than that, there is a lot of rejigging the items in |MatchResult| to undo the
 pattern keys and turning the map into an association list, as required by our
 |Match| interface.
 
-\section{Further developments}
+\end{comment}
+% ---------------------------------------------------------
+
+\subsection{Most specific match, and unification}
+
+It is tempting to ask: can we build a lookup that returns only the \emph{most specific}
+matches? And, can we build a lookup that returns all values whose patterns \emph{unify}
+with the target.  Both would have useful applications, in GHC at least.
+
+However, both seem difficult to achieve.  All our attempts became mired in complexity,n
+and we leave this for further work, and as a challenge for the reader.
+
+% -----------------------------------------------------------
+\begin{comment}
 
 \subsection{Most specific match} \label{sec:most-specific}
 
@@ -2070,6 +2157,10 @@ attractive at first, in the end it appears equally complicated to present.
 By contrast, for our most-specific matching problem it is relatively easy to
 return a set of \emph{candidates} that then be post-processed with a full
 unifier to see if the candidate does indeed unify with the target.
+
+\end{comment}
+% -----------------------------------------------------------
+
 
 \section{Evaluation} \label{sec:eval}
 
