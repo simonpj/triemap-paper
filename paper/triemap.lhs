@@ -79,6 +79,7 @@
 \usepackage{diagbox}
 \usepackage{csquotes}
 \usepackage{relsize}
+\usepackage{comment}  % 'comment' environment
 
 % \RequirePackage{xargs}
 
@@ -1227,6 +1228,7 @@ build a value of type |Expr'| and look that up in a trie keyed by |Expr'|;
 rather, we are going to \emph{behave as if we did}. Here is the code
 (which uses \Cref{fig:debruijn}):
 \begin{code}
+type BoundVarEnv = DeBruijnEnv
 data ModAlpha a = A DeBruijnEnv a deriving Functor
 type AlphaExpr = ModAlpha Expr
 instance Eq AlphaExpr where ...
@@ -1255,6 +1257,8 @@ lookupEM ae@(A dbe e) = case e of
 lookupClosedExpr :: Expr -> ExprMap v -> Maybe v
 lookupClosedExpr e = lookupEM (A emptyDBE e)
 \end{code}
+\simon{Urgh!  Do we *have* to say |(e1 <$ ae)| rather than |(A ae e1)|?
+  Doing so increases the cognitive burden on every reader -- and it even takes more space!}
 We maintain a |DeBruijnEnv| (cf.~\cref{fig:debruijn}) that
 maps each lambda-bound variable to its de-Bruijn level%
 \footnote{
@@ -1340,14 +1344,18 @@ to implement class or type-family look in GHC.
 In implementation terms, can characterise matching by the following type class:
 \begin{code}
 class (Eq (Pat k), MonadPlus (Match k)) => Matchable k where
-  type Pat   k :: Type
-  type Match k :: Type -> Type
+  type Pat    k :: Type
+  type Match  k :: Type -> Type
   match :: Pat k -> k -> Match k ()
 \end{code}
 For any key type |k|, the |match| function takes a pattern of type |Pat k|,
 and a key of type |k|, and returns a monadic match of type |Match k ()|, where
 |Pat| and |Match| are associated types of |k|.
-Matching can fail or can return many result, so |Match k| is a |MonadPlus|.
+Matching can fail or can return many result, so |Match k| is a |MonadPlus|:
+\begin{code}
+  mzero :: MonadPlus m => m a
+  mplus :: MonadPlus m => m a -> m a -> m a
+\end{code}
 
 To make this more concrete, here is a possible |Matchable| instance for |AlphaExpr|:
 \begin{code}
@@ -1355,7 +1363,13 @@ instance Matchable AlphaExpr where
   type Pat    AlphaExpr = PatE
   type Match  AlphaExpr = MatchE
   match = matchE
+\end{code}
+Let's look at the pieces, one at a time
 
+\subsubsection{Patterns}
+
+A pattern |PatE| over |AlphaExpr| can be defined like this:
+\begin{code}
 data PatE = P PatKeys AlphaExpr
 type PatKeys = Map PatVar PatKey
 type PatVar  = Var
@@ -1365,8 +1379,9 @@ A pattern |PatE| is a pair of an |AlphaExpr| and a |PatKeys| that maps
 each of the quantified pattern variables to a canonical de Bruijn |PatKey|.
 Just as in \Cref{sec:binders}, |PatKeys| make the pattern insensitive to
 the particular names, and order of quantification, of the pattern variables.
-We canonicalise the pattern before starting a lookup, numbering pattern
-variables in the order they appear in a left-to-right scan.  For example
+We canonicalise the quantified pattern variables before starting a lookup,
+numbering pattern variables in the order they appear in a left-to-right scan.
+For example
 $$
 \begin{array}{r@@{\hspace{5mm}}l}
 \text{Original pattern} & \text{Canonical |PatE|} \\
@@ -1374,6 +1389,9 @@ $$
 |([x,g], f (g x)|  &  |P [x =-> 2, g =-> 1] (f (g x))|
 \end{array}
 $$
+
+\subsubsection{The matching monad}
+
 There are many possible implementation of the |MatchE| monad, but here is one:
 \begin{code}
 newtype MatchE v = MR (StateT Subst [] v)
@@ -1382,12 +1400,16 @@ type Subst = Map PatKey Expr
 The |MatchE| type is isomorphic to |Subst -> [(v,Subst)]|;
 matching takes a substitution for pattern variables (more precisely, their
 canonical |PatKey|s), and yields a possibly-empty list of values paired
-with an extended substitution.
-The formulation in terms of |StateT|
-endows us with just the right |Monad| and |MonadPlus| instances, as well as
-favorable performance because of early failure on contradicting |match|es and
-the ability to share work done while matching a shared prefix of multiple
-patterns.
+with an extended substitution.  Notice that the substitution binds pattern keys
+to |Expr|, not |AlphaExpr|, because the pattern variables cannot mention lambda-bound
+variables within the target expression.
+
+The formulation in terms of |StateT| endows us with just the right
+|Monad| and |MonadPlus| instances, as well as favorable performance
+because of early failure on contradicting |match|es and the ability to
+share work done while matching a shared prefix of multiple patterns.
+
+\subsubsection{Matching summary}
 
 The implementation of |matchE| is entirely straightforward, and is
 given in the Appendix.
@@ -1398,7 +1420,7 @@ and its underlying monad.  There is ample room for flexiblity. For
 example, if the key terms had two kinds of variables (say type
 variables and term variables) we could easily define |Match| to carry
 two substitutions; or |Match| could return just the first result
-rather than all of them; and so on.
+rather than a list of all of them; and so on.
 
 \subsection{The matching trie class} \label{sec:matching-trie-class}
 
@@ -1412,9 +1434,10 @@ class Matchable (MTrieKey tm) => MTrieMap tm where
   alterPatMTM   :: Pat (MTrieKey tm) -> TF v -> tm v -> tm v
 \end{code}
 The lookup function takes a key of type |MTrieKey tm| as before, but
-it returns something in the |Match| monad.
-On the other hand |alterPatMTM| takes a \emph{pattern}, of type
-|Pat (MTrieKey tm)|, and alters the trie's value at that key.
+it returns something in the |Match| monad, rather than the |Maybe| monad.
+The |alterPatMTM| takes a \emph{pattern} (rather than just a key), of type
+|Pat (MTrieKey tm)|, and alters the trie's value at that pattern\footnote{
+Remember, a matching trie repesents a set of (pattern,value) pairs.}.
 
 We can generalise |SEMap| (\Cref{sec:singleton}) in a similar way:
 \begin{code}
@@ -1430,7 +1453,7 @@ instance MTrieMap tm => MTrieMap (MSEMap tm) where
 \end{code}
 Notice that |SingleMSEM| contains a \emph{pattern},
 not merely a \emph{key}, unlike |SingleSEM| in \Cref{sec:singleton}.
-The code for |lookupPatSEM| and |alterPatMSEM| is straightforward;
+The code for |lookupPatMSEM| and |alterPatMSEM| is straightforward;
 we give the former here, leaving the latter for the Appendix
 \begin{code}
 lookupPatMSEM :: MTrieMap tm  => MTrieKey tm -> MSEMap tm a
@@ -1442,6 +1465,108 @@ lookupPatMSEM k  (SingleMSEM pat v)  = match pat k >> pure v
 Notice the call to |mzero| to make the lookup fail if the map is empty; and, in the
 |SingleMSEM| case, the call |match| to match the pattern against the key.
 
+\subsection{Matching tries for |Expr|}
+
+Next, we show how to implement a matching triemap for |AlphaExpr|.
+The data type follows closely the pattern we develpoed for |ExprMap| (\Cref{sec:binders}):
+\begin{code}
+type MExprMap = MSEMap MExprMap'
+
+data MExprMap' v
+  = MM  {  mm_fvar  :: Map Var v        -- Free var
+        ,  mm_bvar  :: Map BoundKey v   -- Bound var
+        ,  mm_pvar  :: Map PatKey v     -- Pattern var
+        ,  mm_app   :: MExprMap (MExprMap v)
+        ,  mm_lam   :: MExprMap v }
+
+instance MTrieMap MExprMap' where
+  type MTrieKey MExprMap' = AlphaExpr
+  emptyMTM      = ... -- boring
+  lookupPatMTM  = lookupPatMM
+  alterPatMTM   = alterPatMM
+\end{code}
+The main difference is that we add an extra field |mm_pvar| to |MExprMap'|,
+for occurrences of a pattern variable.  You can see how this field is used
+in the lookup code:
+\begin{code}
+lookupPatMM :: forall v. AlphaExpr -> MExprMap' v -> MatchE v
+lookupPatMM ae@(A bve e) (MM { .. })
+  = flex `mplus` rigid
+  where
+    rigid = case e of
+      Var x      -> case lookupDBE x bve of
+        Just bv  -> mm_bvar  |> liftMaybe . Map.lookup bv
+        Nothing  -> mm_fvar  |> liftMaybe . Map.lookup x
+      App e1 e2  -> mm_app  |>   lookupPatMTM (e1 <$ ae)
+                            >=>  lookupPatMTM (e2 <$ ae)
+      Lam x e    -> mm_lam  |>    lookupPatMTM (A (extendDBE x bve) e)
+
+    flex = mm_pvar |> IntMap.toList |> map match_one |> msum
+
+    match_one :: (PatVar,v) -> MatchE v
+    match_one (pv, v) = matchPatVarE pv ae >> pure v
+\end{code}
+Matching lookup on a trie matches the target
+expression against \emph{all patterns the trie represents}.
+The |rigid| case is no different from exact lookup; compare the
+code for |lookupEM| in \Cref{sec:binders}.  The only difference is that we need
+\begin{code}
+  liftMaybe :: Maybe v -> MatchE v
+\end{code}
+to take the |Maybe| returned by |Map.lookup| and lift it into the |MatchE| monad.
+Its implementation is routine, and is given in the Appendix.
+
+The |flex| case handles the triemap entries whose pattern is simply one of
+the quantified pattern variables; these entries are stored in the new |mm_pvar| field.
+We enumerate these entries with |toList|, to get a list of |(PatVar,v)| pairs,
+match each such pair against the target with |match_one|, and finally accumulate
+all the results with |msum|.  In turn |match_one| uses |matchParVarE| to match
+the pattern variable with the target and, if successful, returns corresponding
+value |v|.
+
+The |matchPatVarE| function does the heavy lifting, using some
+simple auxiliary functions whose type are given below:
+\begin{code}
+matchPatVarE :: PatKey -> AlphaExpr -> MatchE ()
+matchPatVarE pv (A bve e) = refine $ \ms ->
+  case lookupSubst pv ms of
+    Nothing   -- pv is not bound
+      | noCaptured bve e  -> Just (extendSubst pv e ms)
+      | otherwise         -> Nothing
+    Just sol  -- pv is already bound
+      | noCaptured bve e
+      , eqExpr e sol      -> Just ms
+      | otherwise         -> Nothing
+
+refine      :: (Subst -> Maybe Subst) -> MatchE ()
+eqExpr      :: Expr -> Expr -> Bool
+noCaptured  :: DeBruijnEnv -> Expr -> Bool
+lookupSubst :: PatVar -> Subst -> Maybe Expr
+extendSubst :: PatVar -> Expr -> Subst -> Subst
+\end{code}
+To match a pattern variable |pv| against an expression |(A bve e)|,
+we first look up |pv| in the current substitution (obtained from the
+|MatchE| state monad.  If |pv| is not bound we simply extend the
+substitution.
+
+But wait!  Consider matching the pattern |([p], \x -> p)|
+against the target |(\y -> 3)|.  That's fine: we should succeed, binding
+|a| to |3|.  But suppose we match that same pattern against target |(\y -> y)|.
+It would be nonsense to ``succeed'' binding |a| to |y|, because |y| is
+locally bound within the target.  Hence the |noCaptured| test, which
+returns |True| iff the expression does not mention any of the locally-bound
+variables.
+
+If |pv| is already bound in the substitution, we have a repeated pattern
+variable (see \Cref{sec:matching-spec}), and we must check that
+the target expression is equal (using |eqExpr|) to the the one already bound to |pv|.
+Once again, however, we must check that the target does not contain any locally-bound
+variables, hence the |noCaptured| check.
+
+
+% ---------------------------------------------------------
+\begin{comment}
+  
 \subsection{The API of a matching trie} \label{sec:match-api}
 
 Here are the signatures of the lookup and insertion\footnote{This time we begin with |insert|
@@ -1738,6 +1863,7 @@ lookupPatMM ae@(A bve e) (MM { .. })
 %      App e1 e2  -> mm_app   |> lookupPatMTM (e1 <$ ae) >=> lookupPatMTM (e2 <$ ae)
 %      Lam x e    -> mm_lam   |> lookupPatMTM (A (extendDBE x bve) e)
 \end{code}
+\simon{Can we please use |mplus|?}
 Where |match| would consider matching the target expression against \emph{one}
 pattern, matching lookup on a trie has to consider matching the target
 expression against \emph{all patterns the trie represents}.
@@ -1768,6 +1894,9 @@ well as the original exact matches in |rigid|.
 %   \emph{bag} of results, but happily the Kleisli composition operator |(>=>)|
 %   (\Cref{fig:library}) works for any monad, including bags.
 % \end{itemize}
+
+\end{comment}
+% ---------------------------------------------------------
 
 \subsection{Implementation: canonicalisation and impedance matching} \label{sec:patmap-impl}
 
