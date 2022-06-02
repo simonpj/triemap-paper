@@ -220,6 +220,12 @@
 %format alterSEM = atSEM
 %format alterMSEM = atMSEM
 %format DeBruijnEnv = DBEnv
+%format TrieKey = Key
+%format MTrieKey = MKey
+%format lookupPatMTM = lkMTM
+%format alterPatMTM = atMTM
+%format lookupPatMSEM = lkMSEM
+%format alterPatMSEM = atMSEM
 %format e1
 %format e2
 %format m1
@@ -1083,7 +1089,7 @@ data ExprMap v  = EmptyEM
                 | SingleEM Expr v   -- A single key/value pair
                 | EM { em_var :: ..., em_app :: ... }
 \end{code}
-But in the triemap for for each new data type |X|,
+oBut in the triemap for for each new data type |X|,
 we will have to tiresomely repeat these extra data constructors, |EmptyX| and |SingleX|.
 For example we would have to add |EmptyList| and |SingleList| to the |ListMap| data type
 of \Cref{sec:class}.
@@ -1331,6 +1337,110 @@ to implement class or type-family look in GHC.
 %but not $(f~ 1~ (g~ v))$.  This ability is important if we are to use matching tries
 %to implement class or type-family look in GHC.
 
+In implementation terms, can characterise matching by the following type class:
+\begin{code}
+class (Eq (Pat k), MonadPlus (Match k)) => Matchable k where
+  type Pat   k :: Type
+  type Match k :: Type -> Type
+  match :: Pat k -> k -> Match k ()
+\end{code}
+For any key type |k|, the |match| function takes a pattern of type |Pat k|,
+and a key of type |k|, and returns a monadic match of type |Match k ()|, where
+|Pat| and |Match| are associated types of |k|.
+Matching can fail or can return many result, so |Match k| is a |MonadPlus|.
+
+To make this more concrete, here is a possible |Matchable| instance for |AlphaExpr|:
+\begin{code}
+instance Matchable AlphaExpr where
+  type Pat    AlphaExpr = PatE
+  type Match  AlphaExpr = MatchE
+  match = matchE
+
+data PatE = P PatKeys AlphaExpr
+type PatKeys = Map PatVar PatKey
+type PatVar  = Var
+type PatKey  = DBNum
+\end{code}
+A pattern |PatE| is a pair of an |AlphaExpr| and a |PatKeys| that maps
+each of the quantified pattern variables to a canonical de Bruijn |PatKey|.
+Just as in \Cref{sec:binders}, |PatKeys| make the pattern insensitive to
+the particular names, and order of quantification, of the pattern variables.
+We canonicalise the pattern before starting a lookup, numbering pattern
+variables in the order they appear in a left-to-right scan.  For example
+$$
+\begin{array}{r@@{\hspace{5mm}}l}
+\text{Original pattern} & \text{Canonical |PatE|} \\
+|([a,b], f a b a)|  &  |P [a =-> 1, b =-> 2] (f a b a)|\\
+|([x,g], f (g x)|  &  |P [x =-> 2, g =-> 1] (f (g x))|
+\end{array}
+$$
+There are many possible implementation of the |MatchE| monad, but here is one:
+\begin{code}
+newtype MatchE v = MR (StateT Subst [] v)
+type Subst = Map PatKey Expr
+\end{code}
+The |MatchE| type is isomorphic to |Subst -> [(v,Subst)]|;
+matching takes a substitution for pattern variables (more precisely, their
+canonical |PatKey|s), and yields a possibly-empty list of values paired
+with an extended substitution.
+The formulation in terms of |StateT|
+endows us with just the right |Monad| and |MonadPlus| instances, as well as
+favorable performance because of early failure on contradicting |match|es and
+the ability to share work done while matching a shared prefix of multiple
+patterns.
+
+The implementation of |matchE| is entirely straightforward, and is
+given in the Appendix.
+
+The key point is this: nothing in this section is concerned with
+tries.  Here we are simply concerned with the mechanics of matching,
+and its underlying monad.  There is ample room for flexiblity. For
+example, if the key terms had two kinds of variables (say type
+variables and term variables) we could easily define |Match| to carry
+two substitutions; or |Match| could return just the first result
+rather than all of them; and so on.
+
+\subsection{The matching trie class} \label{sec:matching-trie-class}
+
+The core of our matching trie is the class |MTrieMap|, which is
+generalises the |TrieMap| class of \Cref{sec:class}:
+\begin{code}
+class Matchable (MTrieKey tm) => MTrieMap tm where
+  type MTrieKey tm  :: Type
+  emptyMTM      :: tm v
+  lookupPatMTM  :: MTrieKey tm -> tm v -> Match (MTrieKey tm) v
+  alterPatMTM   :: Pat (MTrieKey tm) -> TF v -> tm v -> tm v
+\end{code}
+The lookup function takes a key of type |MTrieKey tm| as before, but
+it returns something in the |Match| monad.
+On the other hand |alterPatMTM| takes a \emph{pattern}, of type
+|Pat (MTrieKey tm)|, and alters the trie's value at that key.
+
+We can generalise |SEMap| (\Cref{sec:singleton}) in a similar way:
+\begin{code}
+data MSEMap tm v  = EmptyMSEM
+                  | SingleMSEM (Pat (MTrieKey tm)) v
+                  | MultiMSEM  (tm v)
+
+instance MTrieMap tm => MTrieMap (MSEMap tm) where
+  type MTrieKey (MSEMap tm) = MTrieKey tm
+  emptyMTM      = EmptyMSEM
+  lookupPatMTM  = lookupPatMSEM
+  alterPatMTM   = alterPatMSEM
+\end{code}
+Notice that |SingleMSEM| contains a \emph{pattern},
+not merely a \emph{key}, unlike |SingleSEM| in \Cref{sec:singleton}.
+The code for |lookupPatSEM| and |alterPatMSEM| is straightforward;
+we give the former here, leaving the latter for the Appendix
+\begin{code}
+lookupPatMSEM :: MTrieMap tm  => MTrieKey tm -> MSEMap tm a
+                              -> Match (MTrieKey tm) a
+lookupPatMSEM k  EmptyMSEM           = mzero
+lookupPatMSEM k  (MultiMSEM m)       = lookupPatMTM k m
+lookupPatMSEM k  (SingleMSEM pat v)  = match pat k >> pure v
+\end{code}
+Notice the call to |mzero| to make the lookup fail if the map is empty; and, in the
+|SingleMSEM| case, the call |match| to match the pattern against the key.
 
 \subsection{The API of a matching trie} \label{sec:match-api}
 
