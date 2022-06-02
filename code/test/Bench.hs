@@ -201,7 +201,7 @@ criterion =
       bench "" $ nf (\e' -> lookupMap e' (insertMap e' (n+1) expr_map)) e
 
     rnd_lookup_lam :: Benchmark
-    rnd_lookup_lam = bench_diag_variants "lookup_lam" criterionDiagSizes $ \(_ :: em) n m ->
+    rnd_lookup_lam = bench_all_variants "lookup_lam" criterionAllSizes criterionAllSizes $ \(_ :: em) n m ->
       env (pure (mkNExprsWithPrefix n m (Lam "$"))) $ \exprs ->
       env (pure ((mapFromList $ zip exprs [0..]) :: em)) $ \(expr_map :: em) ->
       bench "" $ nf (map (`lookupMap` expr_map)) exprs
