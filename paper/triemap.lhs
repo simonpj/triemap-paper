@@ -1392,7 +1392,7 @@ $$
 
 There are many possible implementation of the |MatchExpr| monad, but here is one:
 \begin{code}
-newtype MatchExpr v = MR (StateT Subst [] v)
+type MatchExpr v = MR (StateT Subst [] v)
 type Subst = Map PatKey Expr
 \end{code}
 The |MatchExpr| type is isomorphic to |Subst -> [(v,Subst)]|;
@@ -1577,14 +1577,14 @@ The matching tries we have described so far use canonical pattern keys,
 a matching monad, and other machinery that should be hidden from the client.
 We seek an external API more like this:
 \begin{code}
-type PatExprMap :: Type -> Type
-alterPM   :: ([Var], Expr) -> TF v -> PatExprMap v -> PatExprMap v
-lookupPM  :: Expr -> PatExprMap v -> [(PatSubst, v)]
+type PatMap :: Type -> Type
+alterPM   :: ([Var], Expr) -> TF v -> PatMap v -> PatMap v
+lookupPM  :: Expr -> PatMap v -> [(PatSubst, v)]
 type PatSubst = [(Var,Expr)]
 \end{code}
-When altering a |PatExprMap| we supply a client-side pattern, which is
+When altering a |PatMap| we supply a client-side pattern, which is
 just a pair |([Var],Expr)| of the quantified pattern variables and the pattern.
-When looking up in a |PatExprMap| we supply a target expression, and get back
+When looking up in a |PatMap| we supply a target expression, and get back
 a list of matches, each of which is a pair of the value and the substitution
 for those original pattern variables that made the pattern equal to the target.
 
@@ -1606,7 +1606,7 @@ the internal index 1.
 The solution is simple enough: \emph{we store the mapping in the triemap's domain},
 along with the values, thus:
 \begin{code}
-type PatExprMap v = MExprMap (PatKeys, v)
+type PatMap v = MExprMap (PatKeys, v)
 \end{code}
 Now the code writes itself. Here is |alterPM|:
 \begin{code}
@@ -1635,7 +1635,7 @@ a transformer |ptf :: TF (PatKeys,v)| that will pair the |PatKeys| with
 the value supplied by the user via |tf :: TF v|.
 Lookup is equally easy:
 \begin{code}
-lookupPM  :: Expr -> PatExprMap v -> [(PatSubst, v)]
+lookupPM  :: Expr -> PatMap v -> [(PatSubst, v)]
 lookupPM e pm
   = [ (Map.toList (subst `Map.compose` pks), x)
     | (subst, (pks, x)) <-  runMatchExpr $

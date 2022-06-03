@@ -119,8 +119,8 @@ lookupBoundVarOcc = IntMap.lookup
 foldrBVM :: (v -> a -> a) -> BoundKeyMap v -> a -> a
 foldrBVM k m z = foldr k z m
 
-alterBoundVarOcc :: BoundKey -> TF a -> BoundKeyMap a -> BoundKeyMap a
-alterBoundVarOcc v tf = IntMap.alter tf v
+alterBoundKeyOcc :: BoundKey -> TF a -> BoundKeyMap a -> BoundKeyMap a
+alterBoundKeyOcc v tf = IntMap.alter tf v
 
 -- | @ModAlpha a@ represents @a@ modulo alpha-renaming.  This is achieved
 -- by equipping the value with a 'DeBruijnEnv', which tracks an on-the-fly deBruijn
@@ -230,19 +230,12 @@ alterFreeVarOcc v tf = Map.alter tf v
 
 type PatKey    = DBNum
 type PatKeyMap = IntMap
-type PatSubst  = PatKeyMap AlphaExpr -- Maps PatKey :-> AlphaExpr
 
 emptyPVM :: PatKeyMap a
 emptyPVM = IntMap.empty
 
-lookupPatSubst :: PatKey -> PatSubst -> AlphaExpr
-lookupPatSubst key subst
-  = case IntMap.lookup key subst of
-      Just e  -> e
-      Nothing -> error ("lookupPatSubst " ++ show key)
-
-alterPatVarOcc :: PatKey -> TF a -> PatKeyMap a -> PatKeyMap a
-alterPatVarOcc v tf tm = IntMap.alter tf v tm
+alterPatKeyOcc :: PatKey -> TF a -> PatKeyMap a -> PatKeyMap a
+alterPatKeyOcc v tf tm = IntMap.alter tf v tm
 
 foldrPVM :: (v -> a -> a) -> PatKeyMap v -> a -> a
 foldrPVM f m a = foldr f a m
@@ -528,7 +521,7 @@ lookupEM ae@(A bve e) (EM { .. }) = case e of
 alterEM :: AlphaExpr -> TF v -> ExprMap' v -> ExprMap' v
 alterEM ae@(A bve e) tf m@(EM {..}) = case e of
   Var x -> case lookupDBE x bve of
-    Just bv -> m { em_bvar = alterBoundVarOcc bv tf em_bvar }
+    Just bv -> m { em_bvar = alterBoundKeyOcc bv tf em_bvar }
     Nothing -> m { em_fvar = alterFreeVarOcc  x  tf em_fvar }
   App e1 e2 -> m { em_app = em_app |> alterTM (e1 <$ ae) |>> alterTM (e2 <$ ae) tf }
   Lam x e   -> m { em_lam = em_lam |> alterTM (A (extendDBE x bve) e) tf }
@@ -636,32 +629,19 @@ class (Eq (Pat e), MonadPlus (Match e)) => Matchable e where
 *                                                                      *
 ********************************************************************* -}
 
--- | '(<$)' through two functors
-(<$$) :: (Functor f, Functor g) => b -> f (g a) -> f (g b)
-b <$$ fga = (b <$) <$> fga
+data PatExpr = P !PatKeys !AlphaExpr
 
-data PatE a = P !PatKeys !a
-  deriving Functor
+-- | '(<$$)' through 'PatExpr'
+(<$$) :: Expr -> PatExpr -> PatExpr
+b <$$ (P pks ae) = P pks (b <$ ae)
 
-instance Show e => Show (PatE e) where
+instance Show PatExpr where
   show (P _ e) = show e
 
-
-{- *********************************************************************
-*                                                                      *
-                  Expressions are matchable
-*                                                                      *
-********************************************************************* -}
-
-instance Matchable AlphaExpr where
-  type Pat   AlphaExpr = PatE   AlphaExpr
-  type Match AlphaExpr = MatchE AlphaExpr
-  match = matchE
-
-instance Eq (PatE AlphaExpr) where
+instance Eq PatExpr where
   (==) = eqPatExpr
 
-eqPatExpr :: Pat AlphaExpr -> Pat AlphaExpr -> Bool
+eqPatExpr :: PatExpr -> PatExpr -> Bool
 eqPatExpr v1@(P _ (A _ (App s1 t1))) v2@(P _ (A _ (App s2 t2)))
   = eqPatExpr (s1 <$$ v1) (s2 <$$ v2) &&
     eqPatExpr (t1 <$$ v1) (t2 <$$ v2)
@@ -675,14 +655,24 @@ eqPatExpr (P pks1 (A bve1 (Lam v1 e1))) (P pks2 (A bve2 (Lam v2 e2)))
 
 eqPatExpr _ _ = False
 
-traceWith f x = trace (f x) x
 
-matchE :: Pat AlphaExpr -> AlphaExpr -> MatchE AlphaExpr ()
+{- *********************************************************************
+*                                                                      *
+                  Expressions are matchable
+*                                                                      *
+********************************************************************* -}
+
+instance Matchable AlphaExpr where
+  type Pat   AlphaExpr = PatExpr
+  type Match AlphaExpr = MatchExpr
+  match = matchE
+
+matchE :: PatExpr -> AlphaExpr -> MatchExpr ()
 matchE pat@(P pks (A bve_pat e_pat)) tar@(A bve_tar e_tar) =
   -- traceWith (\res -> show ms ++ "  ->  matchE " ++ show pat ++ "   " ++ show tar ++ "  -> " ++ show res) $
   case (e_pat, e_tar) of
   (Var v, _) -> case canonOcc pks bve_pat v of
-    Pat pv -> equateE pv tar
+    Pat pv -> matchPatVarE pv tar
     occ | Var v2 <- e_tar
         , occ == canonOcc emptyPatKeys bve_tar v2
         -> return ()
@@ -692,49 +682,46 @@ matchE pat@(P pks (A bve_pat e_pat)) tar@(A bve_tar e_tar) =
                                   (A (extendDBE b2 bve_tar) e2)
   (_, _) -> mzero
 
-equateE :: PatKey -> AlphaExpr -> MatchE AlphaExpr ()
-equateE pv (A bve e) = refine $ \ms ->
+matchPatVarE :: PatKey -> AlphaExpr -> MatchExpr ()
+matchPatVarE pv (A bve e) = refineMatch $ \ms ->
   case hasMatch pv ms of
-  Just (A _ sol)
-    | eqClosedExpr e sol
-    , noCaptured bve e    -> Just ms
-    | otherwise           -> Nothing
-  Nothing
-    | noCaptured bve e    -> Just (addMatch pv (A emptyDBE e) ms)
-    | otherwise           -> Nothing
+    Nothing
+      | noCaptured bve e    -> Just (addMatch pv e ms)
+      | otherwise           -> Nothing
+    Just sol
+      | eqClosedExpr e sol
+      , noCaptured bve e    -> Just ms
+      | otherwise           -> Nothing
 
 {- *********************************************************************
 *                                                                      *
-                  MatchE monad
+                  MatchExpr monad
 *                                                                      *
 ********************************************************************* -}
 
-type MatchState e = PatKeyMap e
-
-newtype MatchE e a = MR (StateT (MatchState e) [] a)
+newtype MatchExpr a = MR (StateT Subst [] a)
   deriving (Functor, Applicative, Monad, Alternative, MonadPlus)
 
-emptyMS :: MatchState e
-emptyMS = emptyPVM
+type Subst = PatKeyMap Expr
 
-hasMatch :: PatKey -> MatchState e -> Maybe e
+hasMatch :: PatKey -> Subst -> Maybe Expr
 hasMatch pv subst = IntMap.lookup pv subst
 
-addMatch :: PatKey -> e -> MatchState e -> MatchState e
+addMatch :: PatKey -> Expr -> Subst -> Subst
 addMatch pv e ms = IntMap.insert pv e ms
 
-liftMaybe :: Maybe a -> MatchE e a
+liftMaybe :: Maybe a -> MatchExpr a
 liftMaybe ma = MR $ StateT $ \ms -> case ma of
   Just a  -> [(a, ms)]
   Nothing -> []
 
-refine :: (MatchState e -> Maybe (MatchState e)) -> MatchE e ()
-refine f = MR $ StateT $ \ms -> case f ms of
+refineMatch :: (Subst -> Maybe Subst) -> MatchExpr ()
+refineMatch f = MR $ StateT $ \ms -> case f ms of
   Just ms' -> [((), ms')]
   Nothing  -> []
 
-runMatchE :: MatchE e v -> [(PatKeyMap e, v)]
-runMatchE (MR f) = swap <$> runStateT f emptyMS
+runMatchExpr :: MatchExpr v -> [(Subst, v)]
+runMatchExpr (MR f) = swap <$> runStateT f emptyPVM
 
 
 {- *********************************************************************
@@ -814,13 +801,10 @@ mkEmptyMExprMap
        , mm_app  = emptyMTM
        , mm_lam  = emptyMTM }
 
-lookupPatMM :: AlphaExpr -> MExprMap' a -> MatchE AlphaExpr a
+lookupPatMM :: AlphaExpr -> MExprMap' a -> MatchExpr a
 lookupPatMM ae@(A bve e) (MM { .. })
-  = flex <|> rigid
+  = rigid `mplus` flexi
   where
-    flex = mm_pvar |> IntMap.toList |> map match_one |> msum
-    match_one (pv, x) = equateE pv ae >> pure x
-
     rigid = case e of
       Var x     -> case lookupDBE x bve of
         Just bv -> mm_bvar |> liftMaybe . lookupBoundVarOcc bv
@@ -829,11 +813,15 @@ lookupPatMM ae@(A bve e) (MM { .. })
                            >=> lookupPatMTM (e2 <$ ae)
       Lam x e   -> mm_lam  |> lookupPatMTM (A (extendDBE x bve) e)
 
-alterPatMM :: PatE AlphaExpr -> TF a -> MExprMap' a -> MExprMap' a
+    flexi = mm_pvar |> IntMap.toList |> map match_one |> msum
+    match_one (pv, x) = matchPatVarE pv ae >> pure x
+
+
+alterPatMM :: PatExpr -> TF a -> MExprMap' a -> MExprMap' a
 alterPatMM pat@(P pks (A bve e)) tf m@(MM {..}) = case e of
   Var x -> case canonOcc pks bve x of
-    Pat pv   -> m { mm_pvar = alterPatVarOcc   pv tf mm_pvar }
-    Bound bv -> m { mm_bvar = alterBoundVarOcc bv tf mm_bvar }
+    Pat pv   -> m { mm_pvar = alterPatKeyOcc   pv tf mm_pvar }
+    Bound bv -> m { mm_bvar = alterBoundKeyOcc bv tf mm_bvar }
     Free fv  -> m { mm_fvar = alterFreeVarOcc  fv tf mm_fvar }
   App e1 e2  -> m { mm_app  = mm_app |> alterPatMTM (e1 <$$ pat) |>>> alterPatMTM (e2 <$$ pat) tf }
   Lam x e    -> m { mm_lam  = mm_lam |> alterPatMTM (P pks (A (extendDBE x bve) e)) tf }
@@ -865,30 +853,28 @@ foldrMM f z m = sem f z m
 *                                                                      *
 ********************************************************************* -}
 
-type PatExpr  = ([PatVar], Expr)
-type PatMatch v  = ([(PatVar, Expr)], v)
+type PatSubst = [(PatVar, Expr)]
 type PatMap v = MExprMap (PatKeys, v)
 type PatSet   = PatMap Expr
 
 emptyPatMap :: PatMap v
 emptyPatMap = emptyMTM
 
-insertPM :: PatExpr -> v -> PatMap v -> PatMap v
+insertPM :: ([PatVar], Expr) -> v -> PatMap v -> PatMap v
 insertPM (pvars, e) x pm = alterPatMTM pat (\_ -> Just (pks, x)) pm
   where
     pks = canonPatKeys (Set.fromList pvars) e
     pat = P pks (deBruijnize e)
 
-matchPM :: Expr -> PatMap v -> [PatMatch v]
+matchPM :: Expr -> PatMap v -> [(PatSubst, v)]
 matchPM e pm
-  = [ (map (lookup subst) (Map.toList env), x)
-    | (subst, (env, x)) <- runMatchE $ lookupPatMTM (deBruijnize e) pm ]
-  where
-    lookup :: PatSubst -> (Var, PatKey) -> (Var, Expr)
-    lookup subst (v, pv) = (v, e)
-      where A _ e = lookupPatSubst pv subst
+  = [ (Map.toList (subst `composeMaps` pks), x)
+    | (subst, (pks, x)) <- runMatchExpr $ lookupPatMTM (deBruijnize e) pm ]
 
-deletePM :: PatExpr -> PatMap v -> PatMap v
+composeMaps :: IntMap c -> Map a Int -> Map a c
+composeMaps f g = Map.mapMaybe (`IntMap.lookup` f) g
+
+deletePM :: ([PatVar], Expr) -> PatMap v -> PatMap v
 deletePM (pvars, e) pm = alterPatMTM pat (\_ -> Nothing) pm
   where
     pks = canonPatKeys (Set.fromList pvars) e
@@ -1145,7 +1131,7 @@ instance Pretty DeBruijnEnv where
 instance (Pretty a) => Pretty (ModAlpha a) where
   ppr (A bv a) = text "A" PP.<> braces (sep [ppr bv, ppr a])
 
-instance (Pretty a) => Pretty (PatE a) where
+instance Pretty PatExpr where
   ppr (P pv a) = text "P" PP.<> braces (sep [ppr pv, ppr a])
 
 instance (Pretty v, Pretty (tm v), Pretty (TrieKey tm))
@@ -1174,3 +1160,6 @@ instance Pretty a => Pretty (MExprMap' a) where
                     , text "mm_fvar =" <+> ppr mm_fvar
                     , text "mm_app ="  <+> ppr mm_app
                     , text "mm_lam ="  <+> ppr mm_lam ])
+
+traceWith f x = trace (f x) x
+
