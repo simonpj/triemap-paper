@@ -236,6 +236,10 @@
 %format z1
 %format v1
 %format v2
+%format var1
+%format var2
+%format app1
+%format app2
 %endif
 
 %if style == newcode
@@ -448,11 +452,11 @@ We might hope that the compiler will recognise the repeated sub-expression
 \end{code}
 An easy way to do so is to build a finite map that maps the expression |(a+b)| to |x|.
 Then, when encountering the inner |let|, we can look up the right hand side in the map,
-get a hit, and replace |y| by |x|.  All we need is a finite map in keyed by syntax trees.
+get a hit, and replace |y| by |x|.  All we need is a finite map keyed by syntax trees.
 
 Traditional finite-map implementations tend to do badly in such applications, because
 they are often based on balanced trees, and make the assumption that comparing two keys is
-a fast, constant-time operation.  That assumption is false for tree-structured keys.
+a fast, constant-time operation.  That assumption is false for large, tree-structured keys.
 
 Another time that a compiler may want to look up a tree-structured key is
 when rewriting expressions: it wants to see if any rewrite rule matches the
@@ -533,6 +537,7 @@ checktype(Map.map        :: (v -> w) -> Map k v -> Map k w)
 checktype(Map.unionWith  ::  Ord k  => (v->v->v)
                              -> Map k v -> Map k v -> Map k v)
 checktype(Map.size       :: Map k v -> Int)
+checktype(Map.compose    ::  Ord b  => Map b c -> Map a b -> Map a c)
 
 infixr 1 >=>          -- Kleisli composition
 (>=>) :: Monad m  => (a -> m b) -> (b -> m c)
@@ -716,7 +721,7 @@ deleteEM e = alterEM e (\_ -> Nothing)
 You might wonder whether, for the purposes of this paper, we could just define |insert|,
 leaving |alterEM| for the Appendix%
 \footnote{In the supplemental file \texttt{TrieMap.hs}},
-but as we will see in \Cref{sec:alter}, our approach using tries fundamentally
+but as we will see in \Cref{sec:alter}, our approach using tries
 requires the generality of |alterEM|.
 
 
@@ -768,9 +773,9 @@ keyed by |Var|, with values |v|.
 One way to understand this slightly odd data type is to study its lookup function:
 \begin{code}
 lookupEM :: Expr -> ExprMap v -> Maybe v
-lookupEM e (EM { em_var = m_var, em_app = m_app }) = case e of
-  Var x      -> Map.lookup x m_var
-  App e1 e2  ->  case lookupEM e1 m_app of
+lookupEM e (EM { em_var = var, em_app = app }) = case e of
+  Var x      -> Map.lookup x var
+  App e1 e2  ->  case lookupEM e1 app of
      Nothing  -> Nothing
      Just m1  -> lookupEM e2 m1
 \end{code}
@@ -840,9 +845,9 @@ definition in \Cref{sec:empty}, but it works perfectly well for now.
 Next, we need to |alter| a triemap:
 \begin{code}
 alterEM :: Expr -> TF v -> ExprMap v -> ExprMap v
-alterEM e tf m@(EM { em_var = m_var, em_app = m_app }) = case e of
-  Var x      -> m { em_var  = Map.alter tf x m_var }
-  App e1 e2  -> m { em_app  = alterEM e1 (liftTF (alterEM e2 tf)) m_app }
+alterEM e tf m@(EM { em_var = var, em_app = app }) = case e of
+  Var x      -> m { em_var  = Map.alter tf x var }
+  App e1 e2  -> m { em_app  = alterEM e1 (liftTF (alterEM e2 tf)) app }
 
 liftTF :: (ExprMap v -> ExprMap v) -> TF (ExprMap v)
 liftTF f Nothing    = Just (f emptyEM)
@@ -853,13 +858,13 @@ In the |Var| case, we must just update the map stored in the |em_var| field,
 using the |Map.alter| function from \Cref{fig:containers}.
 % in Haskell the notation ``|m { fld = e }|'' means the result
 % of updating the |fld| field of record |m| with new value |e|.
-In the |App| case we look up |e1| in |m_app|;
+In the |App| case we look up |e1| in |app|;
 we should find a |ExprMap| there, which we want to alter with |tf|.
 We can do that with a recursive call to |alterEM|, using |liftTF|
 for impedance-matching.
 
 The |App| case shows why we need the generality of |alter|.
-Suppose we attempted to define an apparently-simpler |insert| operations.
+Suppose we attempted to define an apparently-simpler |insert| operation.
 Its equation for |(App e1 e2)| would look up |e1| --- and would then
 need to \emph{alter} that entry (an |ExprMap|, remember) with the result of
 inserting |(e2,v)|.  So we are forced to define |alter| anyway.
@@ -885,16 +890,17 @@ their structure is identical, and we can simply zip them together.  There is one
 wrinkle: just as we had to generalise |insert| to |alter|,
 to accommodate the nested map in |em_app|, so we need to generalise |union| to |unionWith|:
 \begin{code}
-unionWithEM :: (v -> v -> v) -> ExprMap v -> ExprMap v -> ExprMap v
+unionWithEM  ::  (v -> v -> v)
+             ->  ExprMap v -> ExprMap v -> ExprMap v
 \end{code}
 When a key appears on both maps, the combining function is used to
 combine the two corresponding values.
 With that generalisation, the code is as follows:
 \begin{code}
-unionWithEM f  (EM { em_var = m1_var, em_app = m1_app })
-                 (EM { em_var = m2_var, em_app = m2_app })
-  = EM  { em_var = Map.unionWith f m1_var m2_var
-        , em_app = unionWithEM (unionWithEM f) m1_app m2_app }
+unionWithEM f  (EM { em_var = var1, em_app = app1 })
+               (EM { em_var = var2, em_app = app2 })
+  = EM  { em_var = Map.unionWith f var1 var2
+        , em_app = unionWithEM (unionWithEM f) app1 app2 }
 \end{code}
 It could hardly be simpler.
 
@@ -911,28 +917,28 @@ this is the function |Map.size| (\Cref{fig:containers}).  We might attempt:
 %endif
 \begin{code}
 sizeEM :: ExprMap v -> Int
-sizeEM (EM { em_var = m_var, em_app = m_app })
-  = Map.size m_var + undefined
+sizeEM (EM { em_var = var, em_app = app })
+  = Map.size var + undefined
 \end{code}
 %}
-We seem stuck because the size of the |m_app| map is not what we want: rather,
+We seem stuck because the size of the |app| map is not what we want: rather,
 we want to add up the sizes of its \emph{elements}, and we don't have a way to do that yet.
 The right thing to do is to generalise to a fold:
 \begin{code}
 foldrEM :: forall v. (v -> r -> r) -> r -> ExprMap v -> r
-foldrEM k z (EM { em_var = m_var, em_app = m_app })
-  = Map.foldr k z1 m_var
+foldrEM k z (EM { em_var = var, em_app = app })
+  = Map.foldr k z1 var
   where
-    z1 = foldrEM kapp z (m_app :: ExprMap (ExprMap v))
+    z1 = foldrEM kapp z (app :: ExprMap (ExprMap v))
     kapp m1 r = foldrEM k r m1
 \end{code}
 %}
-In the binding for |z1| we fold over |m_app|, using
+In the binding for |z1| we fold over |app|, using
 |kapp| to combine the map we find with the accumulator, by again
 folding over the map with |foldrEM|.
 
 But alas, |foldrEM| will never terminate!  It always invokes itself immediately
-(in |z1|) on |m_app|; but that invocation will again recursively invoke
+(in |z1|) on |app|; but that invocation will again recursively invoke
 |foldrEM|; and so on forever.
 The solution is simple: we just need an explicit representation of the empty map.
 Here is one way to do it (we will see another in \Cref{sec:singleton}):
@@ -952,10 +958,10 @@ emptyEM = EmptyEM
 
 foldrEM :: (v -> r -> r) -> r -> ExprMap v -> r
 foldrEM k z EmptyEM = z
-foldrEM k z (EM { em_var = m_var, em_app = m_app })
-  = Map.foldr k z1 m_var
+foldrEM k z (EM { em_var = var, em_app = app })
+  = Map.foldr k z1 var
   where
-    z1 = foldrEM kapp z m_app
+    z1 = foldrEM kapp z app
     kapp m1 r = foldrEM k r m1
 \end{code}
 Equipped with a fold, we can easily define the size function, and another
@@ -1040,7 +1046,7 @@ so we \emph{could} use exactly the same approach, thus
 \begin{code}
 lookupLEM :: [Expr] -> ListExprMap v -> Maybe v
 \end{code}
-But rather than define a |ListExprMap| for keys of type |[Expr]|,
+But rather than to define a |ListExprMap| for keys of type |[Expr]|,
 and a |ListDeclMap| for keys of type |[Decl]|, etc, we would obviously prefer
 to build a trie for lists of \emph{any type}, like this \cite{hinze:generalized}:
 \begin{code}
@@ -1196,14 +1202,14 @@ lookupDBE :: Var -> DeBruijnEnv -> Maybe DBNum
 lookupDBE v (DBE {dbe_env = dbe }) = Map.lookup v dbe
 \end{code}
 \caption{De Bruijn leveling}
-\label{fig:containers} \label{fig:debruijn}
+\label{fig:debruijn}
 \end{figure}
 
-If our keys are expressions (in a compiler, say) they may contain
-binders, and we want insert and lookup to be insensitive to
-$\alpha$-renaming (\Cref{sec:alpha-renaming}).  That is the challenge we
-address next. Here is our data type |Expr|, extended with a
-new |Lam| constructor with binding semantics:
+If our keys are expressions (in a compiler, say) they may contain binders,
+and we want insert and lookup to be insensitive to $\alpha$-renaming.
+That is the challenge we address next. Here is our data type |Expr| from
+\Cref{sec:alpha-renaming}, which brings back binding semantics through the |Lam|
+constructor:
 \begin{code}
 data Expr = App Expr Expr | Lam Var Expr | Var Var
 \end{code}
@@ -1224,8 +1230,7 @@ build a value of type |Expr'| and look that up in a trie keyed by |Expr'|;
 rather, we are going to \emph{behave as if we did}. Here is the code
 (which uses \Cref{fig:debruijn}):
 \begin{code}
-type BoundVarEnv = DeBruijnEnv
-data ModAlpha a = A DeBruijnEnv a deriving Functor
+data ModAlpha a = A DeBruijnEnv a
 type AlphaExpr = ModAlpha Expr
 instance Eq AlphaExpr where ...
 
@@ -1335,7 +1340,8 @@ to implement class or type-family look in GHC.
 %but not $(f~ 1~ (g~ v))$.  This ability is important if we are to use matching tries
 %to implement class or type-family look in GHC.
 
-In implementation terms, can characterise matching by the following type class:
+In implementation terms, we can characterise matching by the following type
+class:
 \begin{code}
 class (Eq (Pat k), MonadPlus (Match k)) => Matchable k where
   type Pat    k :: Type
@@ -1345,7 +1351,7 @@ class (Eq (Pat k), MonadPlus (Match k)) => Matchable k where
 For any key type |k|, the |match| function takes a pattern of type |Pat k|,
 and a key of type |k|, and returns a monadic match of type |Match k ()|, where
 |Pat| and |Match| are associated types of |k|.
-Matching can fail or can return many result, so |Match k| is a |MonadPlus|:
+Matching can fail or can return many results, so |Match k| is a |MonadPlus|:
 \begin{code}
   mzero :: MonadPlus m => m a
   mplus :: MonadPlus m => m a -> m a -> m a
@@ -1357,7 +1363,7 @@ instance Matchable AlphaExpr where
   type Match  AlphaExpr = MatchExpr
   match = matchE
 \end{code}
-Let's look at the pieces, one at a time
+Let's look at the pieces, one at a time.
 
 \subsubsection{Patterns} \label{sec:patterns}
 
@@ -1369,7 +1375,7 @@ type PatVar  = Var
 type PatKey  = DBNum
 \end{code}
 A pattern |PatExpr| is a pair of an |AlphaExpr| and a |PatKeys| that maps
-each of the quantified pattern variables to a canonical de Bruijn |PatKey|.
+each of the quantified pattern variables to a canonical De Bruijn |PatKey|.
 Just as in \Cref{sec:binders}, |PatKeys| make the pattern insensitive to
 the particular names, and order of quantification, of the pattern variables.
 We canonicalise the quantified pattern variables before starting a lookup,
@@ -1428,7 +1434,7 @@ rather than a list of all of them; and so on.
 
 \subsection{The matching trie class} \label{sec:matching-trie-class}
 
-The core of our matching trie is the class |MTrieMap|, which is
+The core of our matching trie is the class |MTrieMap|, which
 generalises the |TrieMap| class of \Cref{sec:class}:
 \begin{code}
 class Matchable (MTrieKey tm) => MTrieMap tm where
@@ -1500,11 +1506,11 @@ lookupPatMM ae@(A bve e) (MM { .. })
   where
     rigid = case e of
       Var x      -> case lookupDBE x bve of
-        Just bv  -> mm_bvar  |> liftMaybe . Map.lookup bv
-        Nothing  -> mm_fvar  |> liftMaybe . Map.lookup x
-      App e1 e2  -> mm_app  |>   lookupPatMTM (A bve e1)
-                            >=>  lookupPatMTM (A bve e2)
-      Lam x e    -> mm_lam  |>    lookupPatMTM (A (extendDBE x bve) e)
+        Just bv  -> mm_bvar  |>   liftMaybe . Map.lookup bv
+        Nothing  -> mm_fvar  |>   liftMaybe . Map.lookup x
+      App e1 e2  -> mm_app   |>   lookupPatMTM (A bve e1)
+                             >=>  lookupPatMTM (A bve e2)
+      Lam x e    -> mm_lam   |>   lookupPatMTM (A (extendDBE x bve) e)
 
     flexi = mm_pvar |> IntMap.toList |> map match_one |> msum
 
@@ -1527,7 +1533,7 @@ the pattern variable with the target and, if successful, returns corresponding
 value |v|.
 
 The |matchPatVarE| function does the heavy lifting, using some
-simple auxiliary functions whose type are given below:
+simple auxiliary functions whose types are given below:
 \begin{code}
 matchPatVarE :: PatKey -> AlphaExpr -> MatchExpr ()
 matchPatVarE pv (A bve e) = refineMatch $ \ms ->
@@ -1592,7 +1598,7 @@ so that we can invert it when \emph{matching}.   For example, suppose we insert 
 $$
 |(([p], f p True), v1)| \quad \text{and} \quad |(([q], f q False), v2)|
 $$
-Both patterns will canonicalise their (sole) pattern variable to the de Bruin index 1.
+Both patterns will canonicalise their (sole) pattern variable to the De Bruin index 1.
 So if we look up the target |(f e True)| the |MatchExpr| monad will produce a
 final |Subst| that maps |[1 =-> e]|, paired with the value |v1|.  But we want to return
 |([("p",e)], v1)| to the client, a |PatSubst| that uses the client variable |"p"|, not
@@ -1618,10 +1624,15 @@ alterPM (pvars, e) tf pm = alterPatMTM pat ptf pm
 
 canonPatKeys :: [Var] -> Expr -> PatKeys
 \end{code}
+\sg{The |ptf (Just _)| case seems incorrect. We can't know whether |tf|
+returns the original |v|, in which case we need to store the original |pks|,
+or a different value, in which case we need the new |pks| that is currently
+shadowed. Perhaps we should stick to |insertPM|?}
 The auxiliary function |canonPatKeys| takes the client-side pattern |(pvars,e)|,
-and returns a |PatKeys| (\Cref{sec:patterns}) that maps each pattern variable its
-canonical de Bruijn index.  |canonPatKeys| is entirely straightforward: it simply
-walks the expression, numbering off the pattern variables in left-to-right order.
+and returns a |PatKeys| (\Cref{sec:patterns}) that maps each pattern variable
+to its canonical De Bruijn index. |canonPatKeys| is entirely straightforward:
+it simply walks the expression, numbering off the pattern variables in
+left-to-right order.
 
 Then we can simply call the internal |alterPatMTM| function,
 passing it: a canonical |pat :: PatExpr|; and
@@ -1631,437 +1642,17 @@ Lookup is equally easy:
 \begin{code}
 lookupPM  :: Expr -> PatExprMap v -> [(PatSubst, v)]
 lookupPM e pm
-  = [ (mk_pat_subst subst pks, x)
+  = [ (Map.toList (Map.compose subst pks), x)
     | (subst, (pks, x)) <-  runMatchExpr $
                             lookupPatMTM (A emptyDBE e) pm ]
-  where
-    mk_pat_subst :: Subst -> PatKeys -> [(Var,Expr)]
-    mk_pat_subst subst pks
-      = [(v,e)  |  (v,pk) <- Map.toList pks
-                ,  Just e <- [Map.lookup pk subst] ]
 \end{code}
-We use |runMatchExpr| to get a list of successful matches, and then
-use |mk_pat_subst| to do the impedance matching, to turn an internal |Subst| into
-a client-side |PatSubst|.  The only tricky point is what to do with
-pattern variables that are not substituted. For example, suppose we insert
-the pattern |([p,q], f p)|. No lookup will bind |q|, because |q| simply
-does not appear in the pattern.   One could reject this on insertion, but
-here we simply return a |PatSubst| with no binding for |q|.
-
-% ---------------------------------------------------------
-\begin{comment}
-
-\subsection{The API of a matching trie} \label{sec:match-api}
-
-Here are the signatures of the lookup and insertion\footnote{This time we begin with |insert|
-  because it is simpler than |alter|} functions for our new matching triemap, |PatMap|:
-\begin{code}
-type PatVar    = Var
-type PatExpr   = ([PatVar], Expr)
-type Match v   = ([(PatVar, Expr)], v)
-type PatMap v  = ... -- in Section 5.5
-
-insertPM  :: PatExpr -> v -> PatMap v -> PatMap v
-matchPM   :: Expr -> PatMap v -> [Match v]
-\end{code}
-\simon{I'd be inclined to use just |Pat| for patterns, not |PatExpr|.}
-\sg{Is that still the case? With the new |Matchable| instance, it aligns pretty well.
-Feel free to inline it if you like, though.}
-A |PatMap| is a trie, keyed by |PatExpr| \emph{patterns}.
-A pattern variable, of type |PatVar| is just a |Var|; we
-use the type synonym just for documentation purposes. When inserting into a
-|PatMap| we supply a pattern expression paired with the |[PatVar]|
-over which the pattern is quantified.  When looking up in the map we return a list
-of results.  Each item in this list is
-a |Match| that includes the |(PatVar, Expr)| pairs obtained by
-matching the pattern, plus the value in the map (which presumably mentions those
-pattern variables).
-
-We need to return a list of matches because there may be multiple matches (or
-none). The order in the list is insignificant. We could have chosen a
-\emph{bag} data structure that capitalises on that by providing a more efficient
-implementation.
-% or a data structure such as provided by the \hackage{logict}
-% package \cite{logict} to tweak the order so that it fits our use case.
-\simon{Don't understand this tweaking business.}
-\sg{The idea is that instead returning first all matching patterns that lead
-with an |App|, then all matching patterns that lead with a |Lam|, call sites
-might benefit from an order where we alternate between the two, so |App|, |Lam|,
-|App|, |Lam|... The idea is that a call site that succeeds with |Lam| but not
-with |App| has to go through all |App|s first. But such a use case seems highly
-unlikely (why not lead the expr to look up with |Lam|, after all?) and not
-interesting enough worth telling.}
-
-We could even have abstracted |matchPM| over the particular |MonadPlus| instance
-and let the user specify it. For example, the user might only be interested in
-a single match and thus might instantiate to |Maybe| or an instance that retains
-just the most-specific matches, see \Cref{sec:most-specific}.
-
-We choose to keep the interface simple and concrete here and stick to lists.
-
-\subsection{Canonical patterns and pattern keys}
-
-In \Cref{sec:binders} we saw how we could use De Bruijn levels to
-make two lambda expressions that differ only superficially (in the
-name of their bound variable) look the same.  Clearly, we want to do
-the same for pattern variables.  After all, consider these two patterns:
-$$
-([a,b], f~a~b~True) \qquad \text{and} \qquad ([p,q], f~q~p~False)
-$$
-The two pattern expressions share a common prefix, but differ both in the
-\emph{names} of the pattern variable and in their \emph{order}. We might hope
-to suppress the accidental difference of names by using numbers instead -- we will
-use the term \emph{pattern keys} for these numbers.
-But from the set of pattern variables alone, we
-cannot know \emph{a priori} which key to assign to which variable.
-
-Our solution is to number the pattern variables \emph{in order of their
-first occurrence in a left-to-right scan of the expression}\footnote{As we shall
-  see, this is very convenient in implementation terms.}.
-As in \Cref{sec:binders} we will imagine that we operate on the canonicalised
-pattern without ever constructing it as a data value, by computing the numbering
-once prior to insertion.
-Be that as it may, the canonicalised patterns become:
-$$
-   f~\pv{1}~\pv{2}~True      \qquad \text{and} \qquad  f~\pv{1}~\pv{2}~False
-$$
-What if the variable occurs more than once? For example, suppose we are matching
-the pattern $([x],\, f\, x\,x\,x)$ against the target expression
-$(f\,e_1\,e_2\,e_3)$.  At the first occurrence of the pattern variable $x$
-we succeed in matching, binding $x$ to $e_1$; but at the second
-occurrence we must note that $x$ has already been bound, and instead
-check that $e_1$ is equal to $e_2$; and similarly at the third occurrence.
-These are very different actions, so it is helpful to come up with a data
-structure that maintains the \emph{match state} for us.
-\sg{Perhaps move this idea to the implementation section}
-
-\subsection{Undoing the pattern keys} \label{sec:patkeymap}
-
-The trouble with canonicalising our patterns (to share the structure of the patterns)
-is that matching will produce a substitution mapping pattern \emph{keys} to
-expressions, rather that mapping pattern \emph{variables} to expressions.
-For example, suppose we start with the pattern $([x,y], f \,x\, y\, y\, x)$
-from the end of the last section. Its canonical form is
-$(f \,\pv{1}\, \pv{2}\, \pv{2}\, \pv{1})$. If we match that against a
-target $(f\,e_1\,e_2\,e_2\,e_1)$ we will produce a substitution
-$[\pv{1} \mapsto e_1, \pv{2} \mapsto e_2]$. But what we \emph{want} is
-a |Match| (\Cref{sec:match-api}), that gives a list of (pattern-variable,
-expression) pairs $[(x, e_1), (y,e_2)]$.
-
-\sg{Commit to either pattern-key or pattern key, likewise pattern-variable}
-Somehow we must accumulate a \emph{pattern-key map} that, for each
-individual entry in the triemap, maps its pattern keys back to the corresponding
-pattern variables for that entry.  The pattern-key map is just a list of (pattern-variable, pattern-key) pairs.
-For our example the pattern key map would be
-$[(x, \pv{1}), (y,\pv{2})]$.  We can store the pattern key
-map paired with the value, in the triemap itself,
-so that once we find a successful match we can use the pattern
-key map and the pattern-key substitution to recover the pattern-variable
-substitution that we want.
-
-To summarise, suppose we want to build a matching trie for the following (pattern, value) pairs:
-$$
-(([x,y],\; f\;y\;(g\;y\;x)),\; v_1) \qquad \text{and} \qquad (([a],\; f\;a\;True),\;v_2)
-$$
-Then we will build a trie with the following entries (key-value pairs):
-$$
-\begin{array}{ll}
-( (f \;\pv{1}\;(g\;\pv{1}\;\pv{2})), & ([(x,\pv{2}),(y,\pv{1})], v_1) ) \\
-( (f \;\pv{1}\;True), & ([(a,\pv{1})],\;v_2) )
-\end{array}
-$$
-
-
-\subsection{Implementation: internal API} \label{sec:matching-class}
-
-We are finally ready to give an implementation of matching tries.
-We stick to |Expr| as defined in \Cref{sec:binders} as our key type,
-that is, we include bound variables in our treatment.
-\begin{code}
-type PatKey    = DBNum
-type PatKeys   = Map PatVar PatKey
-type PatMap v  = MExprMap (PatKeys, v)
-\end{code}
-The client-visible |PatMap| with values of type |v|
-is a matching trie |MExprMap| with values of type |(PatKeys,v)|,
-as described in \Cref{sec:patkeymap}. What does such an |MExprMap|
-look like?
-\begin{code}
-data Pat a = P PatKeys a deriving Functor -- Functor for |<$|
-data MSEMap tm v  = EmptyMSEM
-                  | SingleMSEM (Pat (MTrieKey tm)) v
-                  | MultiMSEM  (tm v)
-
-type MExprMap = MSEMap MExprMap'
-data MExprMap' v
-  = MM  {  mm_fvar  :: Map Var v        -- Free var
-        ,  mm_bvar  :: Map BoundKey v   -- Bound var
-        ,  mm_pvar  :: Map PatKey v     -- Pattern var
-        ,  mm_app   :: MExprMap (MExprMap v)
-        ,  mm_lam   :: MExprMap v }
-\end{code}
-Let's start with the newly derived trie: |MExprMap'| has five fields, one for
-each case in the pattern. The last two fields deal with applications and lambdas,
-just as before. The first two fields handle free and bound variable occurrences,
-also as before. The third deals with the occurrence of a pattern variable
-$\pv{i}$, where $i$ is the particular |PatKey|, another kind of |DBNum| just like
-|BoundKey|.
-
-But there's more: In order to support singleton and empty maps, there's a copy
-of |SEMap|, dubbed |MSEMap|\footnote{For \enquote{matching singleton or empty map}}.
-The reason we need a duplicate is the key type stored in |SingleMSEM|: It's
-a |Pat (MTrieKey tm)|. |Pat| is similar to |ModAlpha| before and carries the
-|PatKeys| mapping, but \emph{what is |MTrieKey tm|?} Why can't we simply keep
-on using |TrieKey tm| as the key anyway?
-
-The reason is that |SingleSEM| has to store a \emph{pattern}, which is not the same
-as the key \emph{expression} we look up in the trie, because it has to remember its
-pattern keys. Now, we could share code with the non-matching implementation of
-|alter|, by modifying our |TrieMap| type class to have two separate associated
-types for keys we want to insert (e.g., patterns) and keys we want to look up
-(e.g., expressions). But that would severely complicate the non-matching use
-case! For our exposition it's far simpler to continue with a brand new copy of
-our |TrieMap| class for the matching scenario. Here is the complete API we are
-about to cover
-\begin{code}
-class Matchable (MTrieKey tm) => MTrieMap tm where
-  type MTrieKey tm  :: Type
-  emptyMTM      :: tm a
-  lookupPatMTM  :: MTrieKey tm -> tm a -> MatchResult (MTrieKey tm) a
-  alterPatMTM   :: Pat (MTrieKey tm) -> TF a -> tm a -> tm a
-\end{code}
-\simon{Why |lookupPatMTM|?  I was expecting |lkMTM|; c.f. |lkTM| before.}
-\sg{We talked about it, I think: I like it to be clearly distinguishable from
-the client-side |matchPM| and the non-matching lookup functions, because it
-really is quite different. If you can come up with better names that satisfy
-these requirements, feel free to swap it out.}
-Note the different key types for |lookupPatMTM| and |alterPatMTM|, as well as
-the change in return types from |Maybe| to |MatchResult| for |lookupPatMTM|
-compared to |lookupTM|. Intuitively, a |MatchResult| represents a bag of zero
-or many matches at once.
-
-|MTrieKey tm| will be instantiated to |AlphaExpr| for our use case, just as
-|TrieKey| before:
-\begin{code}
-instance Eq (Pat AlphaExpr) where ...   -- Refer to the
-instance Matchable AlphaExpr where ...  -- Appendix
-instance MTrieMap MExprMap' where
-  type MTrieKey MExprMap' = AlphaExpr
-  emptyMTM     = ... -- boring
-  lookupPatMTM = lookupPatMM
-  alterPatMTM  = alterPatMM
-\end{code}
-So far, we have glossed over the following outstanding implementation obligations:
-\begin{itemize}
-  \item The |Eq| super class constraint in |TrieKey| has been replaced
-    with a |Matchable| constraint in |MTrieMap|.
-    We'll cover that next, in \Cref{sec:matchable}.
-  \item What does |alterPatMM| (and |alterPatMSEM|) look like?
-    To our satisfaction, they look entirely as you would expect them to look
-    like after reading previous sections. See the Appendix for details.
-  \item What is |lookupPatMM| (and |lookupPatMSEM|) and how does its
-    use of |MatchResult| relate to |Maybe| in non-matching lookup?
-    See \Cref{sec:matching-lookup}.
-  \item And finally: How do we harness this API in our implementation of
-    |insertPM| and |matchPM|? See \Cref{sec:patmap-impl}.
-\end{itemize}
-
-\subsection{Implementation: matching terms} \label{sec:matchable}
-
-For exact, non-matching lookup, it was enough to compare terms for
-$\alpha$-equality. But the introduction of pattern variables means a
-pattern term can match many different terms, none of which have to be
-$\alpha$-equivalent to the expression representing the pattern.
-
-The |Matchable| type class represents exactly this distinction between flexible
-patterns and rigid terms:
-\begin{code}
-type MatchState e = PatKeyMap e
-
-class Eq (Pat e) => Matchable e where
-  match :: Pat e -> e -> MatchState e -> Maybe (MatchState e)
-
-instance Eq (Pat AlphaExpr) where ...   -- Refer to the
-instance Matchable AlphaExpr where ...  -- Appendix
-\end{code}
-We won't look at the implementation in detail, because we will see the same
-ideas when we look at |lookupPatMM|, which matches many patterns at once
-against the same key expression.
-
-Suffice it to say: The |Eq| instance for expression patterns |Pat AlphaExpr|
-tests for equivalence modulo |PatKeys| canonicalisation and $alpha$-renaming,
-as before. Then the job of the |Matchable| instance is that of a standard
-first-order unification procedure where unification variables may only appear
-in the pattern. In a real-world implementation, it is likely that |match| can
-delegate to pre-existing code in the compiler.
-
-\subsection{Implementation: matching lookup} \label{sec:matching-lookup}
-
-The major new operation of matching trie maps is matching lookup. Now we'll see
-how to systematically derive it from our previous definition of exact
-lookup.
-
-We begin with |lookupPatMSEM|:
-\begin{code}
-lookupPatMSEM k m = case m of
-  EmptyMSEM         -> mzero
-  MultiMSEM m       -> lookupPatMTM k m
-  SingleMSEM pat v  -> do
-    refine (match pat k)
-    pure v
-\end{code}
-Finally, the |MonadPlus|-based implementation of |lookupSEM| in
-\Cref{sec:singleton} pays off, as it easily transfers our intuition to
-|lookupPatMSEM|. Where the exact version on the left returns a |Maybe|, the
-matching version on the right returns a |MatchResult|. Thus, by squinting
-through |MonadPlus| glasses, we can see that the only noteworthy change is
-in the |SingleMSEM| case, where we \emph{refine} the substitution with any
-constraints gathered while matching the single pattern against the target
-expression, rather than require that the singular trie key matches the target
-expression \emph{exactly}.
-
-Let's look inside |MatchResult|:
-\begin{code}
-type MatchResult e a = StateT (MatchState e) [] a
-  -- isomorphic to   MatchState e -> [(a, MatchState e)]
-
-refine :: (MatchState e -> Maybe (MatchState e)) -> MatchResult e ()
-refine f = StateT $ \ms -> case f ms of
-  Just ms' -> [((), ms')]
-  Nothing  -> []
-
-liftMaybe :: Maybe a -> MatchResult e a
-liftMaybe = ... -- boring
-
-runMatchResult :: MatchResult e a -> [(PatKeyMap e, a)]
-runMatchResult f = swap <$> runStateT f Map.empty
-\end{code}
-So |MatchResult| is \emph{not quite} simply a bag of results, despite its
-eliminator |runMatchResult| suggesting just that. Although it could well have
-been implemented as |[(MatchState e, a)]|, the formulation in terms of |StateT|
-endows us with just the right |Monad| and |MonadPlus| instances, as well as
-favorable performance because of early failure on contradicting |match|es and
-the ability to share work done while matching a shared prefix of multiple
-patterns.
-
-Here's how we finally put |MatchResult| to work in |lookupPatMM|
-\begin{code}
-lookupPatMM :: AlphaExpr -> MExprMap' a -> MatchResult AlphaExpr a
-lookupPatMM ae@(A bve e) (MM { .. })
-  = flex <|> rigid
-  where
-    flex = mm_pvar |> IntMap.toList |> map match_one |> msum
-    match_one (pv, x) = refine (equateE pv ae) >> pure x
-    rigid = ...
-%    rigid = case e of
-%      Var x      -> case lookupDBE x bve of
-%        Just bv  -> mm_bvar  |> liftMaybe . Map.lookup bv
-%        Nothing  -> mm_fvar  |> liftMaybe . Map.lookup x
-%      App e1 e2  -> mm_app   |> lookupPatMTM (e1 <$ ae) >=> lookupPatMTM (e2 <$ ae)
-%      Lam x e    -> mm_lam   |> lookupPatMTM (A (extendDBE x bve) e)
-\end{code}
-\simon{Can we please use |mplus|?}
-\sg{I like |<|>| much better because it suggests "draw from this OR that".
-People are familiar with it from various parser combinator libraries.
-|mplus| is much more opaque and only makes sense if you frame |mconcat| as
-multiplication, IMO. What are you plussing?}
-Where |match| would consider matching the target expression against \emph{one}
-pattern, matching lookup on a trie has to consider matching the target
-expression against \emph{all patterns the trie represents}.
-The |rigid| case is no different from exact lookup and hence omitted. For the
-|flex| case, we enumerate all pattern variables that occur at this trie node
-and try to refine the |MatchResult| by equating said pattern variable with the
-target expression. \sg{Bring |equateE|? Or at least point to the Appendix?}
-Every successful match ends up as an item in the returned bag (via |msum|), as
-well as the original exact matches in |rigid|.
-
-% What we used to write here:
-%
-% The bag of results is the union of three possibilities, as follows. (Keep in
-% mind that a |PatMap| represents \emph{many} patterns simultaneously.)
-% \begin{itemize}
-% \item |pat_var_bndr|: we consult the |mm_pvar|, if it contains |Just v| then
-%   at least one of the patterns in this trie has a pattern binder $\pv{}$ at
-%   this spot. In that case we can simply bind the next free pattern variable
-%   (|ps_next|) to |e|, and return a singleton bag.
-% \item |pat_var_occs|: any of the bound pattern variables might have an
-%   occurrence $\pvo{i}$ at this spot, and a list of such bindings is held
-%   in |pat_var_occs|. For each, we must do an equality check between the
-%   target |e| and the expression bound to that pattern variable (found via
-%   |lookupPatSubst|). We return a bag of all values for which the equality check
-%   succeeds.
-% \item |look_at_e| corresponds exactly to the cases we saw before in
-%   \Cref{sec:Expr}. The only subtlety is that we are are returning a
-%   \emph{bag} of results, but happily the Kleisli composition operator |(>=>)|
-%   (\Cref{fig:library}) works for any monad, including bags.
-% \end{itemize}
-
-\subsection{Implementation: canonicalisation and impedance matching} \label{sec:patmap-impl}
-
-With the internals of the matching trie nailed down, we can turn our attention
-towards the impedance matching wrapper functions |insertPM| and |matchPM|.
-Here's the former
-\begin{code}
-insertPM :: PatExpr -> v -> PatMap v -> PatMap v
-insertPM (pvars, e) x pm = alterPatMTM pat (\_ -> Just (pks, x)) pm
-  where
-    pks = canonPatKeys (Set.fromList pvars) e
-    pat = P pks (A emptyDBE e)
-\end{code}
-There's no surprise here: |insertPM| necessarily needs to come up with a
-canonicalised |PatKeys| mapping to stick into the |Pat| before calling
-|alterPatMTM|. This is what the canonicalisation pass |canonPatKeys| looks like:
-\begin{code}
-data Occ = Free FreeVar | Bound BoundKey | Pat PatKey deriving Eq
-
-canonOcc :: PatKeys -> BoundVarEnv -> Var -> Occ
-canonOcc pks be v
-  | Just bv <- lookupDBE v be    = Bound bv
-  | Just pv <- Map.lookup v pks  = Pat pv
-  | otherwise                    = Free v
-
-canonPatKeys :: Set Var -> Expr -> PatKeys
-canonPatKeys pvars  = dbe_env . go emptyDBE emptyDBE
-  where
-    go pve bve e = case e of
-      Var v
-        | Free _ <- canonOcc (dbe_env pve) bve v -- not already present in pve
-        , v `Set.member` pvars
-        -> extendDBE v pve
-        | otherwise
-        -> pve
-      App f a -> go (go pve bve f) bve a
-      Lam b e -> go pve (extendDBE b bve) e
-\end{code}
-The new |Occ| data type paired with |canonOcc| makes for a nice abstraction of
-canonicalisation that is shared between multiple parts of the implementation.
-
-Note that the call to |canonPatKeys| will do a full traversal of the pattern to
-insert, seemingly contradicting our claim of requiring at most one traversal of
-the key and doing all the canonicalisation/$\alpha$-renaming on the fly.
-We argue that traversing the key twice \emph{on insertion} doesn't matter much,
-because lookup is much more frequent than insertion. Furthermore, the patterns
-we insert are typically rather small compared to the size of the key expressions
-we will look up.
-
-To substantiate that claim, have a look at |matchPM|
-\begin{code}
-matchPM :: Expr -> PatMap v -> [Match v]
-matchPM e pm
-  = [ (map (lookup subst) (Map.toList env), x)
-    | (subst, (env, x)) <- runMatchResult $ lookupPatMTM (A emptyDBE e) pm ]
-  where
-    lookup :: PatKeyMap AlphaExpr -> (Var, PatKey) -> (Var, Expr)
-    lookup subst (v, pv) = (v, e)
-      where Just (A _ e) = Map.lookup pv subst
-\end{code}
-The expression is only ever traversed during the call to |lookupPatMTM|. Other
-than that, there is a lot of rejigging the items in |MatchResult| to undo the
-pattern keys and turning the map into an association list, as required by our
-|Match| interface.
-
-\end{comment}
-% ---------------------------------------------------------
+We use |runMatchExpr| to get a list of successful matches, and then pre-compose
+the internal |Subst| with the |PatKeys| mapping that is part of the match
+result. We turn that into a list to get the client-side |PatSubst|. The only
+tricky point is what to do with pattern variables that are not substituted. For
+example, suppose we insert the pattern |([p,q], f p)|. No lookup will bind |q|,
+because |q| simply does not appear in the pattern. One could reject this on
+insertion, but here we simply return a |PatSubst| with no binding for |q|.
 
 \subsection{Most specific match, and unification} \label{sec:most-specific}
 
