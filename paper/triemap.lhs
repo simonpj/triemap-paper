@@ -340,14 +340,14 @@ instance Eq Expr where
 \setlength{\pdfpageheight}{\paperheight}
 \setlength{\pdfpagewidth}{\paperwidth}
 
-\newcommand{\simon}[1]{[{\bf SLPJ}: {\color{red} #1}]}
-\newcommand{\js}[1]{{\bf JS}: {\color{olive} #1} {\bf End JS}}
-\newcommand{\rae}[1]{{\bf RAE}: {\color{dkblue} #1} {\bf End RAE}}
-\newcommand{\sg}[1]{{\bf SG}: {\color{darkbrown} #1} {\bf End SG}}
-%\newcommand{\simon}[1]{}
-%\newcommand{\js}[1]{}
-%\newcommand{\rae}[1]{}
-%\newcommand{\sg}[1]{}
+%\newcommand{\simon}[1]{[{\bf SLPJ}: {\color{red} #1}]}
+%\newcommand{\js}[1]{{\bf JS}: {\color{olive} #1} {\bf End JS}}
+%\newcommand{\rae}[1]{{\bf RAE}: {\color{dkblue} #1} {\bf End RAE}}
+%\newcommand{\sg}[1]{{\bf SG}: {\color{darkbrown} #1} {\bf End SG}}
+\newcommand{\simon}[1]{}
+\newcommand{\js}[1]{}
+\newcommand{\rae}[1]{}
+\newcommand{\sg}[1]{}
 
 
 \newcommand{\bv}[1]{\#_{#1}}    % Lambda-bound variable occurrence
@@ -658,17 +658,11 @@ hash-code as the lookup key.  That would make lookup much faster, but
 it requires at least two full traversals of the key for every lookup:
 one to compute its hash code for every lookup, and a full equality
 comparison on a ``hit'' because hash-codes can collide.
-While this double-check is not so terrible, we will see that
-the naive approach described here does not extend well to support
-the extra features we require in our finite maps. \simon{where, exactly, do we see this?}
-\sg{Not sure. What HashMaps definitely lack is any notion of order. I don't
-even think |foldr| is deterministic! So that's definitely something to be aware
-of in a compiler.}
 
 But the killer is this: \emph{neither binary search trees nor hashing is compatible
 with matching lookup}.  For our purposes they are non-starters.
 
-What other standard solutions are there, apart from linear search?
+What other standard solutions to matching lookup are there, apart from linear search?
 The theorem proving and automated reasoning community has been working with huge sets
 of rewrite rules, just as we describe, for many years.
 They have developed term indexing techniques for the job \cite[Chapter 26]{handbook:2001},
@@ -1619,15 +1613,11 @@ alterPM (pvars, e) tf pm = alterPatMTM pat ptf pm
     pat :: PatExpr = P pks (A emptyDBE e)
 
     ptf :: TF (PatKeys, v)
-    ptf Nothing         = fmap (\v -> (pks,v)) (tf Nothing)
-    ptf (Just (pks,v))  = fmap (\v -> (pks,v)) (tf (Just v))
+    ptf Nothing       = fmap (\v -> (pks,v)) (tf Nothing)
+    ptf (Just (_,v))  = fmap (\v -> (pks,v)) (tf (Just v))
 
 canonPatKeys :: [Var] -> Expr -> PatKeys
 \end{code}
-\sg{The |ptf (Just _)| case seems incorrect. We can't know whether |tf|
-returns the original |v|, in which case we need to store the original |pks|,
-or a different value, in which case we need the new |pks| that is currently
-shadowed. Perhaps we should stick to |insertPM|?}
 The auxiliary function |canonPatKeys| takes the client-side pattern |(pvars,e)|,
 and returns a |PatKeys| (\Cref{sec:patterns}) that maps each pattern variable
 to its canonical De Bruijn index. |canonPatKeys| is entirely straightforward:
@@ -1642,17 +1632,18 @@ Lookup is equally easy:
 \begin{code}
 lookupPM  :: Expr -> PatExprMap v -> [(PatSubst, v)]
 lookupPM e pm
-  = [ (Map.toList (Map.compose subst pks), x)
+  = [ (Map.toList (subst `Map.compose` pks), x)
     | (subst, (pks, x)) <-  runMatchExpr $
                             lookupPatMTM (A emptyDBE e) pm ]
 \end{code}
 We use |runMatchExpr| to get a list of successful matches, and then pre-compose
-the internal |Subst| with the |PatKeys| mapping that is part of the match
-result. We turn that into a list to get the client-side |PatSubst|. The only
-tricky point is what to do with pattern variables that are not substituted. For
-example, suppose we insert the pattern |([p,q], f p)|. No lookup will bind |q|,
-because |q| simply does not appear in the pattern. One could reject this on
-insertion, but here we simply return a |PatSubst| with no binding for |q|.
+(see \Cref{fig:containers}) the internal |Subst| with the |PatKeys| mapping that
+is part of the match result. We turn that into a list to get the client-side
+|PatSubst|. The only tricky point is what to do with pattern variables that are
+not substituted. For example, suppose we insert the pattern |([p,q], f p)|. No
+lookup will bind |q|, because |q| simply does not appear in the pattern. One
+could reject this on insertion, but here we simply return a |PatSubst| with no
+binding for |q|.
 
 \subsection{Most specific match, and unification} \label{sec:most-specific}
 
@@ -1751,9 +1742,11 @@ benchmarking library%
 -fproc-alignment=64} to eliminate code layout flukes and run with \texttt{+RTS
 -A128M -RTS} for 128MB space in generation 0 in order to prevent major GCs from
 skewing the results.}.
-\Cref{fig:plot} presents a quick overview of the results. For a more in-depth
+\Cref{fig:plot} presents a quick overview of the results.
+
+Appendix A is an extended version of this section, featuring a more in-depth
 analysis, finer runtime as well as space measurements and indicators for
-statistical significance we kindly refer to Appendix A.
+statistical significance.
 
 \subsubsection*{Setup}
 All benchmarks except \benchname{fromList} are handed a pre-built
@@ -1827,18 +1820,18 @@ performance-optimised implementation using transient mutability.
 
 What would a non-naïve version of |fromList| for |ExprMap| look like? Perhaps
 the process could be sped up considerably by partitioning the input list
-according to the different fields of |ExprMap| like |em_lam| and then calling
+according to the different fields of |ExprMap| and then calling
 the |fromList| implementations of the individual fields in turn. The process
 would be very similar to discrimination sort~\cite{discr-sort}, which is a
 generalisation of radix sort to tree-like data and very close to tries.
 Indeed, the \hackage{discrimination} library provides such an optimised
-$\mathcal{O}(N)$ |toMap| implementation for ordered maps.
+$\mathcal{O}(n)$ |toMap| implementation for |Map|.
 
 \section{Related work} \label{sec:related}
 
 \subsection{Matching triemaps in automated reasoning} \label{sec:discrim-trees}
 
-Matching triemaps, also called \emph{term indexing}, have been used in the automated
+Matching triemaps, a kind of \emph{term index}, have been used in the automated
 reasoning community for decades.
 An automated reasoning system has
 hundreds or thousands of axioms, each of which is quantified over
