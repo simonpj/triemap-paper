@@ -1089,7 +1089,7 @@ data ExprMap v  = EmptyEM
                 | SingleEM Expr v   -- A single key/value pair
                 | EM { em_var :: ..., em_app :: ... }
 \end{code}
-oBut in the triemap for for each new data type |X|,
+But in the triemap for for each new data type |X|,
 we will have to tiresomely repeat these extra data constructors, |EmptyX| and |SingleX|.
 For example we would have to add |EmptyList| and |SingleList| to the |ListMap| data type
 of \Cref{sec:class}.
@@ -1195,7 +1195,7 @@ extendDBE v (DBE { dbe_next = n, dbe_env = dbe })
 lookupDBE :: Var -> DeBruijnEnv -> Maybe DBNum
 lookupDBE v (DBE {dbe_env = dbe }) = Map.lookup v dbe
 \end{code}
-\caption{DeBruijn leveling}
+\caption{De Bruijn leveling}
 \label{fig:containers} \label{fig:debruijn}
 \end{figure}
 
@@ -1207,7 +1207,7 @@ new |Lam| constructor with binding semantics:
 \begin{code}
 data Expr = App Expr Expr | Lam Var Expr | Var Var
 \end{code}
-The key idea is simple: we perform de-Bruijn numbering on the fly,
+The key idea is simple: we perform De Bruijn numbering on the fly,
 renaming each binder to a natural number, from outside in.
 So, when inserting or looking up a key $(\lambda x.\, foo~ (\lambda y.\, x+y))$ we
 behave as if the key was $(\lambda.\, foo ~(\lambda. \bv{1} + \bv{2}))$, where
@@ -1254,10 +1254,10 @@ lookupClosedExpr :: Expr -> ExprMap v -> Maybe v
 lookupClosedExpr e = lookupEM (A emptyDBE e)
 \end{code}
 We maintain a |DeBruijnEnv| (cf.~\cref{fig:debruijn}) that
-maps each lambda-bound variable to its de-Bruijn level%
+maps each lambda-bound variable to its De Bruijn level%
 \footnote{
-  The de-Bruijn \emph{index} of the occurrence of a variable $v$ counts the number
-  of lambdas between the occurrence of $v$ and its binding site.  The de-Bruijn \emph{level}
+  The De Bruijn \emph{index} of the occurrence of a variable $v$ counts the number
+  of lambdas between the occurrence of $v$ and its binding site.  The De Bruijn \emph{level}
   of $v$ counts the number of lambdas between the root of the expression and $v$'s binding site.
   It is convenient for us to use \emph{levels}.}
 \cite{debruijn}, its |BoundKey|.
@@ -1420,7 +1420,7 @@ The code is given in the Appendix.
 
 The key point is this: nothing in this section is concerned with
 tries.  Here we are simply concerned with the mechanics of matching,
-and its underlying monad.  There is ample room for flexiblity. For
+and its underlying monad.  There is ample room for flexibility. For
 example, if the key terms had two kinds of variables (say type
 variables and term variables) we could easily define |Match| to carry
 two substitutions; or |Match| could return just the first result
@@ -1441,7 +1441,7 @@ The lookup function takes a key of type |MTrieKey tm| as before, but
 it returns something in the |Match| monad, rather than the |Maybe| monad.
 The |alterPatMTM| takes a \emph{pattern} (rather than just a key), of type
 |Pat (MTrieKey tm)|, and alters the trie's value at that pattern\footnote{
-Remember, a matching trie repesents a set of (pattern,value) pairs.}.
+Remember, a matching trie represents a set of (pattern,value) pairs.}.
 
 We can generalise |SEMap| (\Cref{sec:singleton}) in a similar way:
 \begin{code}
@@ -1496,7 +1496,7 @@ in the lookup code:
 \begin{code}
 lookupPatMM :: forall v. AlphaExpr -> MExprMap' v -> MatchExpr v
 lookupPatMM ae@(A bve e) (MM { .. })
-  = rigit `mplus` flexi
+  = rigid `mplus` flexi
   where
     rigid = case e of
       Var x      -> case lookupDBE x bve of
@@ -1579,7 +1579,7 @@ type PatSubst = [(Var,Expr)]
 \end{code}
 When altering a |PatExprMap| we supply a client-side pattern, which is
 just a pair |([Var],Expr)| of the quantified pattern variables and the pattern.
-When looking up in a |PatExprMap| we supply a target expresssion, and get back
+When looking up in a |PatExprMap| we supply a target expression, and get back
 a list of matches, each of which is a pair of the value and the substitution
 for those original pattern variables that made the pattern equal to the target.
 
@@ -1620,7 +1620,7 @@ canonPatKeys :: [Var] -> Expr -> PatKeys
 \end{code}
 The auxiliary function |canonPatKeys| takes the client-side pattern |(pvars,e)|,
 and returns a |PatKeys| (\Cref{sec:patterns}) that maps each pattern variable its
-canonical de Bruijn index.  |canonPatKeys| is entirely staightforward: it simply
+canonical de Bruijn index.  |canonPatKeys| is entirely straightforward: it simply
 walks the expression, numbering off the pattern variables in left-to-right order.
 
 Then we can simply call the internal |alterPatMTM| function,
@@ -1641,7 +1641,7 @@ lookupPM e pm
                 ,  Just e <- [Map.lookup pk subst] ]
 \end{code}
 We use |runMatchExpr| to get a list of successful matches, and then
-use |mk_pat_subst| to do the impedence matching, to turn an internal |Subst| into
+use |mk_pat_subst| to do the impedance matching, to turn an internal |Subst| into
 a client-side |PatSubst|.  The only tricky point is what to do with
 pattern variables that are not substituted. For example, suppose we insert
 the pattern |([p,q], f p)|. No lookup will bind |q|, because |q| simply
@@ -1701,7 +1701,7 @@ We choose to keep the interface simple and concrete here and stick to lists.
 
 \subsection{Canonical patterns and pattern keys}
 
-In \Cref{sec:binders} we saw how we could use de-Bruijn levels to
+In \Cref{sec:binders} we saw how we could use De Bruijn levels to
 make two lambda expressions that differ only superficially (in the
 name of their bound variable) look the same.  Clearly, we want to do
 the same for pattern variables.  After all, consider these two patterns:
@@ -1911,7 +1911,7 @@ lookupPatMSEM k m = case m of
     pure v
 \end{code}
 Finally, the |MonadPlus|-based implementation of |lookupSEM| in
-\Cref{sec:singleton} pays off, as it easily transfers our intution to
+\Cref{sec:singleton} pays off, as it easily transfers our intuition to
 |lookupPatMSEM|. Where the exact version on the left returns a |Maybe|, the
 matching version on the right returns a |MatchResult|. Thus, by squinting
 through |MonadPlus| glasses, we can see that the only noteworthy change is
@@ -2231,7 +2231,7 @@ insignificance for \benchname{fromList} and \benchname{union}. One reason is
 the uniform distribution of expressions in these benchmarks, which favors |Map|.
 Still, it is a surprise that the naïve |fromList| implementations of |ExprMap| and
 |Map| as list folds beat the one of |HashMap|, although the latter has a tricky,
-performance-optimised implementation using transient mutablity.
+performance-optimised implementation using transient mutability.
 
 What would a non-naïve version of |fromList| for |ExprMap| look like? Perhaps
 the process could be sped up considerably by partitioning the input list
@@ -2259,7 +2259,7 @@ in the late 1980's, which is beautifully surveyed in the Handbook of Automated R
 \cite[Chapter 26]{handbook:2001}.
 All of this work typically assumes a single, fixed, data type of ``first order terms''
 like this\footnote{Binders in terms do not seem to be important
-in these works, although they could be handled fairly easily by a de-Bruijn pre-pass.}
+in these works, although they could be handled fairly easily by a De Bruijn pre-pass.}
 \begin{code}
   data MTrieKey = Node Fun [MTrieKey]
 \end{code}
