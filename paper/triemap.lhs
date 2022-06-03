@@ -1665,7 +1665,8 @@ insertPM  :: PatExpr -> v -> PatMap v -> PatMap v
 matchPM   :: Expr -> PatMap v -> [Match v]
 \end{code}
 \simon{I'd be inclined to use just |Pat| for patterns, not |PatExpr|.}
-\simon{Why |matchPM| not |lookupPM|?}
+\sg{Is that still the case? With the new |Matchable| instance, it aligns pretty well.
+Feel free to inline it if you like, though.}
 A |PatMap| is a trie, keyed by |PatExpr| \emph{patterns}.
 A pattern variable, of type |PatVar| is just a |Var|; we
 use the type synonym just for documentation purposes. When inserting into a
@@ -1679,14 +1680,22 @@ pattern variables).
 We need to return a list of matches because there may be multiple matches (or
 none). The order in the list is insignificant. We could have chosen a
 \emph{bag} data structure that capitalises on that by providing a more efficient
-implementation or a data structure such as provided by the \hackage{logict}
-package \cite{logict} to tweak the order so that it fits our use case.
+implementation.
+% or a data structure such as provided by the \hackage{logict}
+% package \cite{logict} to tweak the order so that it fits our use case.
 \simon{Don't understand this tweaking business.}
+\sg{The idea is that instead returning first all matching patterns that lead
+with an |App|, then all matching patterns that lead with a |Lam|, call sites
+might benefit from an order where we alternate between the two, so |App|, |Lam|,
+|App|, |Lam|... The idea is that a call site that succeeds with |Lam| but not
+with |App| has to go through all |App|s first. But such a use case seems highly
+unlikely (why not lead the expr to look up with |Lam|, after all?) and not
+interesting enough worth telling.}
 
 We could even have abstracted |matchPM| over the particular |MonadPlus| instance
 and let the user specify it. For example, the user might only be interested in
 a single match and thus might instantiate to |Maybe| or an instance that retains
-just the most-specific matches are retained, see \Cref{sec:most-specific}.
+just the most-specific matches, see \Cref{sec:most-specific}.
 
 We choose to keep the interface simple and concrete here and stick to lists.
 
@@ -1709,9 +1718,9 @@ cannot know \emph{a priori} which key to assign to which variable.
 Our solution is to number the pattern variables \emph{in order of their
 first occurrence in a left-to-right scan of the expression}\footnote{As we shall
   see, this is very convenient in implementation terms.}.
-As in \Cref{sec:binders} we will imagine that we canonicalise the pattern, although
-in reality we will do so on-the-fly, without ever constructing the canonicalised pattern.
-\simon{This is no longer true is it?}
+As in \Cref{sec:binders} we will imagine that we operate on the canonicalised
+pattern without ever constructing it as a data value, by computing the numbering
+once prior to insertion.
 Be that as it may, the canonicalised patterns become:
 $$
    f~\pv{1}~\pv{2}~True      \qquad \text{and} \qquad  f~\pv{1}~\pv{2}~False
@@ -1822,6 +1831,10 @@ class Matchable (MTrieKey tm) => MTrieMap tm where
   alterPatMTM   :: Pat (MTrieKey tm) -> TF a -> tm a -> tm a
 \end{code}
 \simon{Why |lookupPatMTM|?  I was expecting |lkMTM|; c.f. |lkTM| before.}
+\sg{We talked about it, I think: I like it to be clearly distinguishable from
+the client-side |matchPM| and the non-matching lookup functions, because it
+really is quite different. If you can come up with better names that satisfy
+these requirements, feel free to swap it out.}
 Note the different key types for |lookupPatMTM| and |alterPatMTM|, as well as
 the change in return types from |Maybe| to |MatchResult| for |lookupPatMTM|
 compared to |lookupTM|. Intuitively, a |MatchResult| represents a bag of zero
@@ -1948,6 +1961,10 @@ lookupPatMM ae@(A bve e) (MM { .. })
 %      Lam x e    -> mm_lam   |> lookupPatMTM (A (extendDBE x bve) e)
 \end{code}
 \simon{Can we please use |mplus|?}
+\sg{I like |<|>| much better because it suggests "draw from this OR that".
+People are familiar with it from various parser combinator libraries.
+|mplus| is much more opaque and only makes sense if you frame |mconcat| as
+multiplication, IMO. What are you plussing?}
 Where |match| would consider matching the target expression against \emph{one}
 pattern, matching lookup on a trie has to consider matching the target
 expression against \emph{all patterns the trie represents}.
@@ -2213,13 +2230,8 @@ While |ExprMap| consistently wins in query performance, the edge is melting into
 insignificance for \benchname{fromList} and \benchname{union}. One reason is
 the uniform distribution of expressions in these benchmarks, which favors |Map|.
 Still, it is a surprise that the naïve |fromList| implementations of |ExprMap| and
-|Map| as list folds beat the one of |HashMap|, although its implementation is
-much less naïve:
-it makes use of transient mutability and performs
-destructive inserts on the map data structure during |fromList|.
-\simon{what is ``its'' in ``its implementation''.  I think you mean
-  ``...although that latter has a tricky, performance-optimised implementation
-  using mutablity.''}
+|Map| as list folds beat the one of |HashMap|, although the latter has a tricky,
+performance-optimised implementation using transient mutablity.
 
 What would a non-naïve version of |fromList| for |ExprMap| look like? Perhaps
 the process could be sped up considerably by partitioning the input list
