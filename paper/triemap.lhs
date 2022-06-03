@@ -367,7 +367,7 @@ instance Eq Expr where
 % \titlenote{with title note}             %% \titlenote is optional;
 %                                         %% can be repeated if necessary;
 %                                         %% contents suppressed with 'anonymous'
-% \subtitle{Subtitle}                     %% \subtitle is optional
+\subtitle{Functional pearl}                     %% \subtitle is optional
 % \subtitlenote{with subtitle note}       %% \subtitlenote is optional;
 %                                         %% can be repeated if necessary;
 %                                         %% contents suppressed with 'anonymous'
@@ -452,7 +452,7 @@ We might hope that the compiler will recognise the repeated sub-expression
 \end{code}
 An easy way to do so is to build a finite map that maps the expression |(a+b)| to |x|.
 Then, when encountering the inner |let|, we can look up the right hand side in the map,
-get a hit, and replace |y| by |x|.  All we need is a finite map keyed by syntax trees.
+and replace |y| by |x|.  All we need is a finite map keyed by syntax trees.
 
 Traditional finite-map implementations tend to do badly in such applications, because
 they are often based on balanced trees, and make the assumption that comparing two keys is
@@ -461,11 +461,10 @@ a fast, constant-time operation.  That assumption is false for large, tree-struc
 Another time that a compiler may want to look up a tree-structured key is
 when rewriting expressions: it wants to see if any rewrite rule matches the
 sub-expression in hand, and if so rewrite with the instantiated right-hand
-side of the rule. For a compiler developer to accommodate such a feature,
-we need an extended version of a finite map in which we can insert a collection
-of rewrite rules, expressed as (\varid{pattern},~\varid{rhs}) pairs, and
-then look up an expression in the map, getting a hit if one or more of the
-patterns \emph{match} the expression. If there is a large number of such
+side of the rule.
+To do this we need a fast way to see if a target expression matches one of
+the patterns in a set of (\varid{pattern},~\varid{rhs}) pairs.
+If there is a large number of such
 (\varid{pattern},~\varid{rhs}) entries to check, we would like to do so faster
 than checking them one by one. Several parts of GHC, a Haskell compiler, need
 matching lookup, and currently use an inefficient linear algorithm to do so.
@@ -512,9 +511,15 @@ This shift of context is surprisingly fruitful, and we make the following contri
   their matching capability) with traditional finite-map implementations in
   Haskell (\Cref{sec:eval}).
 \end{itemize}
+We discuss related work in \Cref{sec:related}.
 Our contribution is not so much a clever new idea as an exposition of
-some old ideas in a new context, providing some new perspective on those
-old ideas. We discuss related work in \Cref{sec:related}.
+some old ideas in a new context.  Nevertheless, we found it
+surprisingly tricky to develop the ``right'' abstractions, such as
+the |TrieMap| and |Matchable| classes, the singleton-and-empty map
+data type, and the combinators we use in our instances.
+These abstractions have been through \emph{many} iterations, and we
+hope that by laying them out here, as a functional pearl, we may shorten
+the path for others.
 
 \section{The problem we address} \label{sec:problem}
 \begin{figure}
@@ -658,17 +663,11 @@ hash-code as the lookup key.  That would make lookup much faster, but
 it requires at least two full traversals of the key for every lookup:
 one to compute its hash code for every lookup, and a full equality
 comparison on a ``hit'' because hash-codes can collide.
-While this double-check is not so terrible, we will see that
-the naive approach described here does not extend well to support
-the extra features we require in our finite maps. \simon{where, exactly, do we see this?}
-\sg{Not sure. What HashMaps definitely lack is any notion of order. I don't
-even think |foldr| is deterministic! So that's definitely something to be aware
-of in a compiler.}
 
 But the killer is this: \emph{neither binary search trees nor hashing is compatible
 with matching lookup}.  For our purposes they are non-starters.
 
-What other standard solutions are there, apart from linear search?
+What other standard solutions to matching lookup are there, apart from linear search?
 The theorem proving and automated reasoning community has been working with huge sets
 of rewrite rules, just as we describe, for many years.
 They have developed term indexing techniques for the job \cite[Chapter 26]{handbook:2001},
