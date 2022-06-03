@@ -1743,7 +1743,7 @@ can generally compete in performance with other map data structures, while
 significantly outperforming traditional map implementations on some operations.
 Not bad for a data structure that we can also extend to support matching lookup!
 
-We measured the runtime performance of the (non-matching) |ExprMap| data
+We took runtime measurements of the (non-matching) |ExprMap| data
 structure on a selection of workloads, conducted using the \hackage{criterion}
 benchmarking library%
 \footnote{The benchmark machine runs Ubuntu 18.04 on an Intel Core i5-8500 with
@@ -1756,7 +1756,7 @@ analysis, finer runtime as well as space measurements and indicators for
 statistical significance we kindly refer to Appendix A.
 
 \subsubsection*{Setup}
-All benchmarks except the \benchname{fromList*} variants are handed a pre-built
+All benchmarks except \benchname{fromList} are handed a pre-built
 map containing 10000 expressions, each consisting of roughly 100 |Expr| data
 constructors drawn from a pseudo-random source with a fixed (and thus
 deterministic) seed.
@@ -1768,10 +1768,10 @@ The |ExprMap| forms the baseline. Asymptotics are given with respect to map
 size $n$ and key expression size $k$:
 
 \begin{itemize}
-  \item |ExprMap| (designated ``TM'' in \Cref{fig:runtime}) is the trie map
-        implementation from this paper. Insertion and lookup and have to perform
-        a full traversal of the key, so performance should scale with
-        $\mathcal{O}(k)$, where $k$ is the key |Expr| that is accessed.
+  \item |ExprMap| (designated ``TM'' in \Cref{fig:plot}) is the trie map
+        implementation from this paper. Insertion and lookup perform at most
+        one full traversal of the key, so performance should scale with
+        $\mathcal{O}(k)$.
   \item |Map Expr| (designated ``OM'') is the ordered map implementation from
         the mature, well-optimised \hackage{containers} library. It uses size
         balanced trees under the hood \cite{adams}. Thus, lookup and insert
@@ -1781,9 +1781,10 @@ size $n$ and key expression size $k$:
         mapped tries \cite{hamt} from the \hackage{unordered-containers}
         library. Like |ExprMap|, map access incurs a full traversal of the key
         to compute a hash and then a $\mathcal{O}(\log_{32} n)$ lookup in the
-        array mapped trie. The log factor can be treated like a constant for all
-        intents and purposes, so lookup and insert is effectively in
-        $\mathcal{O}(k)$.
+        array mapped trie, as well as an expected constant number of key
+        comparisons to resolve collisions. The log factor can be treated like
+        a constant for all intents and purposes, so lookup and insert is
+        effectively in $\mathcal{O}(k)$.
 \end{itemize}
 
 Some clarification as to what our benchmarks measure:
@@ -1795,7 +1796,7 @@ Some clarification as to what our benchmarks measure:
         100.
   \item \benchname{lookup\_lam} is like \benchname{lookup}, but wraps a shared
         prefix of 100 layers of |(Lam "$")| around each expression.
-  \item The \benchname{fromList} benchmark a naïve |fromList|
+  \item \benchname{fromList} benchmarks a naïve |fromList|
         implementation on |ExprMap| against the tuned |fromList| implementations
         of the other maps, measuring map creation performance from batches.
 \end{itemize}
