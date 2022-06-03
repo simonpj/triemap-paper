@@ -1,11 +1,12 @@
 { mkDerivation, base, containers, criterion, deepseq, ghc-heap
 , hashable, lib, microlens, microlens-ghc, pretty, QuickCheck
-, transformers, tree-view, unordered-containers
+, transformers, tree-view, unordered-containers, cabal-install
 }:
 mkDerivation {
   pname = "triemap";
   version = "0.1";
   src = ./.;
+  buildDepends = [ cabal-install ];
   libraryHaskellDepends = [
     base containers criterion deepseq ghc-heap hashable microlens
     microlens-ghc pretty QuickCheck transformers tree-view
