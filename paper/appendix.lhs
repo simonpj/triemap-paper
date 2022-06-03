@@ -91,7 +91,7 @@ map:
 where |"$"| is a name that doesn't otherwise occur in the generated expressions.
 
 \begin{itemize}
-  \item The \benchname{lookup\_all*} family of benchmarks looks up every
+  \item The \benchname{lookup*} family of benchmarks looks up every
         expression that is part of the map. So for a map of size 100, we
         perform 100 lookups of expressions each of which have approximately size
         100. \benchname{lookup\_one} looks up just one expression that is
@@ -109,7 +109,7 @@ where |"$"| is a name that doesn't otherwise occur in the generated expressions.
 \subsubsection*{Querying}
 The results show that lookup in |ExprMap| often wins against |Map Expr| and
 |HashMap Expr|. The margin is small on the completely random |Expr|s of
-\benchname{lookup\_all}, but realistic applications of |ExprMap| often store
+\benchname{lookup}, but realistic applications of |ExprMap| often store
 |Expr|s with some kind of shared structure. The \benchname{\_lam} and
 \benchname{\_app1} variants show that |ExprMap| can win substantially against
 an ordered map representation: |ExprMap| looks at the shared prefix exactly
@@ -127,7 +127,7 @@ measurements were consistently at most a factor of two slower than |ExprMap|.
 We believe that is due to the fact that it is enough to traverse the |Expr| once
 to compute the hash, thus it is expected to scale similarly as |ExprMap|.
 
-Comparing the \benchname{lookup\_all*} measurements of the same map data
+Comparing the \benchname{lookup*} measurements of the same map data
 structure on different size parameters $N$ reveals a roughly quadratic correlation
 throughout all implementations, give or take a logarithmic factor.
 That seems plausible given that $N$ linearly affects expression size and map
@@ -137,7 +137,7 @@ larger map sizes than expression sizes!
 \begin{table}
   \centering
   \caption{Varying expression size $E$ and map size $M$ independently on benchmarks
-  \benchname{lookup\_all} and \benchname{insert\_lookup\_one}.}
+  \benchname{lookup} and \benchname{insert\_lookup\_one}.}
   \resizebox{\textwidth}{!}{%
     \begin{tabular}{cr rrr rrr rrr rrr}
     \toprule
@@ -151,11 +151,11 @@ larger map sizes than expression sizes!
                          & TM & OM & HM
                          & TM & OM & HM \\
     \midrule
-    \multirow{4}{*}{\rotatebox{90}{\benchname{lookup\_all}}}
-    \input bench-lookup_all.tex-incl
+    \multirow{4}{*}{\rotatebox{90}{\benchname{lookup}}}
+    \input bench-lookup.tex-incl
     \midrule
     \multirow{4}{*}{\rotatebox{90}{\benchname{lo\_a\_app1}}}
-    \input bench-lookup_all_app1.tex-incl
+    \input bench-lookup_app1.tex-incl
     \midrule
     \multirow{4}{*}{\rotatebox{90}{\benchname{insert\_o\_l}}}
     \input bench-insert_lookup_one.tex-incl
@@ -173,7 +173,7 @@ larger map sizes than expression sizes!
 \end{table}
 
 Let us see what happens if we vary map size $M$ and expression
-size $E$ independently for \benchname{lookup\_all}. The results in
+size $E$ independently for \benchname{lookup}. The results in
 \Cref{fig:runtime-finer} show that |ExprMap| scales better than |Map| when we
 increase $M$ and leave $E$ constant. The difference is even more pronounced than
 in \Cref{fig:runtime}, in which $N = M = E$.
@@ -194,7 +194,7 @@ factor $P$ for |Map| remains essentially constant relative to $E$: larger
 expressions still are likely to differ very early because they are random.
 Increasing $M$ will introduce more clashes and is actually more likely to
 increase $P$ on completely random expressions. As written above, realistic
-work loads often have shared prefixes like \benchname{lookup\_all\_app1}, where
+work loads often have shared prefixes like \benchname{lookup\_app1}, where
 we already saw that |ExprMap| outperforms |Map|. The fact that |Map| performance
 depends on $P$ makes it an extremely workload dependent pick, leading to
 compiler performance that is difficult to predict. |HashMap| shows performance

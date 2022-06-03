@@ -2046,65 +2046,16 @@ pattern keys and turning the map into an association list, as required by our
 \end{comment}
 % ---------------------------------------------------------
 
-\subsection{Most specific match, and unification}
+\subsection{Most specific match, and unification} \label{sec:most-specific}
 
-It is tempting to ask: can we build a lookup that returns only the \emph{most specific}
-matches? And, can we build a lookup that returns all values whose patterns \emph{unify}
-with the target.  Both would have useful applications, in GHC at least.
+It is tempting to ask: can we build a lookup that returns only the \emph{most
+specific} matches? And, can we build a lookup that returns all values whose
+patterns \emph{unify} with the target. Both would have useful applications, in
+GHC at least.
 
-However, both seem difficult to achieve.  All our attempts became mired in complexity,n
-and we leave this for further work, and as a challenge for the reader.
-
-\subsection{Most specific match} \label{sec:most-specific}
-
-It is sometimes desirable to be able to look up the \emph{most specific match}
-in the matching triemap.
-For example, suppose the matching trie contains the following two (pattern,value) pairs:
-$$
-\{ ([a],\, f\, a),\;\; ([p,q],\, f\,(p+q)) \}
-$$
-and suppose we look up $(f\,(2+x))$ in the trie. The first entry matches, but
-the second also matches (with $S = [p \mapsto 2, q \mapsto x]$), and \emph{the
-second pattern is a substitution instance of the first}. In some applications
-we may want to return just the second match. We call this \emph{most-specific
-matching}.
-
-The implementation we have shown returns \emph{all} matches, leaving it to
-a post-pass to pick only the most-specific ones.  It seems plausible that some
-modification to the lookup algorithm might suffice to identify the most-specific matches,
-but it turns out to be hard to achieve this, because each case only has a local
-view of the overall match.
-
-%             FAILSED ATTEMPT
-% to get most specific matching
-%
-% We simply modify the definition |lkMExpr| from \Cref{sec:matching-lookup} as follows:
-% \begin{code}
-% lkMExpr e (psubst, mt)
-%   | Bag.null pat_var_occs && Bag.null look_at_e
-%   = pat_var_bndr
-%   | otherwise
-%   = pat_var_occs `Bag.union` look_at_e
-%   where
-%     as_before
-% \end{code}
-% %}
-%
-% \sg{But that notion of most-specific is biased towards specificity happening
-% early in the App chain, if I'm not mistaken. So given the map $\{(([x],
-% f~x~True), 1), (([y], f~True~y), 2)\}$, the most-specific match of $f~True~True$
-% will be $2$: the second pattern is more specific in the first App arg, while
-% the first one has simply an unbound patvar in that position. But actually I'd
-% consider $1$ just as specific, albeit incomparable to $2$. In effect, you're
-% forcing a lexicographic ordering on patterns where I don't think there should
-% be one.}
-
-A data structure that would be useful in the post-pass to maintain most-specific
-candidates would be a map of patterns (just like |MExprMap|) that allows
-\emph{unifying} lookup with the new trial pattern (unlike |MExprMap|). Then
-we would keep candidates which are unchanged under the unifier, because that
-candidate is clearly at least as specific as the pattern it unifies with.
-We briefly discuss unifying maps in Appendix B.
+However, both seem difficult to achieve. All our attempts became mired in
+complexity, and we leave this for further work, and as a challenge for the
+reader. We outline some of the difficulties of unifying lookup in Appendix B.
 
 \section{Evaluation} \label{sec:eval}
 
@@ -2188,18 +2139,19 @@ We measured the runtime performance of the (non-matching) |ExprMap| data
 structure on a selection of workloads, conducted using the \hackage{criterion}
 benchmarking library%
 \footnote{The benchmark machine runs Ubuntu 18.04 on an Intel Core i5-8500 with
-16GB RAM. All programs were compiled with \texttt{-O2 -fproc-alignment=64} to
-eliminate code layout flukes and run with \texttt{+RTS -A128M -RTS} for 128MB
-space in generation 0 in order to prevent major GCs from skewing the results.}.
+16GB RAM. All programs were compiled on GHC 9.0.2 with \texttt{-O2
+-fproc-alignment=64} to eliminate code layout flukes and run with \texttt{+RTS
+-A128M -RTS} for 128MB space in generation 0 in order to prevent major GCs from
+skewing the results.}.
 \Cref{fig:plot} presents a quick overview of the results. For a more in-depth
 analysis, finer runtime as well as space measurements and indicators for
 statistical significance we kindly refer to Appendix A.
 
 \subsubsection*{Setup}
 All benchmarks except the \benchname{fromList*} variants are handed a pre-built
-map containing $N$ expressions, each consisting of roughly $N$ |Expr| data
-constructors, and drawn from a pseudo-random source with a fixed (and thus
-deterministic) seed. $N$ is varied between 10 and 1000.
+map containing 10000 expressions, each consisting of roughly 100 |Expr| data
+constructors drawn from a pseudo-random source with a fixed (and thus
+deterministic) seed.
 
 We compare three different non-matching map implementations, simply because we
 were not aware of other map data structures with matching lookup modulo
@@ -2230,31 +2182,31 @@ Some clarification as to what our benchmarks measure:
 
 \begin{itemize}
   \item The \benchname{lookup} benchmark looks up every
-        expression that is part of the map. So for a map of size 100, we
-        perform 100 lookups of expressions each of which have approximately size
+        expression that is part of the map. So for a map of size 10000, we
+        perform 10000 lookups of expressions each of which have approximately size
         100.
   \item \benchname{lookup\_lam} is like \benchname{lookup}, but wraps a shared
-        prefix of $N$ layers of |(Lam "$")| around each expression.
+        prefix of 100 layers of |(Lam "$")| around each expression.
   \item The \benchname{fromList} benchmark a naïve |fromList|
         implementation on |ExprMap| against the tuned |fromList| implementations
         of the other maps, measuring map creation performance from batches.
 \end{itemize}
 
 \subsubsection*{Querying}
-The results show that lookup in |ExprMap| often wins against |Map Expr| and
-|HashMap Expr|. The margin is small on the completely random |Expr|s of
-\benchname{lookup}, but realistic applications of |ExprMap| often store
-|Expr|s with some kind of shared structure, as in \benchname{lookup\_lam}.
-There we see that |ExprMap| can win substantially against an ordered map
-representation: |ExprMap| looks at the shared prefix exactly once one lookup,
-while |Map| has to traverse the shared prefix of length $\mathcal{O}(N)$ on each
-of its $\mathcal{O}(\log N)$ comparisons.
+The results suggest that |ExprMap| is about as fast as |Map Expr| for
+completely random expressions in \benchname{lookup}. But in a more realistic
+scenario, at least some expressions share a common prefix, which is what
+\benchname{lookup\_lam} embodies. There we can see that |ExprMap| wins against
+|Map Expr| by a huge margin: |ExprMap| looks at the shared prefix exactly
+once on lookup, while |Map| has to traverse the shared prefix of length
+$\mathcal{O}(k)$ on each of its $\mathcal{O}(\log n)$ comparisons.
 
 Although |HashMap| loses on most benchmarks compared to |ExprMap| and |Map|, most
 measurements were consistently at most a factor of two slower than |ExprMap|.
 We believe that is due to the fact that it is enough to traverse the
 |Expr| twice during lookup barring any collisions (hash and then equate with the
-match), thus it is expected to scale similarly as |ExprMap|.
+match), thus it is expected to scale similarly as |ExprMap|. Thus, both |ExprMap|
+and |HashMap| perform much more consistently than |Map|.
 
 \subsubsection*{Modification}
 While |ExprMap| consistently wins in query performance, the edge is melting into

@@ -1,5 +1,5 @@
 name id ExprMap Map HashMap
-\benchname{lookup} 1 1.00 1.00 1.68 
-\benchname{lookup\_lam} 2 1.00 6.63 1.94 
-\benchname{fromList} 3 1.00 1.01 2.80 
-\benchname{union} 4 1.00 1.07 1.07 
+\benchname{lookup} 1 1.00 0.99 1.71 
+\benchname{lookup\_lam} 2 1.00 5.12 2.06 
+\benchname{fromList} 3 1.00 0.99 3.67 
+\benchname{union} 4 1.00 1.01 1.00 

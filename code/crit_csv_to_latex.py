@@ -125,8 +125,8 @@ for name in graph_names:
   inputs=table[name]
   id = id+1
   s = s+'\\benchname{'+name.replace('_','\\_')+'} '+str(id)+' '
-  e = 1000
-  n = 1000
+  e = 100
+  n = 10000
   measurements = inputs[(e, n)]
   (winner,_) = min([(v, measurements[v][0]) for v in variants], key=lambda p: p[1])
   for v in variants:
