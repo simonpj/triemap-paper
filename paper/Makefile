@@ -15,7 +15,7 @@ code: $(PAPER).o
 $(PAPER).tex: $(PAPER).lhs $(FMT_FILES)
 	lhs2TeX --set=main --unset=appendix -o $@ $<
 
-$(PAPER)_ext.tex: $(PAPER).lhs $(FMT_FILES)
+$(PAPER)_ext.tex: $(PAPER).lhs appendix.lhs $(FMT_FILES)
 	lhs2TeX --set=main --set=appendix -o $@ $<
 
 appendix.tex: $(PAPER).lhs appendix.lhs $(FMT_FILES)

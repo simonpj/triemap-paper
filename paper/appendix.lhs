@@ -13,7 +13,7 @@ Not bad for a data structure that we can also extend to support matching lookup!
 
 \subsection{Runtime} \label{sec:runtime}
 
-\begin{table}
+\begin{table*}
 
   \caption{Benchmarks of different operations over our trie map |ExprMap| (TM),
   ordered maps |Map Expr| (OM) and hash maps |HashMap Expr| (HM), varying the
@@ -38,7 +38,7 @@ Not bad for a data structure that we can also extend to support matching lookup!
   \end{tabular}
 
   \label{fig:runtime}
-\end{table}
+\end{table*}
 
 We measured the runtime performance of the (non-matching) |ExprMap| data
 structure on a selection of workloads, conducted using the \hackage{criterion}
@@ -134,7 +134,7 @@ That seems plausible given that $N$ linearly affects expression size and map
 size (and thus, number of lookups). But realistic workloads tend to have much
 larger map sizes than expression sizes!
 
-\begin{table}
+\begin{table*}
   \centering
   \caption{Varying expression size $E$ and map size $M$ independently on benchmarks
   \benchname{lookup} and \benchname{insert\_lookup\_one}.}
@@ -170,7 +170,7 @@ larger map sizes than expression sizes!
   }
 
   \label{fig:runtime-finer}
-\end{table}
+\end{table*}
 
 Let us see what happens if we vary map size $M$ and expression
 size $E$ independently for \benchname{lookup}. The results in
@@ -281,7 +281,7 @@ a sharable prefix involved.
 
 \subsection{Space}
 
-\begin{table}
+\begin{table*}
   \centering
   \caption{Varying expression size $E$ and map size $M$ while measuring the
   memory footprint of the different map implementions on 4 different expression
@@ -317,7 +317,7 @@ a sharable prefix involved.
   }
 
   \label{fig:space}
-\end{table}
+\end{table*}
 
 We also measured the memory footprint of |ExprMap| compared to |Map| and
 |HashMap|. The results are shown in \Cref{fig:space}. All four benchmarks simply
