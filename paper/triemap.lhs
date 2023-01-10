@@ -1703,10 +1703,14 @@ reader. We outline some of the difficulties of unifying lookup in Appendix B.
   % Indicate clipped bars by \cdots
   visualization depends on=rawy \as \rawy,
   nodes near coords={%
-    % Couldn't make \ifpgfmathfloatcomparison work, so I'm using a PGF match
-    % expression with a ternary returning a string
-    \pgfmathparse{\rawy>\pgfkeysvalueof{/pgfplots/ymax} ? "$\cdots$" : ""}%
-    \pgfmathresult\pgfmathprintnumber[precision=2,fixed zerofill]{\rawy}
+    \pgfmathfloatparsenumber{\rawy}%
+    \let\rawy\pgfmathresult%
+    \pgfmathfloatparsenumber{\pgfkeysvalueof{/pgfplots/ymax}}%
+    \pgfmathfloatlessthan{\pgfmathresult}{\rawy}%
+    \ifpgfmathfloatcomparison%
+      $\cdots$%
+    \fi%
+    \pgfmathprintnumber[precision=2,fixed zerofill]{\rawy}
   },
   restrict y to domain*={
     \pgfkeysvalueof{/pgfplots/ymin}:\pgfkeysvalueof{/pgfplots/ymax}
