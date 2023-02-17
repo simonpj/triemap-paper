@@ -1,0 +1,406 @@
+Haskell '22 Paper #64 Reviews and Comments
+===========================================================================
+Paper #64 Triemaps that Match
+
+
+Review #64A
+===========================================================================
+
+Overall merit
+-------------
+1. Reject
+
+Reviewer expertise
+------------------
+4. Expert
+
+Paper summary
+-------------
+In this paper, presented as a Pearl, the authors present the design of a small
+implementation of discrimination nets in Haskell for use in rewriting, which
+works on ordinary terms (including binders given as de Bruijn indices) instead
+of flatterms. The implementation presented is capable both of matching terms
+to terms and terms to patterns, although it only supports linear patterns (and
+hence only left-linear rewrite rules). They present definitions of terms,
+patterns, and two variations of triemaps.
+
+Comments for author
+-------------------
+This is a paper about a topic --- term indexing --- which I am quite excited
+about. I applaud the authors for trying to bring more awareness of term indexing
+to the Haskell community. I was so shocked when I read on the first page that
+GHC uses a naive linear-time matcher that I dove into the GHC source code to
+verify it (it does). As someone who cares strongly about GHC build times, it
+made me want to cry.
+
+The goal of this paper, as I understand it, is to give a clear exposition of
+discrimination trees and and explanation of an elegant design for implementing
+them in Haskell. Unfortunately, I don't think this paper does well on either
+goal.
+
+For ICFP, writing a Functional Pearl comes with a high bar for writing quality,
+and sometimes reviewers are instructed to stop reading when they get bored
+(though I read on). My main concern with this paper is that I perceive it
+to have a large number of writing issues --- not things that would sink a
+technical paper, but definitely things that are deep negatives for a paper whose
+contribution is "an exposition of some old ideas in a new context."
+
+I'll give one example that I believe is exemplary of a recurring writing issue
+in this paper.
+
+"The key point is this: nothing in this section is concerned
+with tries. Here we are simply concerned with the mechanics
+of matching, and its underlying monad. [...]" (lines 817-819)
+
+The first issue: This passage is a form of retroactive organization, telling me
+what I just read and its motivation. I would have much preferred to have this
+up-front, so that it can help me form a mental map as I'm reading the material
+--- and where it can be stated more directly, with fewer words.
+
+The second issue is in the next few sentences:they are very low on information
+content. This example may be idiosyncratic to me (as someone who has implemented
+a Match monad multiple times), but I spotted many other examples of sentences or
+passages with zero-to-no information, e.g. lines 557-559 (since it's so easy,
+can just give the code).
+
+In fact, to be more aggressive one could argue that a large chunk of this paper
+is low information because much of the code can indeed be generated, saving
+the need to read about several variants of the same thing. I would personally
+recommend cutting sections 3.3-3.8, which present fairly ordinary data structure
+code in great detail, but take up 1/3 of the paper and a lot of mental energy.
+
+There’s another notable writing issue too: there are no pictures/diagrams.
+Pictures would make this paper massively more readable for someone who does
+not already know what discrimination trees are, as appears to be the intended
+audience.
+
+The paper also claims that readers will benefit because of tricky choices made
+in their implementation that others may fine insightful. I definitely cannot say
+this is true for me. The `Matchable` class looks like something I’ve written on
+more than one occasion, slightly more parameterized, and I don’t recall having
+put hard thought into it. Similarly, the TrieMap class looks like the ordinary
+way to generalize Data.Map into a type class.
+
+I did actually learn one thing from this paper — the idea of using a nested
+trie type so that discrimination nets can be run on ordinary terms instead of
+flatterms. But this idea, which I do find quite clever, is buried in the middle.
+I had a look at Hinze's paper, and it appears that the application of this idea
+to discrimination trees is indeed a novel contribution.
+
+I actually had reason to look back at my own implementation of discrimination
+trees shortly before bidding on this paper and explain it to others. It was
+about 40 lines of fairly straightforward code. Reading this paper, I am sad
+to report that my dominant feeling was “How does it manage to make this so
+complicated?” I cannot recommend it in its current form as a fit for the
+Functional Pearl track.
+
+Smaller issues:
+
+Lines 63-65 (“The matching task is also well studied but, surprisingly,
+only in the automated reasoning community (Section 7.1): they use so-called
+discrimination trees”) turned me off immensely. First, because it does not
+acknowledge work done within the PL and FM communities on matching, such as work
+on Maude. Second, because it also presents the entire field of term indexing
+as having contributing only a single data structure. E.g.: when I read this, I
+immediately think “Don’t many of them use path index trees?”
+
+Lines 210-224: I see both of these comparisons as straw men. The binary tree
+will not look logarithmically deep for most comparisons; it will only look
+as deep as there is an exact match. It is spiritually similar to a very
+cheap term indexing scheme, a hash table keyed by the root node, which I’ve
+seen successfully deployed in a commercial system routinely used to rewrite
+multi-million line codebases. Hashes can be computed in constant-time given
+the right representation (either one with a cached hash, or, even better, a
+hash-consed representation, such as the one given by ekmett's `intern` library).
+
+Lines 225-226: Actually, I’m pretty sure binary trees do support matching
+lookup: just use an “equality” operations where `<a pattern variable> == <any
+term> = True`..
+
+Section 3.8: This use case sounds like a strong match for the GHC.Generics
+library. However, calling the last several sections worth of code “tiresome
+boilerplate” is reason to not include it at all, especially in a Pearl.
+
+
+
+Review #64B
+===========================================================================
+
+Overall merit
+-------------
+4. Accept
+
+Reviewer expertise
+------------------
+3. Knowledgeable
+
+Paper summary
+-------------
+"Triemaps that match" is a functional pearl presenting a framework / design
+pattern for building Haskell implementations of map data structures supporting
+matches.  Resulting data structures not only support the regular Map operation
+such as lookup, union, fold, map and filter, but also matching in case of
+expressions containing variables.  Regular operations are no slower than the
+standard Haskell ordered Map.
+
+The authors point out that the actual data-structure idea is not novel, but
+its application in Haskell is interesting -- hence a functional pearl.  The
+authors note GHC's matching lookups (and rewrite rules) as potential places for
+applying these data structures.  Other potential places (not listed in the
+paper) could be Twee's expression matcher or the expression matcher in
+QuickSpec used for equational discovery.
+
+Comments for author
+-------------------
+Overall I like the paper.  I found it to be approachable/readable with a good
+structure and pace, though one has to slow down in a few places while reading.
+
+I like the relative beginner-friendliness:
+
+* deviations from "vanilla" Haskell are noted and explained, e.g.:
+  when associated type synonyms are used they are briefly explained in a couple
+  sentences with a citation to the original paper.
+
+* alpha-renaming is exemplified.
+
+* De Bruijn numbering is exemplified and not taken as common knowledge.
+
+* In 3.2, a more verbose Haskell definition is placed besides a
+  concise-but-cryptic combinator version.
+
+I note my comments below, including suggestions for improvements in the
+Evaluation (benchmarks) section.
+
+
+### 0. Title
+
+I like the short title for a change.  :-)
+
+
+### 1. Introduction
+
+* Good motivation in the initial paragraphs.
+
+* About the GHC application listed in the motivation:
+  another possible application is the property discovery as in QuickSpec (cf.
+  "Quick specifications for the busy programmer", 2017).  Perhaps this could be
+  mentioned later in the related work section.
+
+* (optional) use "variable renamings ($\alpha$-renaming)"?
+
+* Figure 1 is placed too far from where it is referred to.  It is placed before
+  Section 2, but is only talked about on Section 3.  (Halfway into the
+  following page.)
+
+### 2. The problem we address
+
+* 2.1. I appreciate the example of alpha-renaming.
+
+* 2.3. "Indeed that works, but it is terribly slow."
+  I don't think a total order would suffice for matching as described in the
+  previous section.  Maybe you mean "Indeed that works for exact lookups, but
+  it is terribly slow."  Later in the same section you state the contrary:
+  "neither binary search trees ... is compatible with matching lookup".
+
+
+### 3. Tries
+
+* Footnote 1, I enjoy the Wikipedia link but I think it should be accompanied
+  by a textbook citation as well.  (Keeping the Wikipedia link alongside is
+  fine.)
+
+* About the second paragraph ("The lookup function lkEM"), my early notes read
+  "What if it matches two keys?"  In hindsight, I now know that lkEM and atEM
+  only work for exact matches as actual matching is discussed later.  But maybe
+  stating this here somehow would make things clearer?
+
+* 3.1. The definitions of `insertEM` and `deleteEM` are nice.
+
+* 3.1. After stating "a finite map must obey the following properties:",
+  the actual laws are written about "lookup", "alter".
+  Aren't they supposed to be about "lkEM" and "atEM" instead?
+
+* 3.2. "Here is a trie-based implementaion for Expr:",
+  I think you mean "... for ExprMap"
+
+* 3.2. I like that there is a verbose definition of lkEM before the abbreviated
+  version.
+
+* 3.6. Instead of defining `foldrEM`, you could have used a `Foldable`
+  instance.  Here, I actually like that Foldable was avoided: it fits better
+  with the other `*EM` functions and avoids a level of indirection for the
+  reader.
+
+* 3.6. I appreciate the short explanation of associated types.  It makes the
+  paper approachable to a wider audience.
+
+* 3.7. The code throughout section 3.7 goes over the margins in several places.
+
+* 3.7. "it is far from clear that it is worth doing so".  In an application
+  where there are half as deletions as there are insertions, wouldn't there be
+  an impact?  This is not "far from clear" to me.
+
+
+### 4. Keys with binders
+
+* I appreciate the short De Bruijn numbering explanation in the second
+  paragraph as well as in footnote number 6.  Again, it makes the paper
+  approachable to a wider audience.
+
+* Maybe the citation to [de Bruijn 1972] could be moved to (or duplicated in)
+  the first occurrence earlier in the section?
+
+* The second column of section 4 was a bit harder to follow than the rest of
+  the paper.  Maybe there's to much code at once here: 23+9 lines.  (9 from the
+  referenced figure.)  This is a minor suggestion.
+
+
+### 5. Tries that match
+
+* 5.1. I like the short in-context re-explanation of associated types right
+  after the `Matchable` typeclass definition.
+
+* 5.5. What do you mean by _unify_?  What is unification?
+  I think here the paper could use a citation here (perhaps to "Term Rewriting
+  and All That" or another textbook).  ...and/or maybe a couple sentences
+  explaining.
+
+
+### 6. Evaluation
+
+* "apples to apples" (1): I like the comparison with "conventional" maps for
+  "conventional" map operations.  I also like that the relative time is
+  unchanged (and actually faster for `lookup_lam`).
+
+* "apples to apples" (2): the thing that is "new" in the data structure being
+  described is the support for matching, yet this was not benchmarked!  Since
+  there is no other efficient data structure to compare, I would like to see at
+  least some superficial comparison with linear search (in a simple list).  How
+  fast is TrieMap for matching compared to linear search on list with 1 Expr
+  key?  What about with 10 keys?  100 keys?  1000 keys?  I assume matching in a
+  map with 1 key will be faster with linear search and with 1000 keys is faster
+  with the `TrieMap`.  But when do the lines cross?
+
+* "apples to apples" (3): ... but I actually think there is a map data
+  structure that could be compared: the `Index` datatype from the `Twee.Index`
+  module in the `twee-lib` package.  Glancing at Twee's code, I don't think the
+  underlying `Term` datatype has lambdas, it's more akin to the "Expr" datatype
+  as given in the start of section 3.  Nevertheless, it does support matching,
+  so I think it could be compared to your proposed `TrieMap` library.  The
+  `Index` is not polymorphic though, and only works for matching Twee's term
+  datatype, which would limit the comparison and (possibly) make it a tad bit
+  difficult.  Note Twee's `Index` is a Trie as well.
+
+* Footnote 10.  It is nice that this is here.  I appreciate the details of the
+  system where the benchmarks were run for reproducibility.
+
+* You mention "The lookup benchmark looks up every expression that is part of
+  the map.".  So you are only measuring matches that return a result?  What
+  about including searches for values that are not in the map?  Would they
+  yield different benchmark results?  I would guess lookups of non-existing
+  keys to be a slower process in both conventional and trie maps, but how much
+  slower?  The benchmarks would perhaps be better if these were included as
+  well.
+
+
+### 7. Related work
+
+* Footnote 15: the link to `StringMap` is broken, it says "package not found".
+
+* You reference `twee-lib` in a footnote to its Hackage package.
+  There's an actual paper published about Twee in CADE 2021 titled "Twee: An
+  Equational Theorem Prover" by N. Smallbone.  Maybe citing that as well as the
+  link to the library would be more proper.
+
+
+### Appendix A and B
+
+There are several places with `??` and `[?]` instead of actual citations or
+back references.
+
+
+### TrieMap.hs
+
+The code typechecks.  :-)
+
+
+
+Review #64C
+===========================================================================
+
+Overall merit
+-------------
+2. Weak reject
+
+Reviewer expertise
+------------------
+4. Expert
+
+Paper summary
+-------------
+The paper presents a trie data structure used in the GHC source code. Unlike
+ordinary tries, this variant allows the keys to be trees, rather than just
+sequences. The paper also presents two generalizations: support for keys that
+contain binders, which is implemented with an internal deBruijn-ization in the
+keys; and support for inserting keys that contains patterns (i.e., inserting a
+whole family of tree at once), which requires modification to lookup to check if
+the concrete key that is being looked up matches a pattern in the trie's key.
+
+Comments for author
+-------------------
+The ideas presented in the paper are relatively well know (e.g., GHC has used
+this data structure for many years, the theorem prover Isabelle has a similar
+structure for looking up terms, and in-fact the `generic-trie` package on
+Hackage implements the basic tree-indexed trie generically).
+
+Still, it would be nice to have a concise explanation of the data structure
+rather than it just being functional programming "folklore". Unfortunately,
+I don't think the paper does a very good job presenting the ideas, and---for
+me---does not raise to the standard of elegance I'd expect from a functional
+pearl.
+
+Here is a list of some aspects that I think could be improved:
+  * Having an example, such as lambda terms, troughout the paper is nice, but
+    the paper never really goes beyond the example, except *very* briefly in
+    Section 3.8. It would be useful to spent more time discussing the actual
+    design pattern, rather than leaving it to the reader to figure it out. There
+    should also be some discussion on *why* the approach works (i.e., we are
+    essentially linarizing the tree)
+  * After most code snippets, the text describes what the code snippet does.
+    This is not terribly interesting, especially assuming that the reader already
+    knows Haskell and can just read the code. It'd be better to have describe
+    *why* the code is written as is, rather than *what* the code does
+  * In a few places the paper first presents a wrong solution, and then later
+    points out why it doesn't work. I thought that was quite confusing, as when
+    looking at the proposed solution I couldn't understand why it *would* work,
+    and I thought I was misunderstanding something. The "empty trie" case was a
+    good example of that---it really shouldn't be *that* surprising that having
+    an infinite structure is not going to work well as soon as you try to, say,
+    serialize it, unless you do something clever to make the sharing observable.
+  * The singleton case optimization was mildly interesting, but it is just an
+    optimization and could be added *after* the fact, not in the middle of the
+    explanation. It would also be interesting to know how much of a benefit does
+    this optimization actually have.
+  * The DeBruijn-izatoin trick I though was nice. It'd be nice to point out that
+    it works well because you don't rewrite the keys so there's no need to do any
+    of the usual renumbering when dealing with such indexes
+  * The "tries that match" part had me quite confused for a bit, because it
+    has two possible interpretations and I picked the different from the paper.
+    In particular, I thought that the objective was to lookup things using a
+    pattern (i.e. generalize the *lookup* function to allow keys such as ("A"
+    : x : "B") where `x` is a variable, and have the data structure return the
+    keys and values of all matching entries in the trie (i.e., no patterns in
+    the trie, patterns in the lookup). The paper does exactly the opposite: it
+    allows inserting patterns in the tries, but the lookup keys are concrete. This
+    is a perfectly fine (and useful) thing to do, however, it should be called
+    out early on. It would also have been more obvious if we'd started with the
+    user-facing API and then do the implementation, rather than the other way
+    around.
+  * Finally, even though there is some evaluation in the paper, it would
+    have been nice to go a bit deeper here, especially since GHC already uses
+    this data-structure. In particular, when I've experimented with using, in
+    many cases things actually got *slower* compared to just using a map. I
+    strongly suspect that this very much depends on the lookup patterns (e.g.,
+    maps often can fail pretty quickly) and the data involved and which way the
+    linearlization was done (e.g. if I have a pair `(A,B)` the sharing can happen
+    either way; the trie likes it the one way but not the other).
