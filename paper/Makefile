@@ -55,9 +55,24 @@ watch:
 appendix_watch:
 	ls *.fmt *.tex *.lhs | entr make appendix_fast
 
+# For submission to arXiv
+arxiv.zip: $(PAPER)_ext.tex refs.bib
+	@rm -rf arxiv.zip
+	@mkdir -p arxiv/
+	@# We need to convince arxiv to use pdflatex
+	echo "\pdfoutput=1" | cat - $< > arxiv/$<
+	bibtex $(basename $<)
+	cp $(PAPER)_ext.bbl arxiv/
+	cp $(wildcard bench-*) arxiv/
+	@# Also arxiv uses hypertex, which doesn't really work for us because we are using cleveref
+	echo "nohypertex" > arxiv/00README.XXX
+	cd arxiv && zip -r ../arxiv.zip .; cd ..
+	@rm -rf arxiv
+
 clean:
 	rm -f *.hi *.o *.ptb
 	rm -f $(PAPER).pdf $(PAPER).tex $(PAPER).hs
+	rm -rf arxiv
 
 .PHONY: all clean code main appendix extended fast appendix_fast watch appendix_watch
 .SECONDARY:

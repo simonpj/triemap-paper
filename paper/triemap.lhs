@@ -367,7 +367,7 @@ instance Eq Expr where
 % \titlenote{with title note}             %% \titlenote is optional;
 %                                         %% can be repeated if necessary;
 %                                         %% contents suppressed with 'anonymous'
-\subtitle{Functional pearl}                     %% \subtitle is optional
+\subtitle{Technical Report}               %% \subtitle is optional
 % \subtitlenote{with subtitle note}       %% \subtitlenote is optional;
 %                                         %% can be repeated if necessary;
 %                                         %% contents suppressed with 'anonymous'
