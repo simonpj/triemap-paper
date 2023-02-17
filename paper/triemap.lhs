@@ -394,14 +394,6 @@ instance Eq Expr where
 }
 \email{simon.peytonjones@@gmail.com}
 
-\author{Richard A.~Eisenberg}
-\affiliation{
-  \institution{Tweag I/O}
-  \city{Cambridge}
-  \country{UK}
-}
-\email{rae@@richarde.dev}
-
 \author{Sebastian Graf}
 \affiliation{%
   \institution{Karlsruhe Institute of Technology}
