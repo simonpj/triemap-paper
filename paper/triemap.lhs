@@ -4,8 +4,10 @@
 % https://stackoverflow.com/questions/16084788/generic-trie-haskell-implementation
 % Hinze paper: http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.8.4069
 
+\documentclass{llncs}
+
 %% For double-blind review submission, w/o CCS and ACM Reference (max submission space)
-\documentclass[sigplan,review,dvipsnames]{acmart}\settopmatter{printfolios=true,printccs=false,printacmref=false}
+% \documentclass[sigplan,review,dvipsnames]{acmart}\settopmatter{printfolios=true,printccs=false,printacmref=false}
 %% For double-blind review submission, w/ CCS and ACM Reference
 %\documentclass[sigplan,review,anonymous]{acmart}\settopmatter{printfolios=true}
 %% For single-blind review submission, w/o CCS and ACM Reference (max submission space)
@@ -19,20 +21,21 @@
 %% Journal information
 %% Supplied to authors by publisher for camera-ready submission;
 %% use defaults for review submission.
-\acmJournal{PACMPL}
-\acmVolume{1}
-\acmNumber{ICFP} % CONF = POPL or ICFP or OOPSLA
-\acmArticle{1}
-\acmYear{2022}
-\acmMonth{5}
-\acmDOI{} % \acmDOI{10.1145/nnnnnnn.nnnnnnn}
-\startPage{1}
+
+% \acmJournal{PACMPL}
+% \acmVolume{1}
+% \acmNumber{ICFP} % CONF = POPL or ICFP or OOPSLA
+% \acmArticle{1}
+% \acmYear{2022}
+% \acmMonth{5}
+% \acmDOI{} % \acmDOI{10.1145/nnnnnnn.nnnnnnn}
+% \startPage{1}
 
 %% Copyright information
 %% Supplied to authors (based on authors' rights management selection;
 %% see authors.acm.org) by publisher for camera-ready submission;
 %% use 'none' for review submission.
-\setcopyright{none}
+% \setcopyright{none}
 %\setcopyright{acmcopyright}
 %\setcopyright{acmlicensed}
 %\setcopyright{rightsretained}
@@ -43,7 +46,7 @@
 %% Citation style
 %% Note: author/year citations are required for papers published as an
 %% issue of PACMPL.
-\citestyle{acmauthoryear}   %% For author/year citations
+% \citestyle{acmauthoryear}   %% For author/year citations
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -61,7 +64,7 @@
 \usepackage[utf8]{inputenc}
 \usepackage{microtype}
 \usepackage{amsmath}
-\usepackage{amsthm}
+% \usepackage{amsthm}
 % \usepackage{amssymb}
 % \usepackage{stmaryrd}
 \usepackage{framed}
@@ -91,27 +94,27 @@
 
 \let\restriction\relax
 
-\theoremstyle{theorem}
-\newtheorem{proposition}{Proposition}
-\newtheorem{lemma}{Lemma}
-\newtheorem{theorem}{Theorem}
-\newtheorem{corollary}{Corollary}
-\newtheorem{property}{Property}
-\theoremstyle{definition}
-\newtheorem{definition}{Definition}
-\newtheorem{restriction}{Restriction}
-\newtheorem{intuition}{Intuition}
-\theoremstyle{remark}
-\newtheorem{remark}{Remark}
-\newtheorem{notation}{Notation}
+% \theoremstyle{theorem}
+% \newtheorem{proposition}{Proposition}
+% \newtheorem{lemma}{Lemma}
+% \newtheorem{theorem}{Theorem}
+% \newtheorem{corollary}{Corollary}
+% \newtheorem{property}{Property}
+% \theoremstyle{definition}
+% \newtheorem{definition}{Definition}
+% \newtheorem{restriction}{Restriction}
+% \newtheorem{intuition}{Intuition}
+% \theoremstyle{remark}
+% \newtheorem{remark}{Remark}
+% \newtheorem{notation}{Notation}
 
 \crefname{figure}{Fig.}{Figs.}
 \Crefname{figure}{Fig.}{Figs.}
 \crefname{restriction}{Restriction}{Restrictions}
 
 % Tables should have the caption above
-\floatstyle{plaintop}
-\restylefloat{table}
+% \floatstyle{plaintop}
+% \restylefloat{table}
 
 \clubpenalty = 1000000
 \widowpenalty = 1000000
@@ -186,10 +189,13 @@
   {}
 
 %include rae.fmt
-\newcommand{\keyword}[1]{\textcolor{BlueViolet}{\textbf{#1}}}
+% \newcommand{\keyword}[1]{\textcolor{BlueViolet}{\textbf{#1}}}
+\newcommand{\keyword}[1]{{\textbf{#1}}}
 \newcommand{\id}[1]{\textsf{\textsl{#1}}}
-\newcommand{\varid}[1]{\textcolor{Sepia}{\id{#1}}}
-\newcommand{\conid}[1]{\textcolor{OliveGreen}{\id{#1}}}
+% \newcommand{\varid}[1]{\textcolor{Sepia}{\id{#1}}}
+\newcommand{\varid}[1]{{\id{#1}}}
+% \newcommand{\conid}[1]{\textcolor{OliveGreen}{\id{#1}}}
+\newcommand{\conid}[1]{{\id{#1}}}
 \newcommand{\tick}{\text{\textquoteright}}
 \newcommand{\package}[1]{\textsf{#1}}
 
@@ -385,22 +391,22 @@ instance Eq Expr where
 
 %% Author with single affiliation.
 \author{Simon Peyton Jones}
-\affiliation{
-  \institution{Epic Games}
-  % \streetaddress{21 Station Rd.}
-  \city{Cambridge}
-  % \postcode{CB1 2FB}
-  \country{UK}
-}
-\email{simon.peytonjones@@gmail.com}
+% \affiliation{
+%   \institution{Epic Games}
+%   % \streetaddress{21 Station Rd.}
+%   \city{Cambridge}
+%  % \postcode{CB1 2FB}
+%  \country{UK}
+% }
+% \email{simon.peytonjones@@gmail.com}
 
 \author{Sebastian Graf}
-\affiliation{%
-  \institution{Karlsruhe Institute of Technology}
-  \city{Karlsruhe}
-  \country{Germany}
-}
-\email{sebastian.graf@@kit.edu}
+% \affiliation{%
+%   \institution{Karlsruhe Institute of Technology}
+%  \city{Karlsruhe}
+%  \country{Germany}
+% }
+% \email{sebastian.graf@@kit.edu}
 
 % Some conditional build stuff for handling the Appendix
 % Both conditionals, main and appendix, will be set from the Makefile depending
@@ -469,7 +475,7 @@ In this paper we apply these
 ideas in the context of a statically-typed functional programming language, Haskell.
 This shift of context is surprisingly fruitful, and we make the following contributions:
 \begin{itemize}
-\item Following \citet{hinze:generalized}, we develop a standard pattern for
+\item Following \cite{hinze:generalized}, we develop a standard pattern for
   a \emph{statically-typed triemap} for an arbitrary algebraic data type (\Cref{sec:basic}). In
   contrast, most of the literature describes untyped tries for a
   fixed, generic tree type.
@@ -1879,7 +1885,7 @@ not just common \emph{prefixes}. (It is not clear whether the extra complexity o
 substitution trees pays its way.)  Z3 uses \emph{E-matching code trees}, which solve
 for matching modulo an ever-growing equality relation, useful in saturation-based
 theorem provers.  All of these techniques except E-matching are surveyed in
-\citet{handbook:2001}.
+\cite{handbook:2001}.
 
 If we applied our ideas to |MTrieKey| we would get a single-field triemap which
 (just like |lookupDT|) would initially branch on |Fun|, and then go though
@@ -1929,7 +1935,7 @@ irrelevant: the infinite trie is built once, and then used only for lookup.
 A second strand of work concerns data type generic, or polytypic, approaches to
 generating tries, which nicely complements the design-pattern approach
 of this paper (\Cref{sec:generic}).
-\citet{hinze:generalized} describes the polytypic approach,
+\cite{hinze:generalized} describes the polytypic approach,
 for possibly parameterised and nested data types in some detail, including the
 realisation that we need |alter| and |unionWith| in order to define |insert| and
 |union|.
@@ -1953,9 +1959,9 @@ It is however unclear how to extend \varid{twee}'s |Index| to support
 $\alpha$-equivalence, hence we did not consider it for our benchmarks in
 \Cref{sec:eval}.
 
-\begin{acks}
+% \begin{acks}
 We warmly thank Leonardo de Moura and Edward Yang for their very helpful feedback.
-\end{acks}
+% \end{acks}
 
 % \subsection{Notes from Sebastian}
 %
@@ -1969,7 +1975,7 @@ We warmly thank Leonardo de Moura and Edward Yang for their very helpful feedbac
 
 We presented trie maps as an efficient data structure for representing a set of
 expressions modulo $\alpha$-equivalence, re-discovering polytypic deriving
-mechanisms described by~\citet{hinze:generalized}. Subsequently, we showed how to
+mechanisms described by~\cite{hinze:generalized}. Subsequently, we showed how to
 extend this data structure to make it aware of pattern variables in order to
 interpret stored expressions as patterns. The key innovation is that the
 resulting trie map allows efficient matching lookup of a target expression
