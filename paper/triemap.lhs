@@ -392,23 +392,11 @@ instance Eq Expr where
 %% extraction tools.
 
 %% Author with single affiliation.
-\author{Simon Peyton Jones}
-% \affiliation{
-%   \institution{Epic Games}
-%   % \streetaddress{21 Station Rd.}
-%   \city{Cambridge}
-%  % \postcode{CB1 2FB}
-%  \country{UK}
-% }
-% \email{simon.peytonjones@@gmail.com}
-
-\author{Sebastian Graf}
-% \affiliation{%
-%   \institution{Karlsruhe Institute of Technology}
-%  \city{Karlsruhe}
-%  \country{Germany}
-% }
-% \email{sebastian.graf@@kit.edu}
+\author{
+  Simon Peyton Jones\inst{1} \and
+  Sebastian Graf\inst{2}
+}
+\institute{Epic Games \and Karlsruhe Institute of Technology}
 
 % Some conditional build stuff for handling the Appendix
 % Both conditionals, main and appendix, will be set from the Makefile depending
