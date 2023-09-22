@@ -61,9 +61,11 @@
                         %% http://ctan.org/pkg/booktabs
 \usepackage{subcaption} %% For complex figures with subfigures/subcaptions
                         %% http://ctan.org/pkg/subcaption
+\usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
 \usepackage{microtype}
 \usepackage{amsmath}
+\usepackage{url}
 % \usepackage{amsthm}
 % \usepackage{amssymb}
 % \usepackage{stmaryrd}
