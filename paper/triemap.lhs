@@ -1076,11 +1076,11 @@ This is great when there are a lot of keys with shared structure, but
 once we are in a sub-tree that represents a \emph{single} key-value pair it is
 a rather inefficient way to represent the key.  So a simple idea is this:
 when a |ExprMap| represents a single key-value pair, represent it
-as directly a key-value pair, like this:
+directly as a key-value pair, like this:
 \begin{code}
-data ExprMap v  = EmptyEM
-                | SingleEM Expr v   -- A single key/value pair
-                | EM { em_var :: ..., em_app :: ... }
+data ExprMap v  =  EmptyEM
+                |  SingleEM Expr v   -- A single key/value pair
+                |  EM { em_var :: ..., em_app :: ... }
 \end{code}
 But in the triemap for for each new data type |X|,
 we will have to tiresomely repeat these extra data constructors, |EmptyX| and |SingleX|.
@@ -1089,9 +1089,9 @@ of \Cref{sec:class}.
 It is better instead to abstract over the enclosed triemap, as follows%
 \footnote{|SEMap| stands for \enquote{singleton or empty map}.}:
 \begin{code}
-data SEMap tm v  = EmptySEM
-                 | SingleSEM (TrieKey tm) v
-                 | MultiSEM  (tm v)
+data SEMap tm v  =  EmptySEM
+                 |  SingleSEM (TrieKey tm) v
+                 |  MultiSEM  (tm v)
 
 instance TrieMap tm => TrieMap (SEMap tm) where
   type TrieKey (SEMap tm) = TrieKey tm
@@ -1438,9 +1438,9 @@ Remember, a matching trie represents a set of (pattern,value) pairs.}.
 
 We can generalise |SEMap| (\Cref{sec:singleton}) in a similar way:
 \begin{code}
-data MSEMap tm v  = EmptyMSEM
-                  | SingleMSEM (Pat (MTrieKey tm)) v
-                  | MultiMSEM  (tm v)
+data MSEMap tm v  =  EmptyMSEM
+                  |  SingleMSEM (Pat (MTrieKey tm)) v
+                  |  MultiMSEM  (tm v)
 
 instance MTrieMap tm => MTrieMap (MSEMap tm) where
   type MTrieKey (MSEMap tm) = MTrieKey tm
