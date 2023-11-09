@@ -1904,6 +1904,14 @@ in our triemaps.   For example, when a variable is repeated in a pattern we can
 eagerly check for equality during the match, or instead gather an equality constraint
 and check those constraints at the end \cite[Section 26.14]{handbook:2001}.
 
+A related application of matching tries appear in
+\citet{linked-visualisations}[Section 2.2], where \emph{eliminators} express
+both parameter-binding and pattern-matching in a single Core language construct,
+not unlike GHC's own @-XLambdaCase@ extension.
+They realise that their big-step interpreter implements eliminators via special
+generalised tries that can express variable matching -- which corresponds to our
+triemaps applied to linear patterns.
+
 \subsection{Haskell triemaps}
 
 Trie data structures have found their way into numerous Haskell packages over time.
@@ -1949,10 +1957,6 @@ It is however unclear how to extend \varid{twee}'s |Index| to support
 $\alpha$-equivalence, hence we did not consider it for our benchmarks in
 \Cref{sec:eval}.
 
-% \begin{acks}
-We warmly thank Leonardo de Moura and Edward Yang for their very helpful feedback.
-% \end{acks}
-
 % \subsection{Notes from Sebastian}
 %
 % \begin{itemize}
@@ -1972,6 +1976,9 @@ resulting trie map allows efficient matching lookup of a target expression
 against stored patterns. This pattern store is quite close to discrimination
 trees~\cite{handbook:2001}, drawing a nice connection to term indexing problems
 in the automated theorem proving community.
+
+\section*{Acknowledgments}
+We warmly thank Leonardo de Moura and Edward Yang for their very helpful feedback.
 
 \bibliography{refs}
 
