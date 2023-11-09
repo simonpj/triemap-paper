@@ -1905,9 +1905,9 @@ eagerly check for equality during the match, or instead gather an equality const
 and check those constraints at the end \cite[Section 26.14]{handbook:2001}.
 
 A related application of matching tries appear in
-\citet{linked-visualisations}[Section 2.2], where \emph{eliminators} express
+\cite[Section 2.2]{linked-visualisations}, where \emph{eliminators} express
 both parameter-binding and pattern-matching in a single Core language construct,
-not unlike GHC's own @-XLambdaCase@ extension.
+with a semantics not unlike GHC's own @-XLambdaCase@ extension.
 They realise that their big-step interpreter implements eliminators via special
 generalised tries that can express variable matching -- which corresponds to our
 triemaps applied to linear patterns.
