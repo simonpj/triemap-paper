@@ -56,12 +56,12 @@ appendix_watch:
 	ls *.fmt *.tex *.lhs | entr make appendix_fast
 
 # For submission to arXiv
-arxiv.zip: $(PAPER)_ext.tex refs.bib
+arxiv.zip: extended refs.bib
 	@rm -rf arxiv.zip
 	@mkdir -p arxiv/anc/
 	@# We need to convince arxiv to use pdflatex
-	echo "\pdfoutput=1" | cat - $< > arxiv/$<
-	bibtex $(basename $<)
+	echo "\pdfoutput=1" | cat - $(PAPER)_ext.tex > arxiv/$(PAPER)_ext.tex
+	bibtex $(PAPER)_ext
 	cp $(PAPER)_ext.bbl arxiv/
 	cp $(wildcard bench-*) arxiv/
 	@# Supplement
