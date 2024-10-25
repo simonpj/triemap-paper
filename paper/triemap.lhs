@@ -17,10 +17,10 @@
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
 %\usepackage{microtype}
-%\usepackage{amsmath}
 \usepackage{url}
 % \usepackage{amsthm}
 % \usepackage{amssymb}
+\usepackage{amsmath}
 % \usepackage{stmaryrd}
 %\usepackage{framed}
 %\usepackage{proof}
