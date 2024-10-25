@@ -58,12 +58,14 @@ appendix_watch:
 # For submission to arXiv
 arxiv.zip: $(PAPER)_ext.tex refs.bib
 	@rm -rf arxiv.zip
-	@mkdir -p arxiv/
+	@mkdir -p arxiv/anc/
 	@# We need to convince arxiv to use pdflatex
 	echo "\pdfoutput=1" | cat - $< > arxiv/$<
 	bibtex $(basename $<)
 	cp $(PAPER)_ext.bbl arxiv/
 	cp $(wildcard bench-*) arxiv/
+	@# Supplement
+	cp ../code/TrieMap.hs arxiv/anc/
 	@# Also arxiv uses hypertex, which doesn't really work for us because we are using cleveref
 	echo "nohypertex" > arxiv/00README.XXX
 	cd arxiv && zip -r ../arxiv.zip .; cd ..
