@@ -1831,11 +1831,13 @@ $\mathcal{O}(n)$ |toMap| implementation for |Map|.
 
 Matching triemaps have been used in the automated reasoning community for
 decades, where they are recognised as a kind of \emph{term
-index}~\cite{handbook:2001}. An automated reasoning system has
-hundreds or thousands of axioms, each of which is quantified over
-some variables (just like the RULEs described in \Cref{sec:matching-intro}). Each of these
-axioms might apply at any sub-tree of the term under consideration, so efficient
-matching of many axioms is absolutely central to the performance of these systems.
+index}~\cite{handbook:2001}, a data structure that allows efficient lookup and
+matching of terms such as logic formulas or program expressions.
+An automated reasoning system has hundreds or thousands of axioms, each of
+which is quantified over some variables (just like the RULEs described in
+\Cref{sec:matching-intro}). Each of these axioms might apply at any sub-tree of
+the term under consideration, so efficient matching of many axioms is absolutely
+central to the performance of these systems.
 
 This led to a great deal of work on so-called \emph{discrimination trees}, starting
 in the late 1980's, which is beautifully surveyed in the Handbook of Automated Reasoning
