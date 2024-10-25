@@ -1829,9 +1829,9 @@ $\mathcal{O}(n)$ |toMap| implementation for |Map|.
 
 \subsection{Matching triemaps in automated reasoning} \label{sec:discrim-trees}
 
-Matching triemaps, a kind of \emph{term index}~\cite{handbook:2001}, have been
-used in the automated reasoning community for decades.
-An automated reasoning system has
+Matching triemaps have been used in the automated reasoning community for
+decades, where they are recognised as a kind of \emph{term
+index}~\cite{handbook:2001}. An automated reasoning system has
 hundreds or thousands of axioms, each of which is quantified over
 some variables (just like the RULEs described in \Cref{sec:matching-intro}). Each of these
 axioms might apply at any sub-tree of the term under consideration, so efficient
