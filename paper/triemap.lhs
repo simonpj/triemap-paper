@@ -205,8 +205,6 @@
 %format propertyImpl name (vars) (premise) (lhs) (rhs) = premise "\Rightarrow" lhs "\equiv" rhs
 
 % Abbreviations
-%format realLookupEM = "\varid{lookupEM}"
-%format realAlterEM = "\varid{alterEM}"
 %format lookupEM = lkEM
 %format lookupTM = lkTM
 %format lookupMM = lkMM
@@ -479,7 +477,7 @@ This shift of context is surprisingly fruitful, and we make the following contri
       for polymorphic data types, such as lists (\Cref{sec:class}).
 
     \item We cover the full range of operations expected for finite maps:
-      not only |insert|ion and |lookup|, but |alter|, |union|, |fold|, |map| and |filter|
+      not only |insert|ion and |lookup|, but |alter|, |union|, |foldr|, |map| and |filter|
       (\Cref{sec:basic}).
 
     \item We develop a generic optimisation for singleton maps that
@@ -689,27 +687,27 @@ seek these basic operations:
 \begin{code}
 emptyEM   :: ExprMap v
 lookupEM  :: Expr -> ExprMap v -> Maybe v
-alterEM   :: Expr -> TF v -> ExprMap v -> ExprMap v
+atEM      :: Expr -> TF v -> ExprMap v -> ExprMap v
 \end{code}
-The lookup function |lookupEM|\footnote{We use short names |lookupEM| and |alterEM|
+The lookup function |lookupEM|\footnote{We use short names |lookupEM| and |atEM|
   consistently in this paper to reflect the single-column format.
 }
 has a type that is familiar from every finite map.
-The update function |alterEM|, typically called |alter| in Haskell libraries,
+The update function |atEM|, typically called |alter| in Haskell libraries,
 changes the value stored at a particular key.
 The caller provides a \emph{value transformation function} |TF v|, an
 abbreviation for |Maybe v -> Maybe v| (see \Cref{fig:library}). This function
 transforms the existing value associated with the key, if any (hence the input
 |Maybe|), to a new value, if any (hence the output |Maybe|).
-We can easily define |insertEM| and |deleteEM| from |alterEM|:
+We can easily define |insertEM| and |deleteEM| from |atEM|:
 \begin{code}
 insertEM :: Expr -> v -> ExprMap v -> ExprMap v
-insertEM e v = alterEM e (\_ -> Just v)
+insertEM e v = atEM e (\_ -> Just v)
 
 deleteEM :: Expr -> ExprMap v -> ExprMap v
-deleteEM e = alterEM e (\_ -> Nothing)
+deleteEM e = atEM e (\_ -> Nothing)
 \end{code}
-You might wonder whether, for the purposes of this paper, we could just define |insert|,
+You might wonder whether, for the purposes of this paper, we could just define |insertEM|,
 leaving |alterEM| to the supplemental material of the extended version of this
 paper~\cite{triemaps-extended}, but as we will see in \Cref{sec:alter}, our
 approach using tries requires the generality of |alterEM|.
@@ -824,12 +822,16 @@ emptyEM = EM { em_var = Map.empty, em_app = emptyEM }
 It is interesting to note that |emptyEM| is an infinite, recursive structure:
 the |em_app| field refers back to |emptyEM|.  We will change this
 definition in \Cref{sec:empty}, but it works perfectly well for now.
-Next, we need to |alter| a triemap:
+Next, we need to \emph{alter} a triemap \emph{at} some key, implemented as
+|atEM|:
+\footnote{The name |atEM| is borrowed from the |At| type class of the
+\hackage{lens} package. Indeed, |ExprMap| could have an |At| instance if |atEM|
+were generalised to an applicative traversal.}
 \begin{code}
-alterEM :: Expr -> TF v -> ExprMap v -> ExprMap v
-alterEM e tf m@(EM { em_var = var, em_app = app }) = case e of
+atEM :: Expr -> TF v -> ExprMap v -> ExprMap v
+atEM e tf m@(EM { em_var = var, em_app = app }) = case e of
   Var x      -> m { em_var  = Map.alter tf x var }
-  App e1 e2  -> m { em_app  = alterEM e1 (liftTF (alterEM e2 tf)) app }
+  App e1 e2  -> m { em_app  = atEM e1 (liftTF (atEM e2 tf)) app }
 
 liftTF :: (ExprMap v -> ExprMap v) -> TF (ExprMap v)
 liftTF f Nothing    = Just (f emptyEM)
@@ -842,21 +844,21 @@ using the |Map.alter| function from \Cref{fig:containers}.
 % of updating the |fld| field of record |m| with new value |e|.
 In the |App| case we look up |e1| in |app|;
 we should find a |ExprMap| there, which we want to alter with |tf|.
-We can do that with a recursive call to |alterEM|, using |liftTF|
+We can do that with a recursive call to |atEM|, using |liftTF|
 for impedance-matching.
 
-The |App| case shows why we need the generality of |alter|.
-Suppose we attempted to define an apparently-simpler |insert| operation.
+The |App| case shows why we need the generality of |atEM|.
+Suppose we attempted to define an apparently-simpler |insertEM| operation.
 Its equation for |(App e1 e2)| would look up |e1| --- and would then
-need to \emph{alter} that entry (an |ExprMap|, remember) with the result of
-inserting |(e2,v)|.  So we are forced to define |alter| anyway.
+need to alter that entry (an |ExprMap|, remember) with the result of
+inserting |(e2,v)|.  So we are forced to define |atEM| anyway.
 
-We can abbreviate the code for |alterEM| using combinators, as we did in the case of
+We can abbreviate the code for |atEM| using combinators, as we did in the case of
 lookup, and doing so pays dividends when the key is a data type with
 many constructors, each with many fields.  However, the details are
 fiddly and not illuminating, so we omit them here.  Indeed, for the
 same reason, in the rest of this paper we will typically omit the code
-for |alter|, though the full code is available in the
+for |atEM|, though the full code is available in the
 supplement~\cite{triemaps-extended}.
 
 \subsection{Unions of maps}
@@ -870,8 +872,8 @@ The two trees, which have been built independently, might not have the same
 left-subtree/right-subtree structure, so some careful rebalancing may be required.
 But for tries there are no such worries --
 their structure is identical, and we can simply zip them together.  There is one
-wrinkle: just as we had to generalise |insert| to |alter|,
-to accommodate the nested map in |em_app|, so we need to generalise |union| to |unionWith|:
+wrinkle: just as we had to generalise |insertEM| to |atEM|,
+to accommodate the nested map in |em_app|, so we need to generalise |unionEM| to |unionWithEM|:
 \begin{code}
 unionWithEM  ::  (v -> v -> v)
              ->  ExprMap v -> ExprMap v -> ExprMap v
@@ -997,7 +999,7 @@ instance TrieMap ExprMap where
   type TrieKey ExprMap = Expr
   emptyTM   = emptyEM
   lookupTM  = lookupEM
-  alterTM   = alterEM
+  alterTM   = atEM
   dots
 \end{code}
 %}
@@ -1060,7 +1062,7 @@ with a key (an |Expr|) such as
   App (App (Var "f") (Var "x")) (Var "y")
 \end{spec}
 Looking at the code
-for |alterEM| in \Cref{sec:alter}, you can see that
+for |atEM| in \Cref{sec:alter}, you can see that
 because there is an |App| at the root, we will build an
 |EM| record with an empty |em_var|, and an
 |em_app| field that is... another |EM|
@@ -1267,7 +1269,7 @@ we must define an instance |Eq AlphaExpr| to satisfy the |Eq| super class constr
 on the trie key, so that we can instantiate |TrieMap ExprMap'|.
 That |Eq AlphaExpr| instance simply equates two
 $\alpha$-equivalent expressions in the standard way.
-The code for |alter| and |foldr| holds no new surprises either.
+The code for |at| and |foldr| holds no new surprises either.
 
 And that is really all there is to it: it is remarkably easy to extend the basic
 trie idea to be insensitive to $\alpha$-conversion and even mix in trie
@@ -1935,8 +1937,8 @@ generating tries, which nicely complements the design-pattern approach
 of this paper (\Cref{sec:generic}).
 \citet{hinze:generalized} describes the polytypic approach,
 for possibly parameterised and nested data types in some detail, including the
-realisation that we need |alter| and |unionWith| in order to define |insert| and
-|union|.
+realisation that we need |atEM| and |unionWithEM| in order to define |insertEM| and
+|unionEM|.
 The aforementioned \varid{MemoTrie}, \varid{representable-tries} and
 \hackage{generic-trie} libraries generate trie implementations polytypically.
 For our approach to do the same, we would need to find a good way to specify
