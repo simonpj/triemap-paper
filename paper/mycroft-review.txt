@@ -1,0 +1,246 @@
+# Review 1
+
+(No critique)
+
+
+
+# Review 2 (weak accept)
+
+Matching a set of patterns with an abstract syntax tree is often needed inside a compiler. There are usually many partially overlapping patterns and matching requires both checking whether a match is possible at all and determining a matching substitution for pattern variables. An efficient implementation contributes substantially to the efficiency of the compiler implementation. In the Glasgow Haskell compiler for example such matching is needed for implementing user-defined rewriting rules and for looking up type class and type family instances.
+
+As the problem is not new, solutions for it are not new either. The functional programming community has long been using trie maps for looking up tree-structured keys. These are sufficient for example for common subexpression elimination in a compiler, but do not do matching of patterns. The term rewriting community developed discrimination trees to solve the problem. This paper develops trie maps further to provide matching and thus comes up with a solution that proves to be very similar to discrimination trees.
+
+The paper does not present substantially novel ideas, but it does provide insight into a problem and its solution that are relevant for compiler writers. However, the writing of the paper needs improvement. The current version lacks a clear story line, is interspersed with distracting remarks and sometimes hard to follow. I fear that most people will give up reading the paper at some point.
+
+* [ ] The introduction needs to start with all motivating examples. Currently it starts with common subexpression elimination, which does not require matching, just tree lookup. The need for looking up type class and type family instances shouldn’t be left to Section 2.2. I wonder whether even rewriting rules could be generalised beyond GHC’s user-defined ones: would it be feasible to implement standard optimisations by fixed rewriting rules?
+
+* [ ] However, I think the paper should openly state in the introduction that the work was motivated by GHC and that the presented Haskell implementation takes advantage of Haskell and some GHC extensions.
+
+* [ ] I’m wondering about how to present binders with alpha-equivalence. Given the comparatively simple solution and that the term rewriting community doesn’t concern itself with binders, maybe this issue could be dropped completely are moved into a late chapter “extensions”? (Discussion of polytypic programming should also be moved there; also Section 5.5, which doesn’t say much without Appendix B.)
+
+* [ ] The relationship to discrimination trees should be discussed in a single place in the paper. Although I understand that the authors do not want to give a detailed definition of discrimination trees, I find the current comparison rather vague. I do not see the paper “drawing a nice connection to term indexing problems” as claimed in the Conclusion.
+
+* [x] The paper often refers to the Appendix, but there is none in this version of the paper.
+
+* [ ] Why name the triemap for a data type X XMap, not MapX, like Ralf Hinze does? The latter fits better with Haskell’s application of type constructors: type constructor on the left, type argument on the right.
+
+* [ ] The naming of a field as x_k is also rather unusual, as camelCase is usually used in Haskell. So why not xK?
+
+Details:
+
+* [ ] Introduction and Section 2 need to be rewritten to give a clearer motivation and story. Maybe they can be condensed to a single section, a slightly longer introduction?
+
+* [x] Remove “functional pearl” near the end of section.
+
+* [ ] Why is a string considered as an atomic value for a Map? Surely repeated comparison of strings in a balanced tree increases the complexity by the string length?
+
+2 The Problem
+
+* [ ] 2.2 Strange that GHC’s rewrite rules are only mentioned properly here as they are alluded to in the introduction.
+
+* [ ] End of 2.2 mentions lookup for type-class instances and type family instances: that is yet another motivating application.
+
+* [ ] 2.3 Non-solutions could move into introduction. It motivates why ‘obvious’ simple solutions don’t work.
+
+* [?] (fixed, SG believes. double-check?) Figure 1 appears far too early. It is first referred to in Section 3.1 and only the type TF v is needed there.
+
+3 Tries
+
+* [?] (fixed, SG believes.) The different names of functions are confusing. E.g. 3.1 first introduces ‘atEM’ and then the properties are given for ‘alter’.
+
+Footnote 9: “is a itself” -> “is itself a”
+
+* [ ] In 5.1 the class Matchable is incomprehensible. Its meaning becomes clear only after reading much text after it. There are just far too many forward references. I think the ideas for this class need to be built up in the text before the class is defined.
+* [ ] Overall Section 3 explains tries much better than Section 5 explains matching.
+
+* [ ] 5.1: I have no idea what semantics ‘refineMatch’ is supposed to have.
+
+Section 6.
+
+* [ ] Beginning: actually the paper didn’t really show that other maps are bad at matching lookup. (SG: Well, I guess the implication is that we should have implemented linear matching on OrdMaps/HashMaps and compared perf. Fair enough, but I would have found the results rather boring ["yay, we are asymptotically faster"].)
+
+Section 7.1:
+
+* [?] (SG tried to improve) “Matching triemaps,, a kind of term index”: in which way is a matching triemap a kind of term index? What do you mean by term index.
+
+* [ ] Discrimination trees do seem to be very closely related to triemaps. I don’t see a “different thought process”. However, that relationship is only vaguely stated.
+
+
+
+# Review 3 (strong accept)
+
+
+[Meta-comment: I understand that this paper is intended for a festschrift,
+but I'm not sure what the intended standards are. For example, is 26 pages
+too long? I'm assuming that's fine. Is there a high bar for originality?
+I'm assuming not. (That's not a criticism!)]
+
+The authors give a thorough and practical implementation of tries over abstract
+syntax trees, including benchmarks. The writing is clear and the results are
+elegant and efficient.
+
+The most similar results are the tries in Okasaki (1998) and Hinze (2000).
+But neither of those were in the context of a compiler.
+
+It seems likely that this library will soon be incorporated into GHC, if that
+hasn't happened already!
+
+The remainder of this review is small scale comments and corrections
+where (x) is a page number:
+
+* [x] (7) "...provided you give [missing "a"] type signature to..."
+
+* [ ] (8) In the function the bottom of the page, I recommend indenting the
+      "= Map.foldr" line farther, perhaps to line up with the "z_1 ="
+      below. As is, the "=" and "where" lines are awkwardly spaced, not
+      lined up but not quite indented either. (The same comment applies
+      on page 9 and page 18 and likely elsewhere.)
+      (SG don't knows how to tell lhs2TeX)
+
+* [x] (10) "Having a class ALLOW us to write..." Probably use "allows".
+
+* [x] (11) "when a ExprMap" -> "when an ExprMap"
+
+* [x] (11) "represent it as directly ..." -> "represent it directly as ..."
+
+* [x] (11) "But in the triemap FOR FOR each..."
+
+* [x] (13) I believe it is far more common to use "de Bruijn" instead of "De Bruijn".
+           (This happens in MANY places.)
+
+* [x] (15) "...to use matching tries to implement class or type-family LOOK in GHC."
+      I think by "look" you mean "lookups"?
+
+* [x] (SG thinks he improved the situation) (18) In matchPatVarE, the guard on "Just sol" is formatted as
+
+          Just sol
+          | noCaptured bve e
+          , eqExpr e sol -> Just ms
+
+      As somebody who is not a regular Haskell user, the formatting of that
+      second guard seems extremely awkward! Especially the way it is left of
+      the vertical bar.
+
+* [x] (18) "(obtained from the MatchExpr state monad." Missing close paren!
+
+* [x] (19) "is equal (using eqExpr) to THE THE one already bound"
+* [x] (19) "When altering a PatMap we supply..." and "When looking up in a
+            PatMap we supply..." In both cases, a comma before the "we supply"?
+
+* [x] (20) "...passing it: ..." Probably no need for the colon.
+* [x] (20) "5.5 Most specific match, and unification" No need for the comma.
+* [x] (20) "And, can we build..." Probably no need for the comma.
+
+* [x] (21) "...featuring a more in-depth analysis, finer runtime..."
+          Probably replace the comma with "and"
+
+* [x] (22) "...so lookup and insert is[are] effectively in O(k)." I understand
+      why you are saying O(k), but that's just not how Big-O works! If you
+      want to say it anyway, I recommend ditching the Big-O symbol and
+      saying something like "so lookup and insert are effectively constant".
+* [x] (22) I recognize that doing a good job of benchmarking is hard. The lookup
+      benchmark suggests another benchmark to measure UN-successful lookups.
+      But I am NOT saying that I in any way expect you go create and run
+      those benchmarks at this stage!
+      (SG: Indeed that kind of benchmark is missing. On the other hand,
+       the worklaod would be very similar to inserting an expression into the
+       map that was not present before, which we *do* measure.)
+
+* [x] (23) In lookupDT, the two lines INSIDE the "case Map.lookup f m of" should
+      probably be indented PAST the "case".
+
+
+
+# Review 4 (accept)
+
+This paper describes a Haskell implementation of a generalised trie
+data structure but tailored to the application of pattern matching on
+expressions, creating substitutions. This is a useful structure e.g.,
+for use in compilers and theorem provers when applying rewrite rules.
+The present paper nicely describes the idea and takes the reader
+through the design of the API. Furthemore some performance evaluation
+is undertaken showing that the approach outperforms other
+alternatives. This reads somewhat like a 'functional pearl' and suits
+the festschrift well.
+
+A few comments:
+
+- [x] Throughout the paper the code in the appendix is referred to, but
+there is nothing there. Is the plan to actually include the code
+there? The authors should also consider how to link the supplemental
+material for the final version. Perhaps a deposit on Zenodo (giving a
+DOI) would be the best idea if its long, with just relevant snippets
+in the actual appendix?
+
+- [ ] It would be nice if Section 8 said a bit more about the applications
+of this approach. Is it used within GHC?
+
+- [x] Throughout, footnote marks occur before punctuation (e.g., full stops) which I don't
+think is standard style. \foonote{} should come after a full stop.
+
+- [?] (fixed, SG believes.) Throughout there is a citation style issue. LNCS required \citationstyle{plain} I believe. There is at least one place (p.18) where a citation is used as a noun which might need
+rewriting in the copy edit to use \citet instead or something more manual.
+
+- [ ] End of Section 2 (p.5) "neither binary search trees...is compatiable with
+matching lookup" I wasn't so sure about this. Could I do a binary search
+with pattern matching as my equality function (and then some ordering to
+decide which way to go)? Could this be explained a bit more why not?
+
+- [ ] The end of section 3.2 talks about needing polymorphic recursion. A nice
+link to Alan's work could be put in here to his 1984 paper that solved polymorphic
+recursion for ML type schemes.
+
+- [ ] The end of p.18 discusses the case of `([p], \x -> p)` and not
+wanting to match against `\y -> y`. But I can imagine scenarios
+where this would be wanted, e.g., if you were doing metaprogramming
+and wanting to match on any code that was a lambda for example.
+So I thought it was a little strange to dismiss this possibility
+without more discussion here.
+
+Other writing comments:
+
+- [x] Figure 1 has the caption 'API for library functions' which seems a bit vague.
+'API for various library functions leveraged here'?
+
+- [?] (SG tried to improve) Section 2 (p.3) "Here Var is the type of variables" Perhaps this could be more precisely
+stated as "Here Var is the type of data representing variables"?
+
+- [x] Section 2.1 (p.3) "x in \x . x" the font changes between the different occurences of
+x here.
+
+- [x] Section 2.2 "compiling contains the expression" perhaps more clearly here
+"compiling contains the target expression"
+
+- [x] Footnote 3. Can some citations to papers rather than a link to wikipedia
+be used here instead?
+
+- [x] Figure 1 appears on page 2 but it isn't referred to until page 5. Perhaps it
+can be better localised by moving nearer to the first reference?
+
+- [ ] In 3.2 (around p.6), it might be worth explaining the Map name
+space being used here.
+
+- [x] Section 3.5 "Map.size var+???" I think a little spacing could be added
+around + to make this more clear.
+
+- [x] p.10 "that work for any triemap" perhaps more accurately
+"that work for any triemap implementation"?
+
+- [x] p.10 "But rather than to define" -> "But rather than define"
+
+- [x] p.11 "represent it as directly" -> "represent it directly as"
+
+- [x] p.14 "is a itself" -> "is itself"
+
+- [x] p.15 "numbering pattern variables in the order they appear"
+Is that the within the PatExpr or in the list of variables? I think
+the former but the sentence was ambiguous.
+
+- [x] p.18 "(obtained from the... state monad." Missing a closing
+bracket.
+
+- [x] p.18 (bottom) example using `p` but then the text says `a`.
+Rename `a` to `p` or vice versa.
+
+- [x] p.25 Not clear the relationship between 'functor-combo' and
+'representable-tries'.
