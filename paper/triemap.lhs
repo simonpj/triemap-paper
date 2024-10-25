@@ -710,18 +710,9 @@ deleteEM :: Expr -> ExprMap v -> ExprMap v
 deleteEM e = alterEM e (\_ -> Nothing)
 \end{code}
 You might wonder whether, for the purposes of this paper, we could just define |insert|,
-leaving |alterEM| for the Appendix,%
-\footnote{In the supplemental file \texttt{TrieMap.hs}}
-but as we will see in \Cref{sec:alter}, our approach using tries
-requires the generality of |alterEM|.
-
-
-These fundamental operations on a finite map must obey the following properties:
-\begin{code}
-property propLookupEmpty (e)                       (lookup e empty             ^^^^)  (Nothing)
-property propLookupAlter (e m xt)                  (lookup e (alter e xt m)    ^^^^)  (xt (lookup e m))
-propertyImpl propWrongElt (e1 e2 m xt) (e1 /= e2)  (lookup e1 (alter e2 xt m)  ^^^^)  (lookup e1 m)
-\end{code}
+leaving |alterEM| to the supplemental material of the extended version of this
+paper~\cite{triemaps-extended}, but as we will see in \Cref{sec:alter}, our
+approach using tries requires the generality of |alterEM|.
 
 We also support other standard operations on finite maps,
 with types analogous to those in \Cref{fig:library}, including |unionEM|, |mapEM|, and |foldrEM|.
