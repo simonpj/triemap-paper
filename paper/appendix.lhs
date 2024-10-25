@@ -356,7 +356,7 @@ particularly simple, because pattern variables only ever match against are
 \emph{expression} keys in which no pattern variable can occur.
 
 Another frustrating point is that we had to duplicate the |TrieMap| class in
-\Cref{sec:matching-class} because the key types for lookup and insertion no
+\Cref{sec:matching-trie-class} because the key types for lookup and insertion no
 longer match up. If we managed to generalise the lookup key from expressions to
 patterns, too, we could continue to extend good old |TrieMap|.
 All this begs the question: \emph{Can we extend our idiomatic triemaps to facilitate
