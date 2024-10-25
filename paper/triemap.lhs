@@ -814,7 +814,8 @@ lookup, and doing so pays dividends when the key is a data type with
 many constructors, each with many fields.  However, the details are
 fiddly and not illuminating, so we omit them here.  Indeed, for the
 same reason, in the rest of this paper we will typically omit the code
-for |alter|, though the full code is available in the Appendix.
+for |alter|, though the full code is available in the
+supplement~\cite{triemaps-extended}.
 
 \subsection{Unions of maps}
 
@@ -1212,10 +1213,11 @@ At a |Lam|
 node we extend the |DeBruijnEnv|. At a |Var| node we
 look up the variable in the |DeBruijnEnv| to decide whether it is
 lambda-bound or free, and behave appropriately.%
-\footnote{The implementation from the Appendix uses more efficient |IntMap|s
-for mapping |BoundKey|. |IntMap| is itself a trie data structure, so it could
-have made a nice \enquote{Tries all the way down} argument. But we found it
-distracting to present here, hence regular ordered |Map|.}
+\footnote{The implementation in the supplement~\cite{triemaps-extended} uses
+more efficient |IntMap|s for mapping |BoundKey|. |IntMap| is itself a trie
+data structure, so it could have made a nice \enquote{Tries all the way down}
+argument. But we found it distracting to present here, hence regular ordered
+|Map|.}
 
 The construction of \Cref{sec:singleton}, to handle empty and singleton maps,
 applies without difficulty to this generalised map. To use it
@@ -1363,7 +1365,7 @@ returning a list of all the successful |(Subst,v)| matches.
 
 The implementation of |matchE| is entirely straightforward, using
 simultaneous recursive descent over the pattern and target.
-The code is given in the Appendix.
+The code is given in the supplement~\cite{triemaps-extended}.
 
 The key point is this: nothing in this section is concerned with
 tries.  Here we are simply concerned with the mechanics of matching,
@@ -1405,7 +1407,7 @@ instance MTrieMap tm => MTrieMap (MSEMap tm) where
 Notice that |SingleMSEM| contains a \emph{pattern},
 not merely a \emph{key}, unlike |SingleSEM| in \Cref{sec:singleton}.
 The code for |lookupPatMSEM| and |alterPatMSEM| is straightforward;
-we give the former here, leaving the latter for the Appendix
+we give the former here, leaving the latter for the supplement~\cite{triemaps-extended}
 \begin{code}
 lookupPatMSEM :: MTrieMap tm  => MTrieKey tm -> MSEMap tm a
                               -> Match (MTrieKey tm) a
@@ -1511,7 +1513,7 @@ variables, hence the |noCaptured| check.
 
 |lookupPatMM| is the trickiest case.  The code for |alterPatMM|, and
 the other operations of the class, is very straightforward, and is given
-in the Appendix.
+in the supplement~\cite{triemaps-extended}.
 
 \subsection{The external API} \label{sec:match-api}
 
@@ -1601,7 +1603,8 @@ GHC at least.
 
 However, both seem difficult to achieve. All our attempts became mired in
 complexity, and we leave this for further work, and as a challenge for the
-reader. We outline some of the difficulties of unifying lookup in Appendix B.
+reader. We outline some of the difficulties of unifying lookup in Appendix B of
+the extended version of this paper~\cite{triemaps-extended}.
 
 \section{Evaluation} \label{sec:eval}
 
@@ -1695,9 +1698,9 @@ benchmarking library.%
 skewing the results.}
 \Cref{fig:plot} presents a quick overview of the results.
 
-Appendix A is an extended version of this section, featuring a more in-depth
-analysis and finer runtime as well as space measurements and indicators for
-statistical significance.
+Appendix A of the extended version of this paper~\cite{triemaps-extended}
+featurs a more in-depth analysis and finer runtime as well as space measurements
+and indicators for statistical significance.
 
 \subsubsection*{Setup}
 All benchmarks except \benchname{fromList} are handed a pre-built
