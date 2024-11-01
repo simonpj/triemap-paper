@@ -12,11 +12,13 @@ As the problem is not new, solutions for it are not new either. The functional p
 
 The paper does not present substantially novel ideas, but it does provide insight into a problem and its solution that are relevant for compiler writers. However, the writing of the paper needs improvement. The current version lacks a clear story line, is interspersed with distracting remarks and sometimes hard to follow. I fear that most people will give up reading the paper at some point.
 
-* [ ] The introduction needs to start with all motivating examples. Currently it starts with common subexpression elimination, which does not require matching, just tree lookup. The need for looking up type class and type family instances shouldn’t be left to Section 2.2. I wonder whether even rewriting rules could be generalised beyond GHC’s user-defined ones: would it be feasible to implement standard optimisations by fixed rewriting rules?
+* [x] The introduction needs to start with all motivating examples. Currently it starts with common subexpression elimination, which does not require matching, just tree lookup. The need for looking up type class and type family instances shouldn’t be left to Section 2.2. I wonder whether even rewriting rules could be generalised beyond GHC’s user-defined ones: would it be feasible to implement standard optimisations by fixed rewriting rules?
 
-* [ ] However, I think the paper should openly state in the introduction that the work was motivated by GHC and that the presented Haskell implementation takes advantage of Haskell and some GHC extensions.
+* [x] However, I think the paper should openly state in the introduction that the work was motivated by GHC and that the presented Haskell implementation takes advantage of Haskell and some GHC extensions.
 
 * [ ] I’m wondering about how to present binders with alpha-equivalence. Given the comparatively simple solution and that the term rewriting community doesn’t concern itself with binders, maybe this issue could be dropped completely are moved into a late chapter “extensions”? (Discussion of polytypic programming should also be moved there; also Section 5.5, which doesn’t say much without Appendix B.)
+
+  SPJ: decide not to do anything here
 
 * [ ] The relationship to discrimination trees should be discussed in a single place in the paper. Although I understand that the authors do not want to give a detailed definition of discrimination trees, I find the current comparison rather vague. I do not see the paper “drawing a nice connection to term indexing problems” as claimed in the Conclusion.
 
@@ -24,23 +26,29 @@ The paper does not present substantially novel ideas, but it does provide insigh
 
 * [ ] Why name the triemap for a data type X XMap, not MapX, like Ralf Hinze does? The latter fits better with Haskell’s application of type constructors: type constructor on the left, type argument on the right.
 
+  SPJ: decide not to do anything here
+
 * [ ] The naming of a field as x_k is also rather unusual, as camelCase is usually used in Haskell. So why not xK?
+
+  SPJ: decide not to do anything here
 
 Details:
 
-* [ ] Introduction and Section 2 need to be rewritten to give a clearer motivation and story. Maybe they can be condensed to a single section, a slightly longer introduction?
+* [x ] Introduction and Section 2 need to be rewritten to give a clearer motivation and story. Maybe they can be condensed to a single section, a slightly longer introduction?
 
 * [x] Remove “functional pearl” near the end of section.
 
-* [ ] Why is a string considered as an atomic value for a Map? Surely repeated comparison of strings in a balanced tree increases the complexity by the string length?
+* [x ] Why is a string considered as an atomic value for a Map? Surely repeated comparison of strings in a balanced tree increases the complexity by the string length?
 
 2 The Problem
 
-* [ ] 2.2 Strange that GHC’s rewrite rules are only mentioned properly here as they are alluded to in the introduction.
+* [x ] 2.2 Strange that GHC’s rewrite rules are only mentioned properly here as they are alluded to in the introduction.
 
-* [ ] End of 2.2 mentions lookup for type-class instances and type family instances: that is yet another motivating application.
+* [x ] End of 2.2 mentions lookup for type-class instances and type family instances: that is yet another motivating application.
 
 * [ ] 2.3 Non-solutions could move into introduction. It motivates why ‘obvious’ simple solutions don’t work.
+
+   SPJ: Decided to do nothing
 
 * [?] (fixed, SG believes. double-check?) Figure 1 appears far too early. It is first referred to in Section 3.1 and only the type TF v is needed there.
 
@@ -48,12 +56,17 @@ Details:
 
 * [?] (fixed, SG believes.) The different names of functions are confusing. E.g. 3.1 first introduces ‘atEM’ and then the properties are given for ‘alter’.
 
+   SPJ:: deleted properties!
+
 Footnote 9: “is a itself” -> “is itself a”
 
-* [ ] In 5.1 the class Matchable is incomprehensible. Its meaning becomes clear only after reading much text after it. There are just far too many forward references. I think the ideas for this class need to be built up in the text before the class is defined.
-* [ ] Overall Section 3 explains tries much better than Section 5 explains matching.
+* [x ] In 5.1 the class Matchable is incomprehensible. Its meaning becomes clear only after reading much text after it. There are just far too many forward references. I think the ideas for this class need to be built up in the text before the class is defined.
+* [x ] Overall Section 3 explains tries much better than Section 5 explains matching.
 
-* [ ] 5.1: I have no idea what semantics ‘refineMatch’ is supposed to have.
+SPJ: entirely rewritten
+
+
+* [x ] 5.1: I have no idea what semantics ‘refineMatch’ is supposed to have.
 
 Section 6.
 
@@ -62,6 +75,8 @@ Section 6.
 Section 7.1:
 
 * [?] (SG tried to improve) “Matching triemaps,, a kind of term index”: in which way is a matching triemap a kind of term index? What do you mean by term index.
+
+  SPJ: ok
 
 * [ ] Discrimination trees do seem to be very closely related to triemaps. I don’t see a “different thought process”. However, that relationship is only vaguely stated.
 
@@ -186,7 +201,7 @@ matching lookup" I wasn't so sure about this. Could I do a binary search
 with pattern matching as my equality function (and then some ordering to
 decide which way to go)? Could this be explained a bit more why not?
 
-- [ ] The end of section 3.2 talks about needing polymorphic recursion. A nice
+- [x ] The end of section 3.2 talks about needing polymorphic recursion. A nice
 link to Alan's work could be put in here to his 1984 paper that solved polymorphic
 recursion for ML type schemes.
 
@@ -204,6 +219,8 @@ Other writing comments:
 
 - [?] (SG tried to improve) Section 2 (p.3) "Here Var is the type of variables" Perhaps this could be more precisely
 stated as "Here Var is the type of data representing variables"?
+
+    SPJ: ok
 
 - [x] Section 2.1 (p.3) "x in \x . x" the font changes between the different occurences of
 x here.
