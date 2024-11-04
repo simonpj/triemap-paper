@@ -446,21 +446,21 @@ and replace |y| by |x|.  All we need is a \emph{finite map keyed by syntax trees
 
 Another similar challenge is this: we often want a finite map keyed
 by \emph{patterns} rather than expressions.
-For example, GHC (a Haskell compiler) supports user-written rewrite rules. For example:
+GHC (a Haskell compiler) supports user-written rewrite rules. For example:
 \begin{code}
 prag_begin RULES "map/map"  forall f g xs.  map f (map g xs) =  map (f . g) xs prag_end
 \end{code}
 Given a target expression to optimise, the compiler must decide if any
 rewrite rule matches the target, after intantiating
 the forall-bound variables of the rule.  Another application, which also appears in GHC,
-is type-class instance lookup.
+is type class instance lookup.
 In both cases we need a fast way to see if a target expression matches one of
 the patterns in a set of (\varid{pattern},~\varid{rhs}) pairs.
 We could do this by testing the patterns one by one, but if there are many patterns it would
 be much better to consult some kind of efficient \emph{finite map keyed by patterns}.
 
-When the key is a perhaps-large data structure, traditional finite-map implementations tend to behave badly,
-because they are often based on balanced trees,
+When the key is a perhaps-large data structure, traditional finite-map
+implementations can behave badly, because they are often based on balanced trees
 and make the assumption that comparing two keys is a fast, constant-time
 operation.  That assumption is false when the key is large.  For the lookup task,
 a good solution is well known: use a \emph{trie} (e.g. \cite{hinze:generalized}).
@@ -504,9 +504,10 @@ This shift of context is surprisingly fruitful, and we make the following contri
   their matching capability) with traditional finite-map implementations in
   Haskell (\Cref{sec:eval}).
 \end{itemize}
-All the code in this paper is available online \cite{where}. It is written in
-Haskell and makes crucial use of some distinctive features of Haskell, including
-type classes, associated types, higher kinded type variables, and polymorphic recursion.
+All the code in this paper is available online ancillary to the extended version
+of this paper~\cite{triemaps-extended}. It is written in Haskell and makes
+crucial use of some distinctive features of Haskell, including type classes,
+associated types, higher kinded type variables, and polymorphic recursion.
 
 We discuss related work in \Cref{sec:related}.
 Our contribution is not so much a clever new idea as an exposition of
@@ -547,10 +548,9 @@ we have defined |Var| to be |String|.  In a real compiler, a variable would
 have a unique identifier (a number, say) that supports constant-time comparison, so
 despite the |String| we will assume that variables can be compared in constant time.
 
-% Convention: object language expressions like add x y in math mode
-The data type |Expr| is capable of representing expressions like $(add\,x\,y)$ and
-$(\lambda{}x.\,add\,x\,y)$. We will use this data type throughout the paper, because it
-has all the features that occur in real expression data types: free variables like $add$,
+The data type |Expr| is capable of representing expressions like |add x y| and
+|\x -> add x y|. We will use this data type throughout the paper, because it
+has all the features that occur in real expression data types: free variables like |add|,
 represented by a |Var| node;
 lambdas which can bind variables (|Lam|), and occurrences of those bound variables (|Var|);
 and nodes with multiple children (|App|).  A real-world expression type would have
@@ -560,18 +560,18 @@ many more constructors, including literals, let-expressions and suchlike.
 % The Introduction gave the example of a simple common sub-expression
 % elimination pass.
 % GHC also does many lookups based on \emph{types} rather than
-% \emph{expressions}.  For example, when implementing type-class
-% instance lookup, or doing type-family reduction, GHC needs a map whose
+% \emph{expressions}.  For example, when implementing type class
+% instance lookup, or doing type family reduction, GHC needs a map whose
 % key is a type.  Both types and expressions are simply trees, and so are
 % particular instances of the general task.
 
 \subsection{Alpha-renaming} \label{sec:alpha-renaming}
 
 In the context of a compiler, where the keys are expressions or types,
-the keys may contain internal \emph{binders}, such as the binder $x$ in
-$(\lambda{}x.x)$. If so, we would expect insertion and lookup to be insensitive
-to $\alpha$-renaming, so we could, for example, insert with key $(\lambda{}x.x)$
-and look up with key $(\lambda{}y.y)$, to find the inserted value.
+the keys may contain internal \emph{binders}, such as the binder |x| in
+|\x -> x|. If so, we would expect insertion and lookup to be insensitive
+to $\alpha$-renaming, so we could, for example, insert with key |\x -> x|
+and look up with key |\y -> y|, to find the inserted value.
 
 \subsection{Lookup modulo matching} \label{sec:matching-intro}
 
@@ -602,29 +602,29 @@ like to be insensitive to $\alpha$-conversion for those. For example:
 \begin{code}
 prag_begin RULES "map/id"  map (\x -> x) = \y -> y prag_end
 \end{code}
-We want to find a successful match if we see a call |map (\y -> y)|,
+We want to find a successful match if we see a call |map (\z -> z)|,
 even though the bound variable has a different name.
 
-A similar application is GHC's lookup for type-class and type-family instances.
-Supppse we have
+A similar application is GHC's lookup for type class and type family instances.
+Suppose we have
 \begin{code}
   instance C [a] Int where ...
   instance C Bool (Maybe b) where ...
   ...and so on
 \end{code}
 When solving an instance constraint |C [Char] Int|, say, GHC must look through all
-the type-class instances to find one that matches.  In this case, the first instance
+the type class instances to find one that matches.  In this case, the first instance
 matches, by binding |[a ||-> Char]|.
 
-There may occasionally be thousands of rules, or thousands of type-class or
-type-family instances.  We would like to find a matching candidate more
+There may occasionally be thousands of rules, or thousands of type class or
+type family instances.  We would like to find a matching candidate more
 efficiently than by linear search.
 
 \subsection{Non-solutions} \label{sec:ord}
 
 At first sight, our task can be done easily: define a total order on |Expr|
 and use a standard finite map library.
-Indeed that works, but it is terribly slow.  A finite map is
+Indeed that works, but it can be terribly slow.  A finite map is
 implemented as a binary search tree; at every node of this tree,
 we compare the key (an |Expr|, remember) with
 the key stored at the node; if it is smaller, go left; if larger, go right. Each lookup
@@ -710,7 +710,7 @@ lookupEM  :: Expr -> ExprMap v -> Maybe v
 atEM      :: Expr -> TF v -> ExprMap v -> ExprMap v
 \end{code}
 The lookup function |lookupEM|\footnote{We use short names |lookupEM| and |atEM|
-  consistently in this paper to reflect the single-column format.
+  consistently in this paper for compact code listings.
 }
 has a type that is familiar from every finite map.
 The update function |atEM|, typically called |alter| in Haskell libraries,
@@ -802,7 +802,7 @@ lookupEM (App e1 e2)  = em_app  >>> lookupEM e1 >=> lookupEM e2
 %}
 The function |em_var :: ExprMap v -> Map Var v|
 is the auto-generated selector that picks the |em_var| field from an |EM| record, and similarly |em_app|.
-The functions |(>>>)| and |(>=>)| are right-associative forward composition
+The functions |(>=>)| and |(>>>)| are right-associative forward composition
 operators, respectively monadic and non-monadic,
 that chain the individual operations together (see \Cref{fig:library}).
 Finally, we have $\eta$-reduced the definition, by omitting the |m| parameter.
@@ -843,7 +843,7 @@ It is interesting to note that |emptyEM| is an infinite, recursive structure:
 the |em_app| field refers back to |emptyEM|.  We will change this
 definition in \Cref{sec:empty}, but it works perfectly well for now.
 Next, we need to \emph{alter} a triemap \emph{at} some key, implemented as
-|atEM|:
+|atEM|:%
 \footnote{The name |atEM| is borrowed from the |At| type class of the
 \hackage{lens} package. Indeed, |ExprMap| could have an |At| instance if |atEM|
 were generalised to an applicative traversal.}
@@ -980,7 +980,7 @@ elemsEM = foldrEM (:) []
 \end{code}
 %}
 
-v\subsection{A type class for triemaps} \label{sec:generalised} \label{sec:class}
+\subsection{A type class for triemaps} \label{sec:generalised} \label{sec:class}
 
 Since all our triemaps share a common interface, it is useful to define
 a type class for them:
@@ -1119,7 +1119,7 @@ instance TrieMap tm => TrieMap (SEMap tm) where
   ...
 \end{code}
 The code for lookup practically writes itself. We abstract over |Maybe|
-with some |MonadPlus| combinators to enjoy forwards compatibility to
+with some |MonadPlus| combinators to enjoy forward compatibility to
 \Cref{sec:matching}:
 \begin{code}
 lookupSEM :: TrieMap tm => TrieKey tm -> SEMap tm v -> Maybe v
@@ -1220,8 +1220,8 @@ data Expr = App Expr Expr | Lam Var Expr | Var Var
 \end{code}
 The key idea is simple: we perform de Bruijn numbering on the fly,
 renaming each binder to a natural number, from outside in.
-So, when inserting or looking up a key $(\lambda x.\, foo~ (\lambda y.\, x+y))$ we
-behave as if the key was $(\lambda.\, foo ~(\lambda. \bv{1} + \bv{2}))$, where
+So, when inserting or looking up a key $(\lambda x.\, \mathit{foo}~ (\lambda y.\, x+y))$ we
+behave as if the key was $(\lambda.\, \mathit{foo} ~(\lambda. \bv{1} + \bv{2}))$, where
 each $\bv{i}$ stands for an occurrence of the variable bound by the $i$'th
 lambda, counting from the root of the expression. In effect, then, we behave as
 if the data type was like this:
@@ -1279,9 +1279,9 @@ look up the variable in the |DeBruijnEnv| to decide whether it is
 lambda-bound or free, and behave appropriately.%
 \footnote{The implementation in the supplement~\cite{triemaps-extended} uses
 more efficient |IntMap|s for mapping |BoundKey|. |IntMap| is itself a trie
-data structure, so it could have made a nice \enquote{Tries all the way down}
-argument. But we found it distracting to present here, hence regular ordered
-|Map|.}
+data structure, so it could have made for a nice \enquote{Tries all the way
+down} argument. But we found it distracting to present here, hence regular
+ordered |Map|.}
 
 The construction of \Cref{sec:singleton}, to handle empty and singleton maps,
 applies without difficulty to this generalised map. To use it
@@ -1289,7 +1289,7 @@ we must define an instance |Eq AlphaExpr| to satisfy the |Eq| super class constr
 on the trie key, so that we can instantiate |TrieMap ExprMap'|.
 That |Eq AlphaExpr| instance simply equates two
 $\alpha$-equivalent expressions in the standard way.
-The code for |at| and |foldr| holds no new surprises either.
+The code for |atEM| and |foldrEM| holds no new surprises either.
 
 And that is really all there is to it: it is remarkably easy to extend the basic
 trie idea to be insensitive to $\alpha$-conversion and even mix in trie
@@ -1309,21 +1309,21 @@ that we can support \emph{matching} (\Cref{sec:matching-intro}).
 % \item \emph{Look up} a target expression, and return all the values whose pattern \emph{matches} that expression.
 % \end{itemize}
 Semantically, a matching trie can be thought of as a set of (pattern, value) pairs.
-What is a pattern? It is a pair $(vs,p)$ where
+What is a pattern? It is a pair $(\mathit{vs},p)$ where
 \begin{itemize}
-\item $vs$ is a set of \emph{pattern variables}, such as $[a,b,c]$.
+\item $\mathit{vs}$ is a set of \emph{pattern variables}, such as $[a,b,c]$.
 \item $p$ is a \emph{pattern expression}, such as $f\, a\, (g\, b\, c)$.
 \end{itemize}
 A pattern may of course contain free variables (not bound by the pattern), such as $f$ and $g$
 in the above example, which are regarded as constants by the algorithm.
-A pattern $(vs, p)$ \emph{matches} a target expression $e$ iff there is a unique substitution
-$S$ whose domain is $vs$, such that $S(p) = e$.
+A pattern $(\mathit{vs}, p)$ \emph{matches} a target expression $e$ iff there is a unique substitution
+$S$ whose domain is $\mathit{vs}$, such that $S(p) = e$.
 
 We allow the same variable to occur more than once in the pattern.
 For example, the pattern $([x], f~ x~ x)$
 should match targets like $(f~ 1~ 1)$ or $(f ~(g~ v)~ (g ~v))$,
 but not $(f~ 1~ (g~ v))$.  This ability is important if we are to use matching tries
-to implement class or type-family lookup in GHC.
+to implement class or type family lookup in GHC.
 
 %
 %For example, suppose we wanted to encode the rewrite rule
@@ -1343,7 +1343,7 @@ to implement class or type-family lookup in GHC.
 %Here the pattern $([x], f~ x~ x)$ has a repeated variable $x$,
 %and should match targets like $(f~ 1~ 1)$ or $(f ~(g~ v)~ (g ~v))$,
 %but not $(f~ 1~ (g~ v))$.  This ability is important if we are to use matching tries
-%to implement class or type-family look in GHC.
+%to implement class or type family look in GHC.
 
 \subsection{Matching tries keyed by |AlphaExpr|} \label{sec:matching-alphaexpr}
 
@@ -1355,7 +1355,7 @@ a \emph{single} pattern:
 \end{code}
 Here |matchE| takes a \emph{pattern} of type |PatExpr|, and a \emph{target} key of type |AlphaExpr|.
 It sees whether the pattern matches the target, and returns a value of type |MatchME ()|
-to say whether or not it matched, and so with what substitution of the pattern variables.
+to say whether or not it matched, and if so with what substitution of the pattern variables.
 But what exactly are |PatExpr| and |MatchME|?  We look at each in turn.
 
 \subsubsection{Patterns} \label{sec:patterns}
@@ -1387,11 +1387,11 @@ $$
 
 Since matching must accommodate failure, it turns out to be convenient
 for the result of matching, |MatchME|, to be a monad.\footnote{``|MatchME|'' connotes
-  a monadic matcher |MatchM| on expressions hence the ``|E|''.
+  a monadic matcher |MatchM| on expressions, hence the ``|E|''.
 }
 Here is one possible implementation:
 \begin{code}
-newtype MatchME v = MR (SubstE -> [(v,SubstE)])
+newtype MatchME v = ME (SubstE -> [(v,SubstE)])
 type SubstE = Map PatKey Expr
 
 instance Monad     MatchME where ...   -- Easy
@@ -1406,7 +1406,7 @@ possibly-empty list of values of type |v| paired with an extended |SubstE|.  Not
 variables cannot mention lambda-bound variables within the target expression.
 \end{itemize}
 \noindent
-The monad comes with some auxiliary functions that we will need later:
+Type |MatchME| comes with some auxiliary functions that we will need later:
 \begin{code}
 runMatchExpr :: MatchME v -> [(SubstE, v)]
 liftMaybe    :: Maybe v -> MatchME v
@@ -1415,13 +1415,13 @@ refineMatch  :: (SubstE -> Maybe SubstE) -> MatchME ()
 Their semantics should be apparent from their types.  For example, |runMatchExpr|
 runs a |MatchME| computation, starting with an empty |Subst|, and
 returning a list of all the successful |(SubstE,v)| matches.  The function |refineMatch f|
-extends the current substitution by applying |f| to it; it the result is |Nothign| the
+extends the current substitution by applying |f| to it; if the result is |Nothing| the
 match fails; otherwise it turns a single match with the new substitution.
 
 \emph{Side note.} For a real implementation, an isomorphic but more efficient
 choice would be
 \begin{code}
-type MatchME v = MR (StateT Subst [] v)
+type MatchME v = ME (StateT SubstE [] v)
 \end{code}
 The formulation in terms of a (standard, widely used) state transformer |StateT|
 endows us with just the right |Monad| and |MonadPlus| instances, as well as favorable performance
@@ -1439,7 +1439,7 @@ The key point is this: nothing in this section is concerned with
 tries.  Here we are simply concerned with the mechanics of matching,
 and its underlying monad.  There is ample room for flexibility. For
 example, if the key terms had two kinds of variables (say type
-variables and term variables) we could easily define |MatchExpr| to carry
+variables and term variables) we could easily define |MatchME| to carry
 two substitutions; or |MatchME| could return just the first result
 rather than a list of all of them; and so on.
 
@@ -1495,7 +1495,7 @@ the quantified pattern variables; these entries are stored in the new |mm_pvar| 
 We enumerate these entries with |toList|, to get a list of |(PatVar,v)| pairs,
 match each such pair against the target with |match_one|, and finally accumulate
 all the results with |msum|.  In turn |match_one| uses |matchParVarE| to match
-the pattern variable with the target and, if successful, returns corresponding
+the pattern variable with the target and, if successful, returns the corresponding
 value |v|.
 
 The |matchPatVarE| function does the heavy lifting, using some
@@ -1565,7 +1565,7 @@ so that we can invert it when \emph{matching}.   For example, suppose we insert 
 $$
 |(([p], f p True), v1)| \quad \text{and} \quad |(([q], f q False), v2)|
 $$
-Both patterns will canonicalise their (sole) pattern variable to the De Bruin index 1.
+Both patterns will canonicalise their (sole) pattern variable to the de Bruin level 1.
 So if we look up the target |(f e True)| the |MatchME| monad will produce a
 final |Subst| that maps |[1 =-> e]|, paired with the value |v1|.  But we want to return
 |([("p",e)], v1)| to the client, a |PatSubst| that uses the client variable |"p"|, not
@@ -1641,9 +1641,9 @@ The following points are worth noting:
   \item The old |TrieMap| class, in \Cref{sec:class}, required the keys to be comparable for \emph{equality}.
      Unsurprisingly the new |MTrieMap| class instead requires the keys to be \emph{|Matchable|}.
    What does it mean to be |Matchable|?  As you can see from the |Matchable| class, it just
-   means that we must provide a |match| function, like the one we defined in \Cref{sec:matching-alphaexpr}.
+   means that we must provide a |match| function, like |matchE| defined in \Cref{sec:matching-alphaexpr}.
  \item The |match| function returns |MatchM|, a slight generalisation of |MatchME|.  Specifically,
-   |MatchM| caries a substitution whose type |Subst k| depends on the key type |k|. |Subst| is an associated
+   |MatchM| carries a substitution whose type |Subst k| depends on the key type |k|. |Subst| is an associated
    type of the |Matchable| class.
  \item
  The lookup function takes a key of type |MTrieKey tm|, but
@@ -1663,7 +1663,7 @@ instance MTrieMap MExprMap where
 
 instance Matchable AlphaExpr where
   type Pat    AlphaExpr = PatExpr
-  type Match  AlphaExpr = MatchExpr
+  type Subst  AlphaExpr = SubstE
   match = matchE
 \end{code}
 We can also generalise |SEMap| (\Cref{sec:singleton}) in a similar way:
