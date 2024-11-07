@@ -1345,9 +1345,8 @@ to implement class or type family lookup in GHC.
 %but not $(f~ 1~ (g~ v))$.  This ability is important if we are to use matching tries
 %to implement class or type family look in GHC.
 
-\subsection{Matching tries keyed by |AlphaExpr|} \label{sec:matching-alphaexpr}
+\subsection{Matching expressions} \label{sec:matching-alphaexpr}
 
-Suppose we want a matching triemap keyed on |AlphaExpr| (defined in \Cref{sec:binders}).
 Our matching trie is founded on a function |matchE| that matches a target |AlphaExpr| against
 a \emph{single} pattern:
 \begin{code}
@@ -1389,20 +1388,18 @@ Since matching must accommodate failure, it turns out to be convenient
 for the result of matching, |MatchME|, to be a monad.\footnote{``|MatchME|'' connotes
   a monadic matcher |MatchM| on expressions, hence the ``|E|''.
 }
-Here is one possible implementation:
+Here is one possible implementation, defining |MatchME| as a state transfomer over lists:
 \begin{code}
-newtype MatchME v = ME (SubstE -> [(v,SubstE)])
+type MatchME v = StateT SubstE [] v
 type SubstE = Map PatKey Expr
-
-instance Monad     MatchME where ...   -- Easy
-instance MonadPlus MatchME where ...   -- Easy
 \end{code}
-That is, a |MatchME v| takes a substitution (of type |SubstE|) for pattern
-variables, and yields a
-possibly-empty list of values of type |v| paired with an extended |SubstE|.  Notice that:
+More
+concretely, |MatchME v| is a function taking a substitution (of type |SubstE|)
+for pattern variables, and yielding a possibly-empty list of values (of type |v|),
+each paired with an extended |SubstE|.  Notice that:
 \begin{itemize}
-\item the domain of the substitution is the canonical pattern keys |PatKey|, not |PatVar|.
-\item the range of the substitution is |Expr|, not |AlphaExpr|, because the pattern
+\item the \emph{domain} of the substitution |SubstE| is the canonical pattern keys |PatKey|, not |PatVar|.
+\item the \emph{range} of the substitution is |Expr|, not |AlphaExpr|, because the pattern
 variables cannot mention lambda-bound variables within the target expression.
 \end{itemize}
 \noindent
@@ -1413,21 +1410,21 @@ liftMaybe    :: Maybe v -> MatchME v
 refineMatch  :: (SubstE -> Maybe SubstE) -> MatchME ()
 \end{code}
 Their semantics should be apparent from their types.  For example, |runMatchExpr|
-runs a |MatchME| computation, starting with an empty |Subst|, and
+runs a |MatchME| computation, starting with an empty |SubstE|, and
 returning a list of all the successful |(SubstE,v)| matches.  The function |refineMatch f|
 extends the current substitution by applying |f| to it; if the result is |Nothing| the
 match fails; otherwise it turns a single match with the new substitution.
 
-\emph{Side note.} For a real implementation, an isomorphic but more efficient
-choice would be
-\begin{code}
-type MatchME v = ME (StateT SubstE [] v)
-\end{code}
-The formulation in terms of a (standard, widely used) state transformer |StateT|
-endows us with just the right |Monad| and |MonadPlus| instances, as well as favorable performance
-because of early failure on contradicting |match|es and the ability to
-share work done while matching a shared prefix of multiple patterns.
-\emph{End of side note.}
+% \emph{Side note.} For a real implementation, an isomorphic but more efficient
+% choice would be
+% \begin{code}
+% type MatchME v = ME 
+% \end{code}
+% The formulation in terms of a (standard, widely used) state transformer |StateT|
+% endows us with just the right |Monad| and |MonadPlus| instances, as well as favorable performance
+% because of early failure on contradicting |match|es and the ability to
+% share work done while matching a shared prefix of multiple patterns.
+% \emph{End of side note.}
 
 \subsubsection{Matching summary}
 
@@ -1443,11 +1440,17 @@ variables and term variables) we could easily define |MatchME| to carry
 two substitutions; or |MatchME| could return just the first result
 rather than a list of all of them; and so on.
 
-\subsection{Matching tries for |Expr|}
+\subsection{Matching tries for |AlphaExpr|}
 
 Next, we show how to implement a matching triemap for our running
 example, |AlphaExpr|.
-The data type follows closely the pattern we developed for |ExprMap| (\Cref{sec:binders}):
+The data type follows the pattern we developed for |ExprMap|
+(\Cref{sec:Expr,sec:binders}):\footnote{
+To avoid clutter we have, for now, added empty and singleton maps
+directly to |MExprMap|, via |EmptyMEM| and |SingleMEM|, much as in \Cref{sec:empty}.
+In \Cref{sec:matching-trie-class} we show how to use the type-classes
+to share the empty/singleton case as we did in \Cref{sec:singleton}.
+}
 \begin{code}
 data MExprMap v
   = EmptyMEM
@@ -1458,7 +1461,7 @@ data MExprMap v
               ,  mm_app   :: MExprMap (MExprMap v)
               ,  mm_lam   :: MExprMap v }
 \end{code}
-The main difference is that we add an extra field |mm_pvar| to |MExprMap|,
+The main new feature is that we add an extra field |mm_pvar| to |MExprMap|,
 for occurrences of a pattern variable.  You can see how this field is used
 in the lookup code:
 \begin{code}
