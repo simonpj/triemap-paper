@@ -505,9 +505,11 @@ This shift of context is surprisingly fruitful, and we make the following contri
   Haskell (\Cref{sec:eval}).
 \end{itemize}
 All the code in this paper is available online ancillary to the extended version
-of this paper~\cite{triemaps-extended}. It is written in Haskell and makes
-crucial use of some distinctive features of Haskell, including type classes,
-associated types, higher kinded type variables, and polymorphic recursion.
+of this paper~\cite{triemaps-extended} or in the accompanying GitHub
+repository~\cite{triemaps-github}.
+It is written in Haskell and makes crucial use of some distinctive features of
+Haskell, including type classes, associated types, higher kinded type variables,
+and polymorphic recursion.
 
 We discuss related work in \Cref{sec:related}.
 Our contribution is not so much a clever new idea as an exposition of
@@ -729,7 +731,7 @@ deleteEM e = atEM e (\_ -> Nothing)
 \end{code}
 You might wonder whether, for the purposes of this paper, we could just define |insertEM|,
 leaving |alterEM| to the supplemental material of the extended version of this
-paper~\cite{triemaps-extended}, but as we will see in \Cref{sec:alter}, our
+paper~\cite{triemaps-extended,triemaps-github}, but as we will see in \Cref{sec:alter}, our
 approach using tries requires the generality of |alterEM|.
 
 We also support other standard operations on finite maps,
@@ -879,7 +881,7 @@ many constructors, each with many fields.  However, the details are
 fiddly and not illuminating, so we omit them here.  Indeed, for the
 same reason, in the rest of this paper we will typically omit the code
 for |atEM|, though the full code is available in the
-supplement~\cite{triemaps-extended}.
+supplement~\cite{triemaps-extended,triemaps-github}.
 
 \subsection{Unions of maps}
 
@@ -1277,7 +1279,7 @@ At a |Lam|
 node we extend the |DeBruijnEnv|. At a |Var| node we
 look up the variable in the |DeBruijnEnv| to decide whether it is
 lambda-bound or free, and behave appropriately.%
-\footnote{The implementation in the supplement~\cite{triemaps-extended} uses
+\footnote{The implementation in the supplement~\cite{triemaps-extended,triemaps-github} uses
 more efficient |IntMap|s for mapping |BoundKey|. |IntMap| is itself a trie
 data structure, so it could have made for a nice \enquote{Tries all the way
 down} argument. But we found it distracting to present here, hence regular
@@ -1430,7 +1432,7 @@ match fails; otherwise it turns a single match with the new substitution.
 
 The implementation of |matchE| is entirely straightforward, using
 simultaneous recursive descent over the pattern and target.
-The code is given in the supplement~\cite{triemaps-extended}.
+The code is given in the supplement~\cite{triemaps-extended,triemaps-github}.
 
 The key point is this: nothing in this section is concerned with
 tries.  Here we are simply concerned with the mechanics of matching,
@@ -1540,7 +1542,7 @@ variables, hence the |noCaptured| check.
 It turns out that |lookupPatMM|, described above, is the trickiest case.
 The code for |alterPatMM|, and
 the other operations of the class, is very straightforward, and is given
-in the supplement~\cite{triemaps-extended}.
+in the supplement~\cite{triemaps-extended,triemaps-github}.
 
 \subsection{The external API} \label{sec:match-api}
 
@@ -1684,7 +1686,7 @@ instance MTrieMap tm => MTrieMap (MSEMap tm) where
 Notice that |SingleMSEM| contains a \emph{pattern},
 not merely a \emph{key}, unlike |SingleSEM| in \Cref{sec:singleton}.
 The code for |lookupPatMSEM| and |alterPatMSEM| is straightforward;
-we give the former here, leaving the latter for the supplement~\cite{triemaps-extended}
+we give the former here, leaving the latter for the supplement~\cite{triemaps-extended,triemaps-github}
 \begin{code}
 lookupPatMSEM :: MTrieMap tm  => MTrieKey tm -> MSEMap tm a
                               -> Match (MTrieKey tm) a
