@@ -1367,7 +1367,7 @@ match fails; otherwise it turns a single match with the new substitution.
 % \emph{Side note.} For a real implementation, an isomorphic but more efficient
 % choice would be
 % \begin{code}
-% type MatchME v = ME 
+% type MatchME v = ME
 % \end{code}
 % The formulation in terms of a (standard, widely used) state transformer |StateT|
 % endows us with just the right |Monad| and |MonadPlus| instances, as well as favorable performance
@@ -1397,7 +1397,7 @@ The data type follows the pattern we developed for |ExprMap|
 (\Cref{sec:Expr,sec:binders}):\footnote{
 To avoid clutter we have, for now, added empty and singleton maps
 directly to |MExprMap|, via |EmptyMEM| and |SingleMEM|, much as in \Cref{sec:empty}.
-In \Cref{sec:matching-trie-class} we show how to use the type-classes
+In \Cref{sec:matching-trie-class} we show how to use the type classes
 to share the empty/singleton case as we did in \Cref{sec:singleton}.
 }
 \begin{code}
