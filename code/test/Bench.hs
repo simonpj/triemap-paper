@@ -44,7 +44,7 @@ instance NFData a => NFData (ModAlpha a) where
 instance NFData DeBruijnEnv where
   rnf env = rnf (dbe_env env)
 
-instance NFData a => NFData (PatE a) where
+instance NFData a => NFData PatExpr where
   rnf (P env a) = rnf env `seq` rnf a
 
 instance (TrieMap tm, NFData (TrieKey tm), NFData (tm v), NFData v) => NFData (SEMap tm v) where

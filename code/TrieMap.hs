@@ -614,14 +614,15 @@ exprMapToTree = Node "." . go_sem (\v -> [ Node (show v) [] ])
 class Matchable (MTrieKey tm) => MTrieMap tm where
   type MTrieKey tm :: Type
   emptyMTM     :: tm a
-  lookupPatMTM :: MTrieKey tm -> tm a -> Match (MTrieKey tm) a
+  lookupPatMTM :: MTrieKey tm -> tm a -> MatchM (MTrieKey tm) a
   alterPatMTM  :: Pat (MTrieKey tm) -> TF a -> tm a -> tm a
 
-class (Eq (Pat e), MonadPlus (Match e)) => Matchable e where
-  type Pat   e :: Type
-  type Match e :: Type -> Type
-  match  :: Pat e -> e -> Match e ()
+class Eq (Pat e) => Matchable e where
+  type Pat e
+  type Subst e
+  match  :: Pat e -> e -> MatchM e ()
 
+type MatchM e v = StateT (Subst e) [] v
 
 {- *********************************************************************
 *                                                                      *
@@ -658,16 +659,44 @@ eqPatExpr _ _ = False
 
 {- *********************************************************************
 *                                                                      *
+                  MatchM AlphaExpr monad
+*                                                                      *
+********************************************************************* -}
+
+type SubstE = PatKeyMap Expr
+
+hasMatch :: PatKey -> SubstE -> Maybe Expr
+hasMatch pv subst = IntMap.lookup pv subst
+
+addMatch :: PatKey -> Expr -> SubstE -> SubstE
+addMatch pv e ms = IntMap.insert pv e ms
+
+liftMaybe :: Maybe a -> MatchM AlphaExpr a
+liftMaybe ma = StateT $ \ms -> case ma of
+  Just a  -> [(a, ms)]
+  Nothing -> []
+
+refineMatch :: (SubstE -> Maybe SubstE) -> MatchM AlphaExpr ()
+refineMatch f = StateT $ \ms -> case f ms of
+  Just ms' -> [((), ms')]
+  Nothing  -> []
+
+runMatchExpr :: MatchM AlphaExpr v -> [(SubstE, v)]
+runMatchExpr f = swap <$> runStateT f emptyPVM
+
+
+{- *********************************************************************
+*                                                                      *
                   Expressions are matchable
 *                                                                      *
 ********************************************************************* -}
 
 instance Matchable AlphaExpr where
   type Pat   AlphaExpr = PatExpr
-  type Match AlphaExpr = MatchExpr
+  type Subst AlphaExpr = SubstE
   match = matchE
 
-matchE :: PatExpr -> AlphaExpr -> MatchExpr ()
+matchE :: PatExpr -> AlphaExpr -> MatchM AlphaExpr ()
 matchE pat@(P pks (A bve_pat e_pat)) tar@(A bve_tar e_tar) =
   -- traceWith (\res -> show ms ++ "  ->  matchE " ++ show pat ++ "   " ++ show tar ++ "  -> " ++ show res) $
   case (e_pat, e_tar) of
@@ -682,7 +711,7 @@ matchE pat@(P pks (A bve_pat e_pat)) tar@(A bve_tar e_tar) =
                                   (A (extendDBE b2 bve_tar) e2)
   (_, _) -> mzero
 
-matchPatVarE :: PatKey -> AlphaExpr -> MatchExpr ()
+matchPatVarE :: PatKey -> AlphaExpr -> MatchM AlphaExpr ()
 matchPatVarE pv (A bve e) = refineMatch $ \ms ->
   case hasMatch pv ms of
     Nothing
@@ -692,37 +721,6 @@ matchPatVarE pv (A bve e) = refineMatch $ \ms ->
       | eqClosedExpr e sol
       , noCaptured bve e    -> Just ms
       | otherwise           -> Nothing
-
-{- *********************************************************************
-*                                                                      *
-                  MatchExpr monad
-*                                                                      *
-********************************************************************* -}
-
-newtype MatchExpr a = MR (StateT Subst [] a)
-  deriving (Functor, Applicative, Monad, Alternative, MonadPlus)
-
-type Subst = PatKeyMap Expr
-
-hasMatch :: PatKey -> Subst -> Maybe Expr
-hasMatch pv subst = IntMap.lookup pv subst
-
-addMatch :: PatKey -> Expr -> Subst -> Subst
-addMatch pv e ms = IntMap.insert pv e ms
-
-liftMaybe :: Maybe a -> MatchExpr a
-liftMaybe ma = MR $ StateT $ \ms -> case ma of
-  Just a  -> [(a, ms)]
-  Nothing -> []
-
-refineMatch :: (Subst -> Maybe Subst) -> MatchExpr ()
-refineMatch f = MR $ StateT $ \ms -> case f ms of
-  Just ms' -> [((), ms')]
-  Nothing  -> []
-
-runMatchExpr :: MatchExpr v -> [(Subst, v)]
-runMatchExpr (MR f) = swap <$> runStateT f emptyPVM
-
 
 {- *********************************************************************
 *                                                                      *
@@ -745,7 +743,7 @@ instance MTrieMap tm => MTrieMap (MSEMap tm) where
   alterPatMTM  = alterPatMSEM
 
 lookupPatMSEM :: MTrieMap tm => MTrieKey tm -> MSEMap tm a
-                             -> Match (MTrieKey tm) a
+                             -> MatchM (MTrieKey tm) a
 lookupPatMSEM k m = case m of
   EmptyMSEM        -> mzero
   MultiMSEM m      -> lookupPatMTM k m
@@ -801,7 +799,7 @@ mkEmptyMExprMap
        , mm_app  = emptyMTM
        , mm_lam  = emptyMTM }
 
-lookupPatMM :: AlphaExpr -> MExprMap' a -> MatchExpr a
+lookupPatMM :: AlphaExpr -> MExprMap' a -> MatchM AlphaExpr a
 lookupPatMM ae@(A bve e) (MM { .. })
   = rigid `mplus` flexi
   where
