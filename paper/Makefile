@@ -69,6 +69,16 @@ arxiv.zip: $(PAPER)_ext.tex refs.bib
 	cd arxiv && zip -r ../arxiv.zip .; cd ..
 	@rm -rf arxiv
 
+triemap.zip: $(PAPER).tex refs.bib
+	@rm -rf triemap.zip
+	@mkdir -p triemap/
+	cp $< triemap/
+	cp refs.bib triemap/
+	cp bench-plot.txt triemap/
+	cp splncs04.bst triemap/
+	cd triemap && zip -r ../triemap.zip .; cd ..
+	@rm -rf triemap
+
 clean:
 	rm -f *.hi *.o *.ptb
 	rm -f $(PAPER).pdf $(PAPER).tex $(PAPER).hs
