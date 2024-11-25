@@ -344,8 +344,8 @@ instance Eq Expr where
 
 %% Author with single affiliation.
 \author{
-  Simon Peyton Jones\inst{1} \and
-  Sebastian Graf\inst{2}
+  Simon Peyton Jones\inst{1}\orcidID{0000-0002-6085-1435} \and
+  Sebastian Graf\inst{2}\orcidID{0000-0001-9074-9055}
 }
 \institute{Epic Games \and Karlsruhe Institute of Technology}
 
