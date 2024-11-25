@@ -69,20 +69,24 @@ arxiv.zip: $(PAPER)_ext.tex refs.bib
 	cd arxiv && zip -r ../arxiv.zip .; cd ..
 	@rm -rf arxiv
 
-triemap.zip: $(PAPER).tex refs.bib
-	@rm -rf triemap.zip
+lncs.zip: $(PAPER).pdf $(PAPER).tex refs.bib
+	@rm -rf lncs.zip
 	@mkdir -p triemap/
-	cp $< triemap/
-	cp refs.bib triemap/
-	cp bench-plot.txt triemap/
 	cp splncs04.bst triemap/
-	cd triemap && zip -r ../triemap.zip .; cd ..
+	cp $(PAPER).tex triemap/
+	cp refs.bib triemap/
+	cp $(PAPER).bbl triemap/
+	cp bench-plot.txt triemap/
+	cp $(PAPER).pdf triemap/
+	cp license.pdf triemap/
+	cd triemap && zip -r ../lncs.zip .; cd ..
 	@rm -rf triemap
 
 clean:
 	rm -f *.hi *.o *.ptb
 	rm -f $(PAPER).pdf $(PAPER).tex $(PAPER).hs
-	rm -rf arxiv
+	rm -rf arxiv.zip
+	rm -rf lncs.zip
 
 .PHONY: all clean code main appendix extended fast appendix_fast watch appendix_watch
 .SECONDARY:
