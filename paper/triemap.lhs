@@ -320,7 +320,7 @@ instance Eq Expr where
 
 %% Title information
 \title%[Short Title]
-{Triemaps that match}         %% [Short Title] is optional;
+{Triemaps that Match}         %% [Short Title] is optional;
                                         %% when present, will be used in
                                         %% header instead of Full Title.
 % \titlenote{with title note}             %% \titlenote is optional;
@@ -347,7 +347,7 @@ instance Eq Expr where
   Simon Peyton Jones\inst{1}\orcidID{0000-0002-6085-1435} \and
   Sebastian Graf\inst{2}\orcidID{0000-0001-9074-9055}
 }
-\institute{Epic Games \and Karlsruhe Institute of Technology}
+\institute{Epic Games \email{simon.peytonjones@@gmail.com} \and Karlsruhe Institute of Technology \email{sgraf1337@@gmail.com}}
 
 % Some conditional build stuff for handling the Appendix
 % Both conditionals, main and appendix, will be set from the Makefile depending
@@ -469,14 +469,14 @@ data type, and the combinators we use in our instances.
 These abstractions have been through \emph{many} iterations, and we
 hope that by laying them out here we may shorten the path for others.
 
-\section{The problem we address} \label{sec:problem}
+\section{The Problem We Address} \label{sec:problem}
 
 Our general task is as follows: \emph{implement an efficient finite mapping
 from keys to values, in which the key is a tree}.
 Semantically, such a finite map is just a set of \emph{(key,value)}
 pairs; we query the map by looking up a \emph{target}.
 
-\subsection{Expressions as keys}
+\subsection{Expressions as Keys}
 
 As a concrete example of the general problem, suppose a compiler is maniuplating
 syntax trees representing expressions in the language being compiled.
@@ -524,7 +524,7 @@ the keys may contain internal \emph{binders}, such as the binder |x| in
 to $\alpha$-renaming, so we could, for example, insert with key |\x -> x|
 and look up with key |\y -> y|, to find the inserted value.
 
-\subsection{Lookup modulo matching} \label{sec:matching-intro}
+\subsection{Lookup Modulo Matching} \label{sec:matching-intro}
 
 Beyond just the basic finite maps we have described, our practical setting
 in GHC demands more: we want to do a lookup that does \emph{matching}.  As mentioned
@@ -613,7 +613,7 @@ We omit lambdas for now,
 so that all |Var| nodes represent free variables, which are treated as constants.
 We will return to lambdas in \Cref{sec:binders}.
 
-\subsection{The interface of a finite map} \label{sec:interface}
+\subsection{The Interface of a Finite Map} \label{sec:interface}
 
 \begin{figure}
 %{
@@ -701,7 +701,7 @@ with types analogous to those in \Cref{fig:library}, including |unionEM|, |mapEM
 % \end{code}
 % \end{itemize}
 
-\subsection{Tries: the basic idea} \label{sec:basic}
+\subsection{Tries: The Basic Idea} \label{sec:basic}
 
 Here is a trie-based implementation for |Expr|:
 %{
@@ -772,7 +772,7 @@ instantiates |v| to a different type than the parent function definition.
 Haskell supports polymorphic recursion readily, provided you give a type signature to
 |lookupEM|, but not all languages do.
 
-\subsection{Modifying tries} \label{sec:alter} \label{sec:empty-infinite}
+\subsection{Modifying Tries} \label{sec:alter} \label{sec:empty-infinite}
 
 It is not enough to look up in a trie -- we need to \emph{build} them too.
 First, we need an empty trie. Here is one way to define it:
@@ -832,7 +832,7 @@ same reason, in the rest of this paper we will typically omit the code
 for |atEM|, though the full code is available in the
 supplement~\cite{triemaps-extended,triemaps-github}.
 
-\subsection{Unions of maps}
+\subsection{Unions of Maps}
 
 A common operation on finite maps is to take their union:
 \begin{code}
@@ -860,7 +860,7 @@ unionWithEM f  (EM { em_var = var1, em_app = app1 })
 \end{code}
 It could hardly be simpler.
 
-\subsection{Folds and the empty map} \label{sec:fold} \label{sec:empty}
+\subsection{Folds and the Empty Map} \label{sec:fold} \label{sec:empty}
 
 The strange, infinite definition of |emptyEM| given in \Cref{sec:empty-infinite}
 works fine (in a lazy language at least) for lookup, alteration, and union, but it fails
@@ -931,7 +931,7 @@ elemsEM = foldrEM (:) []
 \end{code}
 %}
 
-\subsection{A type class for triemaps} \label{sec:generalised} \label{sec:class}
+\subsection{A Type Class for Triemaps} \label{sec:generalised} \label{sec:class}
 
 Since all our triemaps share a common interface, it is useful to define
 a type class for them:
@@ -1025,7 +1025,7 @@ lookupLM (k:ks)  = lm_cons >>> lookupTM k >=> lookupLM ks
 The code for |alterLM| and |foldrLM| is routine. Notice that all of
 these functions are polymorphic in |tm|, the triemap for the list elements.
 
-\subsection{Singleton maps, and empty maps revisited} \label{sec:singleton}
+\subsection{Singleton Maps, and Empty Maps Revisited} \label{sec:singleton}
 
 Suppose we start with an empty map, and insert a value
 with a key (an |Expr|) such as
@@ -1120,7 +1120,7 @@ The auxiliary data types |ExprMap'| and |ListMap'| have only a single constructo
 the empty and singleton cases are dealt with by |SEMap|.  We reserve the original,
 un-primed, names for the user-visible |ExprMap| and |ListMap| constructors.
 
-\subsection{Generic programming}\label{sec:generic}
+\subsection{Generic Programming}\label{sec:generic}
 
 We have not described a triemap \emph{library}; rather we have described a \emph{design pattern}.
 More precisely, given a new algebraic data type |X|, we have described a systematic way
@@ -1141,7 +1141,7 @@ We do not develop either of these approaches here, because our focus is only the
 functionality and expressiveness of the triemaps.  However, everything we do is compatible
 with an automated approach to generating boilerplate code.
 
-\section{Keys with binders} \label{sec:binders}
+\section{Keys with Binders} \label{sec:binders}
 \begin{figure}
 \begin{code}
 type DBNum = Int
@@ -1247,12 +1247,12 @@ trie idea to be insensitive to $\alpha$-conversion and even mix in trie
 transformers such as |SEMap| at no cost other than writing two instance
 declarations.
 
-\section{Tries that match} \label{sec:matching}
+\section{Tries that Match} \label{sec:matching}
 
 A key advantage of tries over hash-maps and balanced trees is
 that we can support \emph{matching} (\Cref{sec:matching-intro}).
 
-\subsection{What ``matching'' means} \label{sec:matching-spec}
+\subsection{What ``Matching'' Means} \label{sec:matching-spec}
 
 % Our overall goal is to build a \emph{matching trie} into which we can:
 % \begin{itemize}
@@ -1296,7 +1296,7 @@ to implement class or type family lookup in GHC.
 %but not $(f~ 1~ (g~ v))$.  This ability is important if we are to use matching tries
 %to implement class or type family look in GHC.
 
-\subsection{Matching expressions} \label{sec:matching-alphaexpr}
+\subsection{Matching Expressions} \label{sec:matching-alphaexpr}
 
 Our matching trie is founded on a function |matchE| that matches a target |AlphaExpr| against
 a \emph{single} pattern:
@@ -1333,7 +1333,7 @@ $$
 \end{array}
 $$
 
-\subsubsection{The matching monad} \label{sec:matching-monad}
+\subsubsection{The Matching Monad} \label{sec:matching-monad}
 
 Since matching must accommodate failure, it turns out to be convenient
 for the result of matching, |MatchME|, to be a monad.\footnote{``|MatchME|'' connotes
@@ -1377,7 +1377,7 @@ match fails; otherwise it turns a single match with the new substitution.
 % share work done while matching a shared prefix of multiple patterns.
 % \emph{End of side note.}
 
-\subsubsection{Matching summary}
+\subsubsection{Matching Summary}
 
 The implementation of |matchE| is entirely straightforward, using
 simultaneous recursive descent over the pattern and target.
@@ -1391,7 +1391,7 @@ variables and term variables) we could easily define |MatchME| to carry
 two substitutions; or |MatchME| could return just the first result
 rather than a list of all of them; and so on.
 
-\subsection{Matching tries for |AlphaExpr|}
+\subsection{Matching Tries for |AlphaExpr|}
 
 Next, we show how to implement a matching triemap for our running
 example, |AlphaExpr|.
@@ -1493,7 +1493,7 @@ The code for |alterPatMM|, and
 the other operations of the class, is very straightforward, and is given
 in the supplement~\cite{triemaps-extended,triemaps-github}.
 
-\subsection{The external API} \label{sec:match-api}
+\subsection{The External API} \label{sec:match-api}
 
 The matching tries we have described so far use canonical pattern keys,
 a matching monad, and other machinery that should be hidden from the client.
@@ -1572,7 +1572,7 @@ lookup will bind |q|, because |q| simply does not appear in the pattern. One
 could reject this on insertion, but here we simply return a |PatSubst| with no
 binding for |q|.
 
-\subsection{Adding type classes} \label{sec:matching-trie-class}
+\subsection{Adding Type Classes} \label{sec:matching-trie-class}
 
 All of this has been specific to matching tries keyed by |AlphaExpr|, but as before
 we can profitably define a type class of such matching tries, like this:
@@ -1646,7 +1646,7 @@ lookupPatMSEM k  (SingleMSEM pat v)  = match pat k >> pure v
 Notice the call to |mzero| to make the lookup fail if the map is empty; and, in the
 |SingleMSEM| case, the call |match| to match the pattern against the key.
 
-\subsection{Most specific match and unification} \label{sec:most-specific}
+\subsection{Most-specific Match and Unification} \label{sec:most-specific}
 
 It is tempting to ask: can we build a lookup that returns only the \emph{most
 specific} matches? And can we build a lookup that returns all values whose
@@ -1833,9 +1833,9 @@ generalisation of radix sort to tree-like data and very close to tries.
 Indeed, the \hackage{discrimination} library provides such an optimised
 $\mathcal{O}(n)$ |toMap| implementation for |Map|.
 
-\section{Related work} \label{sec:related}
+\section{Related Work} \label{sec:related}
 
-\subsection{Matching triemaps in automated reasoning} \label{sec:discrim-trees}
+\subsection{Matching Triemaps in Automated Reasoning} \label{sec:discrim-trees}
 
 Matching triemaps have been used in the automated reasoning community for
 decades, where they are recognised as a kind of \emph{term
@@ -1923,7 +1923,7 @@ They realise that their big-step interpreter implements eliminators via special
 generalised tries that can express variable matching -- which corresponds to our
 triemaps applied to linear patterns.
 
-\subsection{Haskell triemaps}
+\subsection{Haskell Triemaps}
 
 Trie data structures have found their way into numerous Haskell packages over time.
 There are trie data structures that are specific to |String|, like the
